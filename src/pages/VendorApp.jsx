@@ -1,10 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
-import { logoutUser, getVendorOrders, getMenuItems, updateOrderStatus, updateVendorStore, addMenuItem, updateMenuItem, deleteMenuItem } from '../firebase/services'
+import {
+  logoutUser, getVendorOrders, getMenuItems, updateOrderStatus,
+  updateVendorStore, addMenuItem, updateMenuItem, deleteMenuItem,
+  uploadVendorPhoto, uploadMenuItemPhoto
+} from '../firebase/services'
 import toast from 'react-hot-toast'
 
-const STATUS_NEXT = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
+const STATUS_NEXT  = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
 const STATUS_LABEL = { pending:'Accept Order', accepted:'Start Preparing', preparing:'Mark Ready', ready:'Out for Delivery', out_for_delivery:'Mark Delivered' }
+
+const DEFAULT_CATEGORIES = ['Thali','Biryani','Chinese','Snacks','Drinks','Sweets','Roti','Rice']
+
+const EMPTY_ITEM = { name:'', price:'', category:'Thali', description:'', isVeg: true }
 
 export default function VendorApp() {
   const { user, userData } = useAuth()
@@ -13,11 +21,30 @@ export default function VendorApp() {
   const [menuItems, setMenuItems] = useState([])
   const [isOpen, setIsOpen] = useState(false)
   const [showAddItem, setShowAddItem] = useState(false)
-  const [newItem, setNewItem] = useState({ name:'', price:'', category:'Thali' })
+  const [newItem, setNewItem] = useState(EMPTY_ITEM)
+  const [customCategories, setCustomCategories] = useState([])
+  const [newCatInput, setNewCatInput] = useState('')
+  const [showAddCat, setShowAddCat] = useState(false)
+
+  // Photo states
+  const [vendorPhotoUploading, setVendorPhotoUploading] = useState(false)
+  const [vendorPhotoProgress, setVendorPhotoProgress] = useState(0)
+  const [itemPhotoUploading, setItemPhotoUploading] = useState(null)
+  const [itemPhotoProgress, setItemPhotoProgress] = useState(0)
+  const [newItemPhotoFile, setNewItemPhotoFile] = useState(null)
+  const [newItemPhotoPreview, setNewItemPhotoPreview] = useState(null)
+  const [addingItem, setAddingItem] = useState(false)
+
+  const vendorPhotoRef = useRef()
+  const newItemPhotoRef = useRef()
+
+  const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
 
   useEffect(() => {
     if (!user) return
     setIsOpen(userData?.isOpen || false)
+    // Load saved custom categories from userData
+    if (userData?.customCategories) setCustomCategories(userData.customCategories)
     const u1 = getVendorOrders(user.uid, setOrders)
     const u2 = getMenuItems(user.uid, setMenuItems)
     return () => { u1(); u2() }
@@ -42,70 +69,188 @@ export default function VendorApp() {
     toast.error('Order rejected')
   }
 
-  const handleAddItem = async () => {
-    if (!newItem.name || !newItem.price) return toast.error('Fill name and price')
-    if (isNaN(newItem.price) || Number(newItem.price) <= 0) return toast.error('Enter valid price')
-    await addMenuItem(user.uid, { ...newItem, price: Number(newItem.price) })
-    setNewItem({ name:'', price:'', category:'Thali' })
-    setShowAddItem(false)
-    toast.success('Item added to menu!')
+  // ── ADD CUSTOM CATEGORY ───────────────────────────────────────────────────
+  const handleAddCategory = async () => {
+    const trimmed = newCatInput.trim()
+    if (!trimmed) return toast.error('Enter category name')
+    if (allCategories.map(c=>c.toLowerCase()).includes(trimmed.toLowerCase())) return toast.error('Category already exists')
+    const updated = [...customCategories, trimmed]
+    setCustomCategories(updated)
+    setNewItem(p => ({ ...p, category: trimmed }))
+    await updateVendorStore(user.uid, { customCategories: updated })
+    setNewCatInput('')
+    setShowAddCat(false)
+    toast.success(`Category "${trimmed}" added!`)
   }
 
-  const liveOrders = orders.filter(o => !['delivered','cancelled'].includes(o.status))
-  const pastOrders = orders.filter(o => ['delivered','cancelled'].includes(o.status))
+  // ── VENDOR STORE PHOTO ────────────────────────────────────────────────────
+  const handleVendorPhotoChange = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) return toast.error('Photo must be under 5MB')
+    setVendorPhotoUploading(true)
+    setVendorPhotoProgress(0)
+    try {
+      await uploadVendorPhoto(user.uid, file, 'photo', setVendorPhotoProgress)
+      toast.success('Store photo updated! ✅')
+    } catch (err) {
+      console.error(err)
+      toast.error('Upload failed. Check Firebase Storage rules.')
+    }
+    setVendorPhotoUploading(false)
+    setVendorPhotoProgress(0)
+    e.target.value = ''
+  }
+
+  // ── NEW ITEM PHOTO PREVIEW ────────────────────────────────────────────────
+  const handleNewItemPhotoSelect = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) return toast.error('Photo must be under 5MB')
+    setNewItemPhotoFile(file)
+    setNewItemPhotoPreview(URL.createObjectURL(file))
+  }
+
+  // ── ADD MENU ITEM ─────────────────────────────────────────────────────────
+  const handleAddItem = async () => {
+    if (!newItem.name.trim()) return toast.error('Enter item name')
+    if (!newItem.price || isNaN(newItem.price) || Number(newItem.price) <= 0) return toast.error('Enter valid price')
+    setAddingItem(true)
+    try {
+      const docRef = await addMenuItem(user.uid, {
+        name: newItem.name.trim(),
+        price: Number(newItem.price),
+        category: newItem.category,
+        description: newItem.description.trim(),
+        isVeg: newItem.isVeg,
+        photo: ''
+      })
+      // Upload photo after item created
+      if (newItemPhotoFile && docRef?.id) {
+        await uploadMenuItemPhoto(user.uid, docRef.id, newItemPhotoFile, setItemPhotoProgress)
+      }
+      setNewItem(EMPTY_ITEM)
+      setNewItemPhotoFile(null)
+      setNewItemPhotoPreview(null)
+      setShowAddItem(false)
+      toast.success('Menu item added! 🎉')
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to add item. Try again.')
+    }
+    setAddingItem(false)
+    setItemPhotoProgress(0)
+  }
+
+  // ── UPLOAD PHOTO FOR EXISTING ITEM ───────────────────────────────────────
+  const handleExistingItemPhoto = async (e, itemId) => {
+    const file = e.target.files[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) return toast.error('Photo must be under 5MB')
+    setItemPhotoUploading(itemId)
+    setItemPhotoProgress(0)
+    try {
+      await uploadMenuItemPhoto(user.uid, itemId, file, setItemPhotoProgress)
+      toast.success('Photo updated! ✅')
+    } catch (err) {
+      console.error(err)
+      toast.error('Upload failed. Check Firebase Storage rules.')
+    }
+    setItemPhotoUploading(null)
+    setItemPhotoProgress(0)
+    e.target.value = ''
+  }
+
+  const liveOrders   = orders.filter(o => !['delivered','cancelled'].includes(o.status))
+  const pastOrders   = orders.filter(o => ['delivered','cancelled'].includes(o.status))
   const todayRevenue = orders.filter(o => o.status==='delivered').reduce((s,o) => s+(o.total||0), 0)
 
-  const inp = { width:'100%', padding:'10px 12px', border:'1px solid #e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4 }
-  const sel = { ...inp, cursor:'pointer' }
+  // ── Shared styles ─────────────────────────────────────────────────────────
+  const inp = {
+    width:'100%', padding:'10px 12px',
+    borderWidth:'1px', borderStyle:'solid', borderColor:'#e5e7eb',
+    borderRadius:8, fontSize:13,
+    fontFamily:'Poppins,sans-serif', outline:'none',
+    marginTop:4, boxSizing:'border-box'
+  }
 
   return (
     <div style={{ maxWidth:430, margin:'0 auto', background:'#fff', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' }}>
 
-      {/* Header */}
+      {/* ── HEADER ── */}
       <div style={{ background:'#1a1a1a', padding:16, flexShrink:0 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <div>
-            <div style={{ fontSize:15, fontWeight:600, color:'#fff' }}>{userData?.storeName || 'My Store'}</div>
-            <div style={{ fontSize:11, color:'#aaa', marginTop:2 }}>Prep: {userData?.prepTime||20} min · {userData?.category||'Food'}</div>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            {/* Store photo — tap to upload */}
+            <div
+              onClick={() => vendorPhotoRef.current?.click()}
+              style={{
+                width:44, height:44, borderRadius:10, overflow:'hidden',
+                background:'#2a2a2a', cursor:'pointer', flexShrink:0,
+                display:'flex', alignItems:'center', justifyContent:'center',
+                borderWidth:2, borderStyle:'solid', borderColor:'#333',
+                position:'relative'
+              }}
+            >
+              {userData?.photo
+                ? <img src={userData.photo} alt="store" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                : <span style={{ fontSize:20 }}>🏪</span>
+              }
+              {vendorPhotoUploading && (
+                <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.65)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, color:'#fff', fontWeight:700 }}>
+                  {vendorPhotoProgress}%
+                </div>
+              )}
+            </div>
+            <input ref={vendorPhotoRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleVendorPhotoChange} />
+            <div>
+              <div style={{ fontSize:15, fontWeight:600, color:'#fff' }}>{userData?.storeName || 'My Store'}</div>
+              <div style={{ fontSize:10, color:'#888', marginTop:1 }}>📷 Tap photo to change · {userData?.category||'Food'}</div>
+            </div>
           </div>
+          {/* Open/Close toggle */}
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
             <span style={{ fontSize:11, color: isOpen?'#4ade80':'#9ca3af' }}>{isOpen?'Open':'Closed'}</span>
-            <div onClick={toggleStore} style={{ width:44, height:24, background: isOpen?'#16a34a':'#6b7280', borderRadius:12, cursor:'pointer', position:'relative', transition:'background 0.2s' }}>
+            <div
+              onClick={toggleStore}
+              style={{ width:44, height:24, background: isOpen?'#16a34a':'#6b7280', borderRadius:12, cursor:'pointer', position:'relative', transition:'background 0.2s' }}
+            >
               <div style={{ position:'absolute', width:18, height:18, background:'#fff', borderRadius:'50%', top:3, left: isOpen?23:3, transition:'left 0.2s' }} />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Nav */}
+      {/* ── NAV ── */}
       <div style={{ display:'flex', background:'#111', overflowX:'auto', flexShrink:0 }}>
         {[
-          { id:'orders', label:`Orders${liveOrders.length>0?` (${liveOrders.length})`:''}` },
-          { id:'menu', label:'Menu' },
+          { id:'orders',   label:`Orders${liveOrders.length>0?` (${liveOrders.length})`:''}` },
+          { id:'menu',     label:'Menu' },
           { id:'earnings', label:'Earnings' },
           { id:'settings', label:'Settings' }
         ].map(t2 => (
           <button key={t2.id} onClick={() => setTab(t2.id)} style={{
             flexShrink:0, padding:'11px 16px', fontSize:12, fontWeight:500,
             color: tab===t2.id?'#E24B4A':'#888',
-            borderBottom: tab===t2.id?'2px solid #E24B4A':'2px solid transparent',
-            background:'transparent', border:'none',
-            borderBottom: tab===t2.id?'2px solid #E24B4A':'2px solid transparent',
-            cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap'
+            borderBottomWidth:2, borderBottomStyle:'solid',
+            borderBottomColor: tab===t2.id?'#E24B4A':'transparent',
+            borderTop:'none', borderLeft:'none', borderRight:'none',
+            background:'transparent', cursor:'pointer',
+            fontFamily:'Poppins', whiteSpace:'nowrap'
           }}>{t2.label}</button>
         ))}
       </div>
 
       <div style={{ flex:1, overflowY:'auto', padding:14 }}>
 
-        {/* ORDERS TAB */}
+        {/* ── ORDERS TAB ── */}
         {tab === 'orders' && (
           <>
             {liveOrders.length === 0 && (
               <div style={{ textAlign:'center', color:'#9ca3af', padding:32, fontSize:13 }}>No active orders right now</div>
             )}
             {liveOrders.map(order => (
-              <div key={order.id} style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:14, marginBottom:10 }}>
+              <div key={order.id} style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, padding:14, marginBottom:10 }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                   <div>
                     <div style={{ fontSize:13, fontWeight:600 }}>#{order.id.slice(-6).toUpperCase()}</div>
@@ -123,9 +268,7 @@ export default function VendorApp() {
                 <div style={{ fontSize:14, fontWeight:600, marginBottom:10 }}>₹{order.total} · COD</div>
                 <div style={{ display:'flex', gap:8 }}>
                   {order.status === 'pending' && (
-                    <button onClick={() => handleReject(order.id)} style={{ background:'transparent', color:'#E24B4A', border:'1px solid #E24B4A', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>
-                      Reject
-                    </button>
+                    <button onClick={() => handleReject(order.id)} style={{ background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>Reject</button>
                   )}
                   {STATUS_NEXT[order.status] && (
                     <button onClick={() => handleStatus(order.id, order.status)} style={{ flex:1, background: order.status==='pending'?'#E24B4A':'#1a1a1a', color:'#fff', border:'none', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>
@@ -135,12 +278,11 @@ export default function VendorApp() {
                 </div>
               </div>
             ))}
-
             {pastOrders.length > 0 && (
               <>
                 <div style={{ fontSize:12, color:'#9ca3af', margin:'8px 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>Past Orders</div>
                 {pastOrders.slice(0,10).map(order => (
-                  <div key={order.id} style={{ background:'#f9fafb', border:'1px solid #f3f4f6', borderRadius:10, padding:12, marginBottom:8, opacity:0.7 }}>
+                  <div key={order.id} style={{ background:'#f9fafb', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', borderRadius:10, padding:12, marginBottom:8, opacity:0.7 }}>
                     <div style={{ display:'flex', justifyContent:'space-between' }}>
                       <div style={{ fontSize:12 }}>#{order.id.slice(-6).toUpperCase()} · {order.items?.length} item(s)</div>
                       <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:10,
@@ -156,28 +298,150 @@ export default function VendorApp() {
           </>
         )}
 
-        {/* MENU TAB */}
+        {/* ── MENU TAB ── */}
         {tab === 'menu' && (
           <>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
               <span style={{ fontSize:13, color:'#6b7280' }}>{menuItems.length} items in menu</span>
-              <button onClick={() => setShowAddItem(!showAddItem)} style={{ background:'#E24B4A', color:'#fff', border:'none', padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>
-                + Add Item
-              </button>
+              <button
+                onClick={() => setShowAddItem(!showAddItem)}
+                style={{ background:'#E24B4A', color:'#fff', border:'none', padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}
+              >+ Add Item</button>
             </div>
 
+            {/* ── ADD ITEM FORM ── */}
             {showAddItem && (
-              <div style={{ background:'#f9fafb', border:'1px solid #e5e7eb', borderRadius:12, padding:14, marginBottom:14 }}>
+              <div style={{ background:'#f9fafb', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, padding:14, marginBottom:14 }}>
                 <div style={{ fontSize:13, fontWeight:600, marginBottom:10 }}>New Menu Item</div>
+
+                {/* Veg / Non-Veg toggle */}
+                <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+                  {[true, false].map(isV => (
+                    <button
+                      key={String(isV)}
+                      onClick={() => setNewItem(p => ({ ...p, isVeg: isV }))}
+                      style={{
+                        flex:1, padding:'8px 0',
+                        borderRadius:8, cursor:'pointer',
+                        fontFamily:'Poppins', fontSize:12, fontWeight:600,
+                        borderWidth:2, borderStyle:'solid',
+                        borderColor: newItem.isVeg === isV ? (isV?'#16a34a':'#dc2626') : '#e5e7eb',
+                        background: newItem.isVeg === isV ? (isV?'#f0fdf4':'#fff5f5') : '#fff',
+                        color: newItem.isVeg === isV ? (isV?'#16a34a':'#dc2626') : '#9ca3af',
+                        transition:'all 0.15s'
+                      }}
+                    >
+                      <span style={{ marginRight:5 }}>{isV ? '🟢' : '🔴'}</span>
+                      {isV ? 'Veg' : 'Non-Veg'}
+                    </button>
+                  ))}
+                </div>
+
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  <input style={inp} placeholder="Item name *" value={newItem.name} onChange={e => setNewItem(p=>({...p,name:e.target.value}))} />
-                  <input style={inp} type="number" placeholder="Price (₹) *" value={newItem.price} onChange={e => setNewItem(p=>({...p,price:e.target.value}))} />
-                  <select style={sel} value={newItem.category} onChange={e => setNewItem(p=>({...p,category:e.target.value}))}>
-                    {['Thali','Biryani','Chinese','Snacks','Drinks','Sweets','Roti','Rice'].map(c=><option key={c}>{c}</option>)}
-                  </select>
+                  <input
+                    style={inp}
+                    placeholder="Item name *  e.g. Veg Thali"
+                    value={newItem.name}
+                    onChange={e => setNewItem(p=>({...p, name:e.target.value}))}
+                  />
+                  <input
+                    style={inp}
+                    type="number"
+                    placeholder="Price (₹) *"
+                    value={newItem.price}
+                    onChange={e => setNewItem(p=>({...p, price:e.target.value}))}
+                  />
+
+                  {/* Description / Notes */}
+                  <textarea
+                    style={{ ...inp, minHeight:70, resize:'vertical', lineHeight:1.5 }}
+                    placeholder="What's included? e.g. 2 Roti + Dal + Rice + Pickle + Salad"
+                    value={newItem.description}
+                    onChange={e => setNewItem(p=>({...p, description:e.target.value}))}
+                  />
+
+                  {/* Category selector + Add new category */}
+                  <div>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Category</label>
+                    <div style={{ display:'flex', gap:6, marginTop:4 }}>
+                      <select
+                        style={{ ...inp, marginTop:0, flex:1, cursor:'pointer' }}
+                        value={newItem.category}
+                        onChange={e => setNewItem(p=>({...p, category:e.target.value}))}
+                      >
+                        {allCategories.map(c => <option key={c}>{c}</option>)}
+                      </select>
+                      <button
+                        onClick={() => setShowAddCat(!showAddCat)}
+                        style={{ padding:'0 12px', background:'#f3f4f6', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:18, cursor:'pointer', flexShrink:0 }}
+                        title="Add new category"
+                      >+</button>
+                    </div>
+                  </div>
+
+                  {/* New category input */}
+                  {showAddCat && (
+                    <div style={{ display:'flex', gap:6 }}>
+                      <input
+                        style={{ ...inp, marginTop:0, flex:1 }}
+                        placeholder="New category name e.g. Pav Bhaji"
+                        value={newCatInput}
+                        onChange={e => setNewCatInput(e.target.value)}
+                        onKeyDown={e => e.key==='Enter' && handleAddCategory()}
+                      />
+                      <button
+                        onClick={handleAddCategory}
+                        style={{ padding:'0 14px', background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600, flexShrink:0 }}
+                      >Add</button>
+                    </div>
+                  )}
+
+                  {/* Photo picker */}
+                  <div>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Item Photo (optional)</label>
+                    <div
+                      onClick={() => newItemPhotoRef.current?.click()}
+                      style={{
+                        marginTop:6, borderWidth:2, borderStyle:'dashed', borderColor:'#e5e7eb',
+                        borderRadius:10, padding:16, textAlign:'center', cursor:'pointer',
+                        background:'#fafafa', overflow:'hidden', minHeight:80,
+                        display:'flex', alignItems:'center', justifyContent:'center'
+                      }}
+                    >
+                      {newItemPhotoPreview
+                        ? <img src={newItemPhotoPreview} alt="preview" style={{ maxHeight:120, maxWidth:'100%', objectFit:'cover', borderRadius:8 }} />
+                        : <div>
+                            <div style={{ fontSize:28 }}>📷</div>
+                            <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>Tap to add photo</div>
+                          </div>
+                      }
+                    </div>
+                    <input ref={newItemPhotoRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleNewItemPhotoSelect} />
+                    {newItemPhotoPreview && (
+                      <button
+                        onClick={() => { setNewItemPhotoFile(null); setNewItemPhotoPreview(null) }}
+                        style={{ marginTop:4, fontSize:11, color:'#dc2626', background:'none', border:'none', cursor:'pointer', fontFamily:'Poppins' }}
+                      >✕ Remove photo</button>
+                    )}
+                  </div>
+
+                  {/* Upload progress */}
+                  {addingItem && newItemPhotoFile && itemPhotoProgress > 0 && (
+                    <div style={{ background:'#f3f4f6', borderRadius:8, overflow:'hidden', height:6 }}>
+                      <div style={{ height:'100%', background:'#E24B4A', width:`${itemPhotoProgress}%`, transition:'width 0.3s' }} />
+                    </div>
+                  )}
+
                   <div style={{ display:'flex', gap:8 }}>
-                    <button onClick={handleAddItem} style={{ flex:1, background:'#E24B4A', color:'#fff', border:'none', padding:10, borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>Add Item</button>
-                    <button onClick={() => setShowAddItem(false)} style={{ flex:1, background:'transparent', color:'#6b7280', border:'1px solid #e5e7eb', padding:10, borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Cancel</button>
+                    <button
+                      onClick={handleAddItem}
+                      disabled={addingItem}
+                      style={{ flex:1, background: addingItem?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:8, fontSize:13, cursor: addingItem?'not-allowed':'pointer', fontFamily:'Poppins', fontWeight:500 }}
+                    >{addingItem ? 'Adding...' : '✅ Add to Menu'}</button>
+                    <button
+                      onClick={() => { setShowAddItem(false); setNewItem(EMPTY_ITEM); setNewItemPhotoFile(null); setNewItemPhotoPreview(null); setShowAddCat(false) }}
+                      style={{ flex:1, background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:11, borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}
+                    >Cancel</button>
                   </div>
                 </div>
               </div>
@@ -187,32 +451,90 @@ export default function VendorApp() {
               <div style={{ textAlign:'center', color:'#9ca3af', padding:32, fontSize:13 }}>No items yet. Add your first menu item!</div>
             )}
 
+            {/* ── MENU ITEMS LIST ── */}
             {menuItems.map(item => (
-              <div key={item.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 0', borderBottom:'1px solid #f3f4f6' }}>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, fontWeight:500 }}>{item.name}</div>
-                  <div style={{ fontSize:12, color:'#6b7280' }}>₹{item.price} · {item.category}</div>
+              <div key={item.id} style={{ display:'flex', gap:10, alignItems:'flex-start', padding:'12px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+
+                {/* Photo — tap to change */}
+                <div
+                  onClick={() => {
+                    const input = document.createElement('input')
+                    input.type = 'file'; input.accept = 'image/*'
+                    input.onchange = (e) => handleExistingItemPhoto(e, item.id)
+                    input.click()
+                  }}
+                  style={{
+                    width:64, height:64, borderRadius:10, overflow:'hidden',
+                    background:'#f3f4f6', flexShrink:0, cursor:'pointer',
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    position:'relative',
+                    borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb'
+                  }}
+                >
+                  {item.photo
+                    ? <img src={item.photo} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                    : <span style={{ fontSize:22 }}>📷</span>
+                  }
+                  {itemPhotoUploading === item.id && (
+                    <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#fff', fontWeight:700 }}>
+                      {itemPhotoProgress}%
+                    </div>
+                  )}
                 </div>
-                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                  <div onClick={() => updateMenuItem(user.uid, item.id, { available: !item.available })} style={{ width:40, height:22, background: item.available?'#16a34a':'#d1d5db', borderRadius:11, cursor:'pointer', position:'relative', transition:'background 0.2s' }}>
+
+                {/* Item details */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    {/* Veg/Non-veg indicator */}
+                    <div style={{
+                      width:14, height:14, borderRadius:3, flexShrink:0,
+                      borderWidth:1.5, borderStyle:'solid',
+                      borderColor: item.isVeg===false ? '#dc2626' : '#16a34a',
+                      display:'flex', alignItems:'center', justifyContent:'center'
+                    }}>
+                      <div style={{ width:7, height:7, borderRadius:'50%', background: item.isVeg===false ? '#dc2626' : '#16a34a' }} />
+                    </div>
+                    <div style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{item.name}</div>
+                  </div>
+                  {item.description && (
+                    <div style={{ fontSize:11, color:'#6b7280', marginTop:2, lineHeight:1.4 }}>{item.description}</div>
+                  )}
+                  <div style={{ display:'flex', gap:8, marginTop:3, alignItems:'center' }}>
+                    <span style={{ fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹{item.price}</span>
+                    <span style={{ fontSize:10, color:'#9ca3af' }}>·</span>
+                    <span style={{ fontSize:11, color:'#9ca3af' }}>{item.category}</span>
+                  </div>
+                </div>
+
+                {/* Controls */}
+                <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center', flexShrink:0 }}>
+                  {/* Available toggle */}
+                  <div
+                    onClick={() => updateMenuItem(user.uid, item.id, { available: !item.available })}
+                    style={{ width:40, height:22, background: item.available?'#16a34a':'#d1d5db', borderRadius:11, cursor:'pointer', position:'relative', transition:'background 0.2s' }}
+                  >
                     <div style={{ position:'absolute', width:16, height:16, background:'#fff', borderRadius:'50%', top:3, left: item.available?21:3, transition:'left 0.2s' }} />
                   </div>
-                  <button onClick={() => { deleteMenuItem(user.uid, item.id); toast.success('Item deleted') }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color:'#dc2626', padding:4 }}>🗑️</button>
+                  {/* Delete */}
+                  <button
+                    onClick={() => { deleteMenuItem(user.uid, item.id); toast.success('Item deleted') }}
+                    style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, color:'#dc2626', padding:2 }}
+                  >🗑️</button>
                 </div>
               </div>
             ))}
           </>
         )}
 
-        {/* EARNINGS TAB */}
+        {/* ── EARNINGS TAB ── */}
         {tab === 'earnings' && (
           <>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:14 }}>
               {[
-                { label:"Today's Sales", val:`₹${todayRevenue.toLocaleString()}`, sub:`${orders.filter(o=>o.status==='delivered').length} delivered` },
-                { label:"Total Orders", val:orders.length, sub:`${liveOrders.length} active` },
-                { label:"COD Collected", val:`₹${todayRevenue.toLocaleString()}`, sub:"pending settlement" },
-                { label:"Menu Items", val:menuItems.length, sub:`${menuItems.filter(m=>m.available).length} available` }
+                { label:"Today's Sales",  val:`₹${todayRevenue.toLocaleString()}`, sub:`${orders.filter(o=>o.status==='delivered').length} delivered` },
+                { label:"Total Orders",   val:orders.length, sub:`${liveOrders.length} active` },
+                { label:"COD Collected",  val:`₹${todayRevenue.toLocaleString()}`, sub:"pending settlement" },
+                { label:"Menu Items",     val:menuItems.length, sub:`${menuItems.filter(m=>m.available).length} available` }
               ].map(s => (
                 <div key={s.label} style={{ background:'#f9fafb', borderRadius:10, padding:12 }}>
                   <div style={{ fontSize:11, color:'#6b7280', marginBottom:4 }}>{s.label}</div>
@@ -224,7 +546,7 @@ export default function VendorApp() {
             <div style={{ background:'#f9fafb', borderRadius:10, padding:12 }}>
               <div style={{ fontSize:13, fontWeight:600, marginBottom:8 }}>Recent Delivered Orders</div>
               {orders.filter(o=>o.status==='delivered').slice(0,5).map(o => (
-                <div key={o.id} style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderBottom:'1px solid #e5e7eb' }}>
+                <div key={o.id} style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#e5e7eb' }}>
                   <span style={{ fontSize:12 }}>{o.userName} · {o.items?.length} item(s)</span>
                   <span style={{ fontSize:12, fontWeight:600 }}>₹{o.total}</span>
                 </div>
@@ -236,30 +558,53 @@ export default function VendorApp() {
           </>
         )}
 
-        {/* SETTINGS TAB */}
+        {/* ── SETTINGS TAB ── */}
         {tab === 'settings' && (
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
               <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>Store Info</div>
               {[
-                { label:'Store Name', val:userData?.storeName },
-                { label:'Email', val:userData?.email },
-                { label:'Phone / WhatsApp', val:userData?.phone },
-                { label:'Address', val:userData?.address },
-                { label:'Category', val:userData?.category },
+                { label:'Store Name',        val:userData?.storeName },
+                { label:'Email',             val:userData?.email },
+                { label:'Phone / WhatsApp',  val:userData?.phone },
+                { label:'Address',           val:userData?.address },
+                { label:'Category',          val:userData?.category },
                 { label:'Subscription Plan', val:userData?.plan }
               ].map(f => (
-                <div key={f.label} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:'1px solid #e5e7eb' }}>
+                <div key={f.label} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#e5e7eb' }}>
                   <span style={{ fontSize:12, color:'#6b7280' }}>{f.label}</span>
                   <span style={{ fontSize:12, fontWeight:500 }}>{f.val || '—'}</span>
                 </div>
               ))}
             </div>
-            <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', border:'1px solid #E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>
+
+            {/* Custom categories list */}
+            {customCategories.length > 0 && (
+              <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
+                <div style={{ fontSize:13, fontWeight:600, marginBottom:8 }}>Your Custom Categories</div>
+                {customCategories.map(c => (
+                  <div key={c} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+                    <span style={{ fontSize:13 }}>{c}</span>
+                    <button
+                      onClick={async () => {
+                        const updated = customCategories.filter(x => x !== c)
+                        setCustomCategories(updated)
+                        await updateVendorStore(user.uid, { customCategories: updated })
+                        toast.success(`"${c}" removed`)
+                      }}
+                      style={{ background:'none', border:'none', cursor:'pointer', color:'#dc2626', fontSize:13 }}
+                    >Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>
               Logout
             </button>
           </div>
         )}
+
       </div>
     </div>
   )

@@ -4,12 +4,73 @@ import {
 } from 'firebase/auth'
 import {
   doc, setDoc, getDoc, collection, updateDoc,
-  query, where, orderBy, onSnapshot, serverTimestamp,
-  addDoc, deleteDoc, limit, getDocs
+  query, where, onSnapshot, serverTimestamp,
+  addDoc, deleteDoc
 } from 'firebase/firestore'
 import { initializeApp } from 'firebase/app'
 import { auth, db } from './config'
 
+// ── CLOUDINARY CONFIG ─────────────────────────────────────────────────────
+const CLOUDINARY_CLOUD = 'dqlwojavr'
+const CLOUDINARY_PRESET = 'feedozone'
+const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`
+
+/**
+ * Upload image to Cloudinary (free, no Firebase Storage needed)
+ * @param {File} file
+ * @param {function} onProgress - optional callback(percent)
+ * @returns {Promise<string>} secure image URL
+ */
+export const uploadPhoto = (file, onProgress) => {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('upload_preset', CLOUDINARY_PRESET)
+    formData.append('folder', 'feedozone')
+
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', CLOUDINARY_URL)
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+    }
+
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        const res = JSON.parse(xhr.responseText)
+        resolve(res.secure_url)
+      } else {
+        reject(new Error('Cloudinary upload failed: ' + xhr.responseText))
+      }
+    }
+
+    xhr.onerror = () => reject(new Error('Network error during upload'))
+    xhr.send(formData)
+  })
+}
+
+/**
+ * Upload vendor store photo → save URL to Firestore
+ */
+export const uploadVendorPhoto = async (vendorUid, file, type = 'photo', onProgress) => {
+  const url = await uploadPhoto(file, onProgress)
+  await updateDoc(doc(db, 'vendors', vendorUid), { [type]: url })
+  try { await updateDoc(doc(db, 'users', vendorUid), { [type]: url }) } catch(e) {}
+  return url
+}
+
+/**
+ * Upload menu item photo → save URL to Firestore
+ */
+export const uploadMenuItemPhoto = async (vendorUid, itemId, file, onProgress) => {
+  const url = await uploadPhoto(file, onProgress)
+  await updateDoc(doc(db, 'vendors', vendorUid, 'menu', itemId), { photo: url })
+  return url
+}
+
+// ── AUTH ──────────────────────────────────────────────────────────────────
 export const loginUser = (email, password) =>
   signInWithEmailAndPassword(auth, email, password)
 
@@ -20,7 +81,7 @@ export const getUserRole = async (uid) => {
   return snap.exists() ? snap.data() : null
 }
 
-// ── FOUNDER: CREATE VENDOR ────────────────────────
+// ── FOUNDER: CREATE VENDOR ────────────────────────────────────────────────
 export const founderCreateVendor = async (founderUid, vendorData) => {
   const { email, password, storeName, address, phone, plan, category } = vendorData
 
@@ -48,6 +109,8 @@ export const founderCreateVendor = async (founderUid, vendorData) => {
     subscriptionStatus: 'active',
     rating: 4.5,
     totalOrders: 0,
+    photo: '',
+    banner: '',
     createdBy: founderUid,
     createdAt: serverTimestamp()
   }
@@ -57,7 +120,7 @@ export const founderCreateVendor = async (founderUid, vendorData) => {
   return vendorUid
 }
 
-// ── VENDORS — simple collection read, no index needed ──
+// ── VENDORS ───────────────────────────────────────────────────────────────
 export const getAllVendors = (callback) =>
   onSnapshot(
     collection(db, 'vendors'),
@@ -70,7 +133,7 @@ export const updateVendorStore = async (uid, data) => {
   try { await updateDoc(doc(db, 'users', uid), data) } catch(e) {}
 }
 
-// ── MENU ──────────────────────────────────────────
+// ── MENU ──────────────────────────────────────────────────────────────────
 export const getMenuItems = (vendorUid, callback) =>
   onSnapshot(
     collection(db, 'vendors', vendorUid, 'menu'),
@@ -80,7 +143,7 @@ export const getMenuItems = (vendorUid, callback) =>
 
 export const addMenuItem = (vendorUid, item) =>
   addDoc(collection(db, 'vendors', vendorUid, 'menu'), {
-    ...item, available: true, createdAt: serverTimestamp()
+    ...item, available: true, photo: '', createdAt: serverTimestamp()
   })
 
 export const updateMenuItem = (vendorUid, itemId, data) =>
@@ -89,7 +152,7 @@ export const updateMenuItem = (vendorUid, itemId, data) =>
 export const deleteMenuItem = (vendorUid, itemId) =>
   deleteDoc(doc(db, 'vendors', vendorUid, 'menu', itemId))
 
-// ── ORDERS — no orderBy to avoid index requirement ──
+// ── ORDERS ────────────────────────────────────────────────────────────────
 export const placeOrder = (orderData) =>
   addDoc(collection(db, 'orders'), {
     ...orderData, status: 'pending', createdAt: serverTimestamp()
@@ -100,7 +163,6 @@ export const getVendorOrders = (vendorUid, callback) =>
     query(collection(db, 'orders'), where('vendorUid', '==', vendorUid)),
     snap => {
       const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      // Sort client-side instead of Firestore orderBy
       orders.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
       callback(orders)
     },
