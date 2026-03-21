@@ -24,6 +24,14 @@ export default function FounderApp() {
   const photoRef = useRef()
   const existingPhotoRef = useRef()
 
+  // Location for new vendor
+  const [newVendorLoc, setNewVendorLoc] = useState(null)
+  const [newVendorLocName, setNewVendorLocName] = useState('')
+  const [locSearch, setLocSearch] = useState('')
+  const [locSuggestions, setLocSuggestions] = useState([])
+  const [searchingLoc, setSearchingLoc] = useState(false)
+  const [detectingLoc, setDetectingLoc] = useState(false)
+
   useEffect(() => {
     const u1 = getAllOrders(setOrders)
     const u2 = getAllVendors(setVendors)
@@ -40,6 +48,50 @@ export default function FounderApp() {
   const subRevenue = vendors.length * 500
 
   const f = field => ({ value: form[field], onChange: e => setForm(p=>({...p,[field]:e.target.value})) })
+
+  // ── Location helpers ──────────────────────────────────────────────────────
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+      const data = await res.json()
+      const addr = data.address || {}
+      return addr.suburb || addr.neighbourhood || addr.village || addr.town || addr.city || "Location"
+    } catch { return "Location" }
+  }
+
+  const handleDetectVendorLoc = async () => {
+    setDetectingLoc(true)
+    try {
+      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout:10000 }))
+      const lat = pos.coords.latitude
+      const lng = pos.coords.longitude
+      const name = await reverseGeocode(lat, lng)
+      setNewVendorLoc({ lat, lng })
+      setNewVendorLocName(name)
+      toast.success(`📍 ${name}`)
+    } catch { toast.error("Could not detect location") }
+    setDetectingLoc(false)
+  }
+
+  const handleLocSearch = async (q) => {
+    setLocSearch(q)
+    if (q.length < 3) { setLocSuggestions([]); return }
+    setSearchingLoc(true)
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&countrycodes=in`)
+      const data = await res.json()
+      setLocSuggestions(data.map(d => ({ name: d.display_name.split(",").slice(0,3).join(", "), lat: parseFloat(d.lat), lng: parseFloat(d.lon) })))
+    } catch { setLocSuggestions([]) }
+    setSearchingLoc(false)
+  }
+
+  const handleSelectVendorLoc = (s) => {
+    setNewVendorLoc({ lat: s.lat, lng: s.lng })
+    setNewVendorLocName(s.name.split(",")[0])
+    setLocSearch("")
+    setLocSuggestions([])
+    toast.success(`📍 ${s.name.split(",")[0]}`)
+  }
 
   // ── Photo select for new vendor ───────────────────────────────────────────
   const handlePhotoSelect = (e) => {
@@ -62,7 +114,7 @@ export default function FounderApp() {
     setCreating(true)
     try {
       // Step 1: Create vendor account
-      const vendorUid = await founderCreateVendor(user.uid, { email, password, storeName, address, phone, plan, category })
+      const vendorUid = await founderCreateVendor(user.uid, { email, password, storeName, address, phone, plan, category, location: newVendorLoc, locationName: newVendorLocName })
 
       // Step 2: Upload photo if selected
       if (vendorPhotoFile && vendorUid) {
@@ -76,6 +128,10 @@ export default function FounderApp() {
       setVendorPhotoFile(null)
       setVendorPhotoPreview(null)
       setPhotoProgress(0)
+      setNewVendorLoc(null)
+      setNewVendorLocName('')
+      setLocSearch('')
+      setLocSuggestions([])
       setTab('vendors')
     } catch (err) {
       const msg = err.code==='auth/email-already-in-use' ? 'This email is already registered'
@@ -344,6 +400,44 @@ export default function FounderApp() {
                     <option>₹1000/month</option>
                     <option>Free Trial</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Vendor Location */}
+              <div>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>📍 Store Location (for distance sorting)</label>
+                <div style={{ marginTop:6, display:'flex', flexDirection:'column', gap:6 }}>
+                  {newVendorLocName && (
+                    <div style={{ fontSize:12, color:'#16a34a', fontWeight:500, padding:'6px 10px', background:'#f0fdf4', borderRadius:8 }}>
+                      ✅ {newVendorLocName}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleDetectVendorLoc}
+                    disabled={detectingLoc}
+                    style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 12px', background:'#fff5f5', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca', borderRadius:9, cursor:'pointer', fontFamily:'Poppins' }}
+                  >
+                    <span>📍</span>
+                    <span style={{ fontSize:12, color:'#E24B4A', fontWeight:500 }}>{detectingLoc ? 'Detecting...' : 'Use Current GPS'}</span>
+                  </button>
+                  <div style={{ position:'relative' }}>
+                    <input
+                      style={{ ...inp, marginTop:0 }}
+                      placeholder="Or search: Warananagar, Kolhapur..."
+                      value={locSearch}
+                      onChange={e => handleLocSearch(e.target.value)}
+                    />
+                    {locSuggestions.length > 0 && (
+                      <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:9, zIndex:50, marginTop:2, overflow:'hidden' }}>
+                        {locSuggestions.map((s, i) => (
+                          <button key={i} type="button" onClick={() => handleSelectVendorLoc(s)} style={{ width:'100%', padding:'9px 12px', border:'none', borderBottomWidth: i < locSuggestions.length-1?1:0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background:'#fff', cursor:'pointer', textAlign:'left', fontFamily:'Poppins', fontSize:12, color:'#1f2937' }}>
+                            📍 {s.name.split(",")[0]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

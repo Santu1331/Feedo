@@ -40,6 +40,14 @@ export default function VendorApp() {
   const vendorPhotoRef = useRef()
   const newItemPhotoRef = useRef()
 
+  // Location states
+  const [vendorLocation, setVendorLocation] = useState(null)
+  const [locationName, setLocationName] = useState('')
+  const [detectingLocation, setDetectingLocation] = useState(false)
+  const [locationSearch, setLocationSearch] = useState('')
+  const [locationSuggestions, setLocationSuggestions] = useState([])
+  const [searchingLoc, setSearchingLoc] = useState(false)
+
   const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
 
   // Setup FCM notifications for vendor
@@ -61,10 +69,71 @@ export default function VendorApp() {
     setIsOpen(userData?.isOpen || false)
     // Load saved custom categories from userData
     if (userData?.customCategories) setCustomCategories(userData.customCategories)
+    if (userData?.location) {
+      setVendorLocation(userData.location)
+      setLocationName(userData.locationName || '')
+    }
     const u1 = getVendorOrders(user.uid, setOrders)
     const u2 = getMenuItems(user.uid, setMenuItems)
     return () => { u1(); u2() }
   }, [user, userData])
+
+  // ── REVERSE GEOCODE ──────────────────────────────────────────────────────
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+      const data = await res.json()
+      const addr = data.address || {}
+      return addr.suburb || addr.neighbourhood || addr.village || addr.town || addr.city || addr.county || "Your Location"
+    } catch { return "Your Location" }
+  }
+
+  // ── DETECT VENDOR GPS LOCATION ────────────────────────────────────────────
+  const handleDetectLocation = async () => {
+    setDetectingLocation(true)
+    try {
+      const pos = await new Promise((res, rej) =>
+        navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000 })
+      )
+      const lat = pos.coords.latitude
+      const lng = pos.coords.longitude
+      const name = await reverseGeocode(lat, lng)
+      setVendorLocation({ lat, lng })
+      setLocationName(name)
+      await updateVendorStore(user.uid, { location: { lat, lng }, locationName: name })
+      toast.success(`📍 Location set: ${name}`)
+    } catch {
+      toast.error("Could not detect location. Enable GPS.")
+    }
+    setDetectingLocation(false)
+  }
+
+  // ── SEARCH LOCATION ────────────────────────────────────────────────────────
+  const handleLocationSearch = async (q) => {
+    setLocationSearch(q)
+    if (q.length < 3) { setLocationSuggestions([]); return }
+    setSearchingLoc(true)
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&countrycodes=in`)
+      const data = await res.json()
+      setLocationSuggestions(data.map(d => ({
+        name: d.display_name.split(",").slice(0, 3).join(", "),
+        lat: parseFloat(d.lat),
+        lng: parseFloat(d.lon)
+      })))
+    } catch { setLocationSuggestions([]) }
+    setSearchingLoc(false)
+  }
+
+  const handleSelectLocation = async (s) => {
+    const name = s.name.split(",")[0]
+    setVendorLocation({ lat: s.lat, lng: s.lng })
+    setLocationName(name)
+    await updateVendorStore(user.uid, { location: { lat: s.lat, lng: s.lng }, locationName: name })
+    toast.success(`📍 Location set: ${name}`)
+    setLocationSearch("")
+    setLocationSuggestions([])
+  }
 
   const toggleStore = async () => {
     const val = !isOpen
@@ -614,6 +683,57 @@ export default function VendorApp() {
                 ))}
               </div>
             )}
+
+            {/* Store Location */}
+            <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
+              <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>📍 Store Location</div>
+              <div style={{ fontSize:12, color:'#6b7280', marginBottom:10 }}>
+                {vendorLocation
+                  ? <span style={{ color:'#16a34a', fontWeight:500 }}>✅ Location set: {locationName}</span>
+                  : <span style={{ color:'#dc2626' }}>⚠️ Location not set — customers cannot see distance</span>
+                }
+              </div>
+
+              {/* Detect GPS */}
+              <button
+                onClick={handleDetectLocation}
+                disabled={detectingLocation}
+                style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'11px 14px', background:'#fff5f5', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca', borderRadius:10, cursor:'pointer', marginBottom:8, fontFamily:'Poppins' }}
+              >
+                <span style={{ fontSize:18 }}>📍</span>
+                <div style={{ textAlign:'left' }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:'#E24B4A' }}>{detectingLocation ? 'Detecting...' : 'Use Current GPS Location'}</div>
+                  <div style={{ fontSize:11, color:'#9ca3af' }}>Automatically detect store location</div>
+                </div>
+              </button>
+
+              {/* Manual search */}
+              <div style={{ position:'relative' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, background:'#fff' }}>
+                  <span>🔍</span>
+                  <input
+                    style={{ border:'none', outline:'none', fontSize:13, flex:1, fontFamily:'Poppins' }}
+                    placeholder="Search area / city manually..."
+                    value={locationSearch}
+                    onChange={e => handleLocationSearch(e.target.value)}
+                  />
+                  {searchingLoc && <span style={{ fontSize:11, color:'#9ca3af' }}>...</span>}
+                </div>
+                {locationSuggestions.length > 0 && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, zIndex:50, marginTop:4, overflow:'hidden' }}>
+                    {locationSuggestions.map((s, i) => (
+                      <button key={i} onClick={() => handleSelectLocation(s)} style={{ width:'100%', padding:'10px 14px', border:'none', borderBottomWidth: i < locationSuggestions.length-1 ? 1 : 0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background:'#fff', cursor:'pointer', textAlign:'left', fontFamily:'Poppins', display:'flex', gap:8, alignItems:'center' }}>
+                        <span>📍</span>
+                        <div>
+                          <div style={{ fontSize:13, color:'#1f2937' }}>{s.name.split(",")[0]}</div>
+                          <div style={{ fontSize:11, color:'#9ca3af' }}>{s.name.split(",").slice(1,3).join(",")}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
 
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>
               Logout
