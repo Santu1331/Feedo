@@ -3,8 +3,9 @@ import { useAuth } from '../hooks/useAuth'
 import {
   logoutUser, getAllVendors, getMenuItems, placeOrder, getUserOrders,
   getUserLocation, getDistance, saveUserLocation,
-  listenNotifications, markNotificationRead
+  listenNotifications, markNotificationRead, callVendor, notifyVendorWhatsApp
 } from '../firebase/services'
+import { db } from '../firebase/config'
 import { useNotifications } from '../hooks/useNotifications'
 import toast from 'react-hot-toast'
 
@@ -44,6 +45,7 @@ export default function UserApp() {
   const [showCheckout, setShowCheckout] = useState(false)
   const [notifications, setNotifications] = useState([])
   const [showNotifs, setShowNotifs] = useState(false)
+  const [orderSuccess, setOrderSuccess] = useState(null) // stores placed order info
 
   // Location states
   const [userLat, setUserLat] = useState(null)
@@ -194,11 +196,30 @@ export default function UserApp() {
         subtotal: cartTotal, deliveryFee: 30, total: cartTotal+30,
         address: fullAddress, paymentMode: 'COD'
       })
-      toast.success('🎉 Order placed!')
+      // Get vendor details for success page
+      const vendorSnap = await import('firebase/firestore').then(({doc, getDoc}) =>
+        getDoc(doc(db, 'vendors', cartVendor.id))
+      )
+      const vendorInfo = vendorSnap.exists() ? vendorSnap.data() : {}
+
+      // Show order success page
+      setOrderSuccess({
+        orderId: Math.random().toString(36).slice(-6).toUpperCase(),
+        vendorName: cartVendor.storeName,
+        vendorPhone: vendorInfo.phone || '',
+        vendorPhoto: vendorInfo.photo || '',
+        items: cart.map(i => ({ ...i })),
+        total: cartTotal + 30,
+        subtotal: cartTotal,
+        deliveryFee: 30,
+        address: fullAddress,
+        userName: deliveryName.trim(),
+        prepTime: vendorInfo.prepTime || 20,
+      })
+
       setCart([]); setCartVendor(null); setShowCheckout(false)
       setDeliveryNote(''); setDeliveryHostel('')
-      setTab('orders')
-    } catch { toast.error('Failed to place order. Try again.') }
+    } catch (e) { console.error(e); toast.error('Failed to place order. Try again.') }
   }
 
   // ── SORT vendors by distance if location available ─────────────────────
@@ -607,6 +628,16 @@ export default function UserApp() {
                   <span style={{ fontSize:11, color:'#9ca3af' }}>{o.createdAt?.toDate?.()?.toLocaleDateString('en-IN')||''}</span>
                 </div>
                 {o.address && <div style={{ fontSize:11, color:'#9ca3af', marginTop:4 }}>📍 {o.address}</div>}
+                {/* Call vendor button for active orders */}
+                {!['delivered','cancelled'].includes(o.status) && o.vendorPhone && (
+                  <button
+                    onClick={() => callVendor(o.vendorPhone)}
+                    style={{ marginTop:8, display:'flex', alignItems:'center', gap:6, padding:'7px 12px', background:'#f0fdf4', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0', borderRadius:8, cursor:'pointer', fontFamily:'Poppins', border:'none' }}
+                  >
+                    <span style={{ fontSize:14 }}>📞</span>
+                    <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>Call Vendor</span>
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -648,18 +679,104 @@ export default function UserApp() {
                 {lang==='en'?'Switch to Marathi':'English वर जा'}
               </button>
             </div>
-            <div style={{ background:'#f5f3ff', borderRadius:12, padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#ddd6fe', display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
-              <span style={{ fontSize:22 }}>🏪</span>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, fontWeight:600, color:'#6d28d9' }}>Want to sell on FeedoZone?</div>
-                <div style={{ fontSize:11, color:'#7c3aed' }}>Register as a vendor partner</div>
-              </div>
-              <button onClick={() => window.open('https://forms.gle/1arTekd59tidriKcA','_blank')} style={{ padding:'7px 12px', background:'#7c3aed', color:'#fff', border:'none', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>Join Now</button>
-            </div>
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>Logout</button>
           </div>
         )}
       </div>
+
+      {/* ── ORDER SUCCESS PAGE ── */}
+      {orderSuccess && (
+        <div style={{ position:'fixed', inset:0, background:'#fff', zIndex:999, overflowY:'auto', fontFamily:'Poppins,sans-serif', maxWidth:430, margin:'0 auto' }}>
+          {/* Green header */}
+          <div style={{ background:'linear-gradient(135deg, #16a34a, #15803d)', padding:'48px 24px 32px', textAlign:'center', color:'#fff' }}>
+            <div style={{ width:80, height:80, borderRadius:'50%', background:'rgba(255,255,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:40, margin:'0 auto 16px', border:'3px solid rgba(255,255,255,0.4)' }}>✅</div>
+            <div style={{ fontSize:22, fontWeight:700, marginBottom:6 }}>Order Placed!</div>
+            <div style={{ fontSize:13, opacity:0.9 }}>Your food is being prepared</div>
+            <div style={{ marginTop:12, background:'rgba(255,255,255,0.2)', borderRadius:20, display:'inline-block', padding:'6px 18px' }}>
+              <span style={{ fontSize:12, fontWeight:600 }}>Order #{orderSuccess.orderId}</span>
+            </div>
+          </div>
+
+          <div style={{ padding:20 }}>
+
+            {/* Estimated time */}
+            <div style={{ background:'#f0fdf4', borderRadius:14, padding:16, marginBottom:16, display:'flex', alignItems:'center', gap:12, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+              <span style={{ fontSize:28 }}>🕐</span>
+              <div>
+                <div style={{ fontSize:13, color:'#6b7280' }}>Estimated delivery time</div>
+                <div style={{ fontSize:20, fontWeight:700, color:'#16a34a' }}>{orderSuccess.prepTime + 15}–{orderSuccess.prepTime + 30} min</div>
+              </div>
+            </div>
+
+            {/* Vendor info + contact */}
+            <div style={{ background:'#fafafa', borderRadius:14, padding:16, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+              <div style={{ fontSize:12, color:'#9ca3af', marginBottom:10, textTransform:'uppercase', letterSpacing:0.5 }}>Vendor</div>
+              <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:14 }}>
+                <div style={{ width:48, height:48, borderRadius:12, overflow:'hidden', background:'#fee2e2', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  {orderSuccess.vendorPhoto
+                    ? <img src={orderSuccess.vendorPhoto} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                    : <span style={{ fontSize:22 }}>🏪</span>
+                  }
+                </div>
+                <div>
+                  <div style={{ fontSize:15, fontWeight:700, color:'#1f2937' }}>{orderSuccess.vendorName}</div>
+                  <div style={{ fontSize:12, color:'#6b7280' }}>Preparing your order...</div>
+                </div>
+              </div>
+
+              {/* Contact buttons */}
+              {orderSuccess.vendorPhone && (
+                <div style={{ display:'flex', gap:10 }}>
+                  <button
+                    onClick={() => notifyVendorWhatsApp(orderSuccess.vendorPhone, { userName: orderSuccess.userName, userPhone: '', address: orderSuccess.address, items: orderSuccess.items, subtotal: orderSuccess.subtotal, deliveryFee: orderSuccess.deliveryFee, total: orderSuccess.total })}
+                    style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'11px 0', background:'#25D366', border:'none', borderRadius:10, cursor:'pointer', fontFamily:'Poppins' }}
+                  >
+                    <span style={{ fontSize:18 }}>💬</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#fff' }}>WhatsApp</span>
+                  </button>
+                  <button
+                    onClick={() => callVendor(orderSuccess.vendorPhone)}
+                    style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'11px 0', background:'#E24B4A', border:'none', borderRadius:10, cursor:'pointer', fontFamily:'Poppins' }}
+                  >
+                    <span style={{ fontSize:18 }}>📞</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#fff' }}>Call</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Order items */}
+            <div style={{ background:'#fafafa', borderRadius:14, padding:16, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+              <div style={{ fontSize:12, color:'#9ca3af', marginBottom:10, textTransform:'uppercase', letterSpacing:0.5 }}>Order Summary</div>
+              {orderSuccess.items.map((item, i) => (
+                <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderBottomWidth: i < orderSuccess.items.length-1 ? 1 : 0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+                  <span style={{ fontSize:13, color:'#374151' }}>{item.qty}x {item.name}</span>
+                  <span style={{ fontSize:13, fontWeight:600 }}>₹{item.price * item.qty}</span>
+                </div>
+              ))}
+              <div style={{ display:'flex', justifyContent:'space-between', marginTop:10, paddingTop:10, borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb' }}>
+                <span style={{ fontSize:14, fontWeight:700 }}>Total Paid</span>
+                <span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{orderSuccess.total}</span>
+              </div>
+              <div style={{ marginTop:6, fontSize:11, color:'#9ca3af' }}>💵 Cash on Delivery · 📍 {orderSuccess.address}</div>
+            </div>
+
+            {/* Track order button */}
+            <button
+              onClick={() => { setOrderSuccess(null); setTab('orders') }}
+              style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10 }}
+            >
+              📋 Track My Order
+            </button>
+            <button
+              onClick={() => { setOrderSuccess(null); setTab('home') }}
+              style={{ width:'100%', background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}
+            >
+              🏠 Back to Home
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Cart bar */}
       {cart.length > 0 && (tab==='home' || tab==='vendor-menu') && (

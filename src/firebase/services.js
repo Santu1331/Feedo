@@ -49,11 +49,58 @@ export const uploadMenuItemPhoto = async (vendorUid, itemId, file, onProgress) =
   return url
 }
 
-// ── LOCATION UTILS ────────────────────────────────────────────────────────
+// ── WHATSAPP NOTIFICATION ─────────────────────────────────────────────────
 /**
- * Get user's GPS location
- * @returns {Promise<{lat, lng}>}
+ * Send WhatsApp message to vendor when new order placed
+ * Opens WhatsApp with pre-filled message — FREE, no API needed!
  */
+export const notifyVendorWhatsApp = (vendorPhone, orderData) => {
+  if (!vendorPhone) return
+
+  // Clean phone number — remove spaces, dashes, +
+  const cleanPhone = vendorPhone.replace(/[\s\-\+]/g, '')
+  // Add India code if not present
+  const phone = cleanPhone.startsWith('91') ? cleanPhone : `91${cleanPhone}`
+
+  const itemsList = orderData.items?.map(i => `  • ${i.qty}x ${i.name} — ₹${i.price * i.qty}`).join('\n') || ''
+
+  const message = `🔔 *New FeedoZone Order!*
+
+👤 *Customer:* ${orderData.userName}
+📱 *Phone:* ${orderData.userPhone || 'Not provided'}
+📍 *Delivery:* ${orderData.address}
+
+🍽️ *Items:*
+${itemsList}
+
+💰 *Subtotal:* ₹${orderData.subtotal}
+🚴 *Delivery:* ₹${orderData.deliveryFee}
+✅ *Total:* ₹${orderData.total}
+
+💵 Payment: Cash on Delivery
+
+_Please accept the order on FeedoZone app_
+_feedo-ruddy.vercel.app/vendor_`
+
+  const encodedMsg = encodeURIComponent(message)
+  const waUrl = `https://wa.me/${phone}?text=${encodedMsg}`
+
+  // Open WhatsApp in new tab
+  window.open(waUrl, '_blank')
+}
+
+// ── CALL VENDOR ───────────────────────────────────────────────────────────
+/**
+ * Initiate a call to vendor
+ */
+export const callVendor = (vendorPhone) => {
+  if (!vendorPhone) return
+  const cleanPhone = vendorPhone.replace(/[\s\-\+]/g, '')
+  const phone = cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`
+  window.open(`tel:${phone}`)
+}
+
+// ── LOCATION UTILS ────────────────────────────────────────────────────────
 export const getUserLocation = () => {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -68,9 +115,6 @@ export const getUserLocation = () => {
   })
 }
 
-/**
- * Calculate distance between two coordinates in km (Haversine formula)
- */
 export const getDistance = (lat1, lng1, lat2, lng2) => {
   const R = 6371
   const dLat = (lat2 - lat1) * Math.PI / 180
@@ -81,41 +125,21 @@ export const getDistance = (lat1, lng1, lat2, lng2) => {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
 }
 
-/**
- * Save user's location to Firestore
- */
 export const saveUserLocation = async (uid, lat, lng) => {
   await updateDoc(doc(db, 'users', uid), { location: { lat, lng } })
 }
 
-// ── FCM NOTIFICATION ──────────────────────────────────────────────────────
-/**
- * Send notification to a specific FCM token via Firebase Cloud Messaging HTTP v1
- * NOTE: For production, this should be called from a backend/Cloud Function.
- * For now we use Firestore trigger approach — write to 'notifications' collection
- * and a Cloud Function sends the actual FCM message.
- * 
- * Simpler approach: write notification doc to Firestore,
- * recipient reads it via onSnapshot and shows toast.
- */
+// ── FCM NOTIFICATIONS ─────────────────────────────────────────────────────
 export const sendNotification = async (toUid, { title, body, data = {} }) => {
   try {
     await addDoc(collection(db, 'notifications'), {
-      toUid,
-      title,
-      body,
-      data,
-      read: false,
-      createdAt: serverTimestamp()
+      toUid, title, body, data, read: false, createdAt: serverTimestamp()
     })
   } catch (err) {
     console.error('Notification send error:', err)
   }
 }
 
-/**
- * Listen for notifications for a user
- */
 export const listenNotifications = (uid, callback) =>
   onSnapshot(
     query(collection(db, 'notifications'), where('toUid', '==', uid), where('read', '==', false)),
@@ -123,16 +147,13 @@ export const listenNotifications = (uid, callback) =>
     err => console.error('Notifications error:', err)
   )
 
-/**
- * Mark notification as read
- */
 export const markNotificationRead = (notifId) =>
   updateDoc(doc(db, 'notifications', notifId), { read: true })
 
 // ── AUTH ──────────────────────────────────────────────────────────────────
-export const loginUser    = (email, password) => signInWithEmailAndPassword(auth, email, password)
-export const logoutUser   = () => signOut(auth)
-export const getUserRole  = async (uid) => {
+export const loginUser   = (email, password) => signInWithEmailAndPassword(auth, email, password)
+export const logoutUser  = () => signOut(auth)
+export const getUserRole = async (uid) => {
   const snap = await getDoc(doc(db, 'users', uid))
   return snap.exists() ? snap.data() : null
 }
@@ -194,15 +215,18 @@ export const deleteMenuItem = (vendorUid, itemId) =>
 
 // ── ORDERS ────────────────────────────────────────────────────────────────
 export const placeOrder = async (orderData) => {
+  // 1. Save order to Firestore
   const ref = await addDoc(collection(db, 'orders'), {
     ...orderData, status: 'pending', createdAt: serverTimestamp()
   })
-  // Notify vendor about new order
+
+  // 2. Send in-app notification to vendor (Firestore)
   await sendNotification(orderData.vendorUid, {
     title: '🔔 New Order!',
     body: `${orderData.userName} ordered ₹${orderData.total} — ${orderData.items?.map(i=>`${i.qty}x ${i.name}`).join(', ')}`,
     data: { orderId: ref.id, type: 'new_order' }
   })
+
   return ref
 }
 
@@ -244,12 +268,12 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
   // Notify user about status change
   if (orderData.userUid) {
     const statusMessages = {
-      accepted:         { title: '✅ Order Accepted!',       body: `${orderData.vendorName} accepted your order` },
-      preparing:        { title: '👨‍🍳 Preparing Your Order', body: `${orderData.vendorName} is preparing your food` },
-      ready:            { title: '🎉 Order Ready!',           body: 'Your order is ready for delivery' },
-      out_for_delivery: { title: '🚴 Out for Delivery!',      body: 'Your order is on the way!' },
-      delivered:        { title: '✅ Order Delivered!',       body: `Enjoy your meal! Rate ${orderData.vendorName}` },
-      cancelled:        { title: '❌ Order Cancelled',        body: 'Your order was cancelled' },
+      accepted:         { title: '✅ Order Accepted!',        body: `${orderData.vendorName} accepted your order` },
+      preparing:        { title: '👨‍🍳 Preparing Your Order',  body: `${orderData.vendorName} is preparing your food` },
+      ready:            { title: '🎉 Order Ready!',            body: 'Your order is ready for delivery' },
+      out_for_delivery: { title: '🚴 Out for Delivery!',       body: 'Your order is on the way!' },
+      delivered:        { title: '✅ Order Delivered!',        body: `Enjoy your meal! Rate ${orderData.vendorName}` },
+      cancelled:        { title: '❌ Order Cancelled',         body: 'Your order was cancelled' },
     }
     const msg = statusMessages[status]
     if (msg) {

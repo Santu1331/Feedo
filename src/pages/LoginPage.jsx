@@ -235,38 +235,16 @@ export default function LoginPage() {
               style={{ ...inputStyle, width: 110, flex: 'none' }} />
           </div>
 
-          {/* College */}
-          <input type="text" placeholder="College name"
-            value={college} onChange={e => setCollege(e.target.value)} style={inputStyle} />
-
-          {/* Vendor interest */}
-          <label style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '12px 14px', borderRadius: 10,
-            background: wantsVendor ? '#f5f3ff' : '#fafafa',
-            borderWidth: 1.5, borderStyle: 'solid',
-            borderColor: wantsVendor ? '#a78bfa' : '#e5e7eb',
-            cursor: 'pointer', transition: 'all 0.15s',
-          }}>
-            <input type="checkbox" checked={wantsVendor} onChange={e => setWantsVendor(e.target.checked)}
-              style={{ width: 16, height: 16, accentColor: '#7c3aed', cursor: 'pointer' }} />
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: wantsVendor ? '#7c3aed' : '#374151' }}>
-                🏪 I also want to become a Vendor
-              </div>
-              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>Opens vendor registration form</div>
-            </div>
-          </label>
 
           <button type="submit" disabled={loading} style={{
             width: '100%',
-            background: wantsVendor ? 'linear-gradient(135deg, #7c3aed, #6d28d9)' : (loading ? '#f09595' : '#E24B4A'),
+            background: loading ? '#f09595' : '#E24B4A',
             color: '#fff', border: 'none', padding: 14,
             borderRadius: 10, fontSize: 15, fontWeight: 600,
             cursor: loading ? 'not-allowed' : 'pointer',
             fontFamily: 'Poppins, sans-serif', marginTop: 4,
           }}>
-            {loading ? 'Creating Account...' : wantsVendor ? '🤝 Go to Vendor Form' : 'Create Account 🚀'}
+          {loading ? 'Creating Account...' : 'Create Account 🚀'}
           </button>
 
           <p style={{ textAlign: 'center', fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>
