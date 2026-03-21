@@ -48,8 +48,12 @@ export default function UserApp() {
   // Location states
   const [userLat, setUserLat] = useState(null)
   const [userLng, setUserLng] = useState(null)
+  const [locationName, setLocationName] = useState(null)
   const [locationLoading, setLocationLoading] = useState(false)
-  const [locationError, setLocationError] = useState(null)
+  const [showLocationPicker, setShowLocationPicker] = useState(false)
+  const [locationSearch, setLocationSearch] = useState("")
+  const [locationSuggestions, setLocationSuggestions] = useState([])
+  const [searchingLocation, setSearchingLocation] = useState(false)
 
   // Checkout fields
   const [deliveryName, setDeliveryName] = useState('')
@@ -89,21 +93,61 @@ export default function UserApp() {
     }
   }, [userData])
 
+  // ── REVERSE GEOCODE: lat/lng → area name (OpenStreetMap, free) ───────────
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+      const data = await res.json()
+      const addr = data.address || {}
+      return addr.suburb || addr.neighbourhood || addr.village || addr.town || addr.city || addr.county || 'Your Location'
+    } catch { return 'Your Location' }
+  }
+
   // ── GET GPS LOCATION ──────────────────────────────────────────────────────
   const handleGetLocation = async () => {
     setLocationLoading(true)
-    setLocationError(null)
     try {
       const { lat, lng } = await getUserLocation()
       setUserLat(lat)
       setUserLng(lng)
+      const name = await reverseGeocode(lat, lng)
+      setLocationName(name)
       await saveUserLocation(user.uid, lat, lng)
-      toast.success('📍 Location detected!')
+      toast.success(`📍 ${name}`)
+      setShowLocationPicker(false)
     } catch (err) {
-      setLocationError('Location access denied. Enable GPS and try again.')
-      toast.error('Could not get location')
+      toast.error('Could not get location. Enable GPS.')
     }
     setLocationLoading(false)
+  }
+
+  // ── SEARCH LOCATION (Nominatim autocomplete) ──────────────────────────────
+  const handleLocationSearch = async (q) => {
+    setLocationSearch(q)
+    if (q.length < 3) { setLocationSuggestions([]); return }
+    setSearchingLocation(true)
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&countrycodes=in`)
+      const data = await res.json()
+      setLocationSuggestions(data.map(d => ({
+        name: d.display_name.split(',').slice(0,3).join(', '),
+        lat: parseFloat(d.lat),
+        lng: parseFloat(d.lon)
+      })))
+    } catch { setLocationSuggestions([]) }
+    setSearchingLocation(false)
+  }
+
+  // ── SELECT LOCATION FROM SEARCH ───────────────────────────────────────────
+  const handleSelectLocation = async (suggestion) => {
+    setUserLat(suggestion.lat)
+    setUserLng(suggestion.lng)
+    setLocationName(suggestion.name.split(',')[0])
+    await saveUserLocation(user.uid, suggestion.lat, suggestion.lng)
+    toast.success(`📍 ${suggestion.name.split(',')[0]}`)
+    setShowLocationPicker(false)
+    setLocationSearch("")
+    setLocationSuggestions([])
   }
 
   const openVendor = (v) => { setSelectedVendor(v); setTab('vendor-menu') }
@@ -199,17 +243,18 @@ export default function UserApp() {
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
           <div>
             <div style={{ fontSize:24, fontWeight:700, letterSpacing:-0.5 }}>{t('Feedo','फिडो')}</div>
-            {/* Location display */}
+            {/* Location display — opens picker modal */}
             <div
-              onClick={handleGetLocation}
-              style={{ fontSize:12, opacity:0.9, marginTop:2, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}
+              onClick={() => setShowLocationPicker(true)}
+              style={{ fontSize:12, opacity:0.95, marginTop:3, cursor:'pointer', display:'flex', alignItems:'center', gap:5, maxWidth:220 }}
             >
-              {locationLoading
-                ? <span>📍 Detecting...</span>
-                : userLat
-                  ? <span>📍 Location detected ✓</span>
-                  : <span>📍 Tap to detect location</span>
-              }
+              <span style={{ fontSize:14 }}>📍</span>
+              <div style={{ display:'flex', flexDirection:'column' }}>
+                <span style={{ fontSize:11, opacity:0.8, lineHeight:1 }}>Delivering to</span>
+                <span style={{ fontSize:13, fontWeight:600, lineHeight:1.3, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:180 }}>
+                  {locationLoading ? 'Detecting...' : locationName || 'Select Location ▾'}
+                </span>
+              </div>
             </div>
           </div>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
@@ -227,6 +272,75 @@ export default function UserApp() {
             </button>
           </div>
         </div>
+
+        {/* Location picker modal */}
+        {showLocationPicker && (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', flexDirection:'column', justifyContent:'flex-start' }}
+            onClick={(e) => { if(e.target===e.currentTarget) setShowLocationPicker(false) }}>
+            <div style={{ background:'#fff', borderRadius:'0 0 20px 20px', padding:20, maxWidth:430, width:'100%', margin:'0 auto', maxHeight:'80vh', overflowY:'auto' }}>
+              {/* Modal header */}
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>Select Location</div>
+                <button onClick={() => setShowLocationPicker(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:'#6b7280' }}>✕</button>
+              </div>
+
+              {/* Search box */}
+              <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, marginBottom:14, background:'#f9fafb' }}>
+                <span style={{ fontSize:16 }}>🔍</span>
+                <input
+                  autoFocus
+                  style={{ border:'none', outline:'none', fontSize:14, flex:1, fontFamily:'Poppins', background:'transparent', color:'#1f2937' }}
+                  placeholder="Search area, colony, city..."
+                  value={locationSearch}
+                  onChange={e => handleLocationSearch(e.target.value)}
+                />
+                {searchingLocation && <span style={{ fontSize:12, color:'#9ca3af' }}>...</span>}
+              </div>
+
+              {/* Use current location button */}
+              <button
+                onClick={handleGetLocation}
+                disabled={locationLoading}
+                style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background:'#fff5f5', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca', borderRadius:12, cursor:'pointer', marginBottom:14, fontFamily:'Poppins' }}
+              >
+                <div style={{ width:36, height:36, borderRadius:10, background:'#E24B4A', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>📍</div>
+                <div style={{ textAlign:'left' }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:'#E24B4A' }}>{locationLoading ? 'Detecting...' : 'Use Current Location'}</div>
+                  <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>Using GPS</div>
+                </div>
+              </button>
+
+              {/* Search suggestions */}
+              {locationSuggestions.length > 0 && (
+                <div>
+                  <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>Search Results</div>
+                  {locationSuggestions.map((s, i) => (
+                    <button key={i} onClick={() => handleSelectLocation(s)} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'11px 14px', background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', borderRadius:10, cursor:'pointer', marginBottom:8, fontFamily:'Poppins', textAlign:'left' }}>
+                      <span style={{ fontSize:16, flexShrink:0 }}>📍</span>
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:500, color:'#1f2937' }}>{s.name.split(',')[0]}</div>
+                        <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{s.name.split(',').slice(1,3).join(',')}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Popular areas */}
+              {!locationSearch && (
+                <div>
+                  <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>Popular in Warananagar</div>
+                  {['Warananagar', 'Kolhapur', 'Sangli', 'Ichalkaranji', 'Miraj'].map(area => (
+                    <button key={area} onClick={() => handleLocationSearch(area)} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'10px 14px', background:'#fafafa', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', borderRadius:10, cursor:'pointer', marginBottom:6, fontFamily:'Poppins' }}>
+                      <span style={{ fontSize:14 }}>🏘️</span>
+                      <span style={{ fontSize:13, color:'#374151' }}>{area}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Search bar */}
         {(tab==='home' || tab==='vendor-menu') && (
@@ -260,24 +374,18 @@ export default function UserApp() {
         {tab==='home' && (
           <div style={{ background:'#fff', minHeight:'100%' }}>
 
-            {/* Location prompt banner */}
+            {/* Location prompt banner — show only if no location yet */}
             {!userLat && !locationLoading && (
               <div
-                onClick={handleGetLocation}
+                onClick={() => setShowLocationPicker(true)}
                 style={{ background:'#fffbeb', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#fde68a', padding:'10px 16px', display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}
               >
                 <span style={{ fontSize:20 }}>📍</span>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontSize:12, fontWeight:600, color:'#92400e' }}>Enable Location</div>
+                  <div style={{ fontSize:12, fontWeight:600, color:'#92400e' }}>Set your delivery location</div>
                   <div style={{ fontSize:11, color:'#a16207' }}>See nearest restaurants first</div>
                 </div>
-                <span style={{ fontSize:12, color:'#d97706', fontWeight:600 }}>Enable →</span>
-              </div>
-            )}
-
-            {locationError && (
-              <div style={{ background:'#fee2e2', padding:'8px 16px', fontSize:11, color:'#991b1b' }}>
-                ⚠️ {locationError}
+                <span style={{ fontSize:12, color:'#d97706', fontWeight:600 }}>Set →</span>
               </div>
             )}
 
