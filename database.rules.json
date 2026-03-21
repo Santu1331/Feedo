@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "vendorStatus": {
+      "$vendorId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.uid == $vendorId || root.child('users').child(auth.uid).child('role').val() == 'founder')"
+      }
+    },
+    "liveOrders": {
+      "$orderId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}
