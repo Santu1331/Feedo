@@ -5,6 +5,8 @@ import {
   updateVendorStore, addMenuItem, updateMenuItem, deleteMenuItem,
   uploadVendorPhoto, uploadMenuItemPhoto
 } from '../firebase/services'
+import { useNotifications } from '../hooks/useNotifications'
+import { listenNotifications, markNotificationRead } from '../firebase/services'
 import toast from 'react-hot-toast'
 
 const STATUS_NEXT  = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
@@ -40,6 +42,20 @@ export default function VendorApp() {
 
   const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
 
+  // Setup FCM notifications for vendor
+  useNotifications(user?.uid, 'vendor')
+
+  // Listen Firestore notifications
+  useEffect(() => {
+    if (!user) return
+    return listenNotifications(user.uid, (notifs) => {
+      notifs.forEach(n => {
+        toast(n.body, { icon: '🔔', duration: 6000 })
+        markNotificationRead(n.id)
+      })
+    })
+  }, [user])
+
   useEffect(() => {
     if (!user) return
     setIsOpen(userData?.isOpen || false)
@@ -57,10 +73,10 @@ export default function VendorApp() {
     toast.success(val ? '🟢 Store is now Open!' : '🔴 Store is now Closed')
   }
 
-  const handleStatus = async (orderId, current) => {
+  const handleStatus = async (orderId, current, orderData = {}) => {
     const next = STATUS_NEXT[current]
     if (!next) return
-    await updateOrderStatus(orderId, next)
+    await updateOrderStatus(orderId, next, orderData)
     toast.success(`Order → ${next.replace('_',' ')}`)
   }
 

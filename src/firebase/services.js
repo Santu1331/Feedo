@@ -11,16 +11,10 @@ import { initializeApp } from 'firebase/app'
 import { auth, db } from './config'
 
 // ── CLOUDINARY CONFIG ─────────────────────────────────────────────────────
-const CLOUDINARY_CLOUD = 'dqlwojavr'
+const CLOUDINARY_CLOUD  = 'dqlwojavr'
 const CLOUDINARY_PRESET = 'feedozone'
-const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`
+const CLOUDINARY_URL    = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`
 
-/**
- * Upload image to Cloudinary (free, no Firebase Storage needed)
- * @param {File} file
- * @param {function} onProgress - optional callback(percent)
- * @returns {Promise<string>} secure image URL
- */
 export const uploadPhoto = (file, onProgress) => {
   return new Promise((resolve, reject) => {
     const formData = new FormData()
@@ -30,30 +24,18 @@ export const uploadPhoto = (file, onProgress) => {
 
     const xhr = new XMLHttpRequest()
     xhr.open('POST', CLOUDINARY_URL)
-
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && onProgress) {
-        onProgress(Math.round((e.loaded / e.total) * 100))
-      }
+      if (e.lengthComputable && onProgress) onProgress(Math.round(e.loaded / e.total * 100))
     }
-
     xhr.onload = () => {
-      if (xhr.status === 200) {
-        const res = JSON.parse(xhr.responseText)
-        resolve(res.secure_url)
-      } else {
-        reject(new Error('Cloudinary upload failed: ' + xhr.responseText))
-      }
+      if (xhr.status === 200) resolve(JSON.parse(xhr.responseText).secure_url)
+      else reject(new Error('Upload failed'))
     }
-
-    xhr.onerror = () => reject(new Error('Network error during upload'))
+    xhr.onerror = () => reject(new Error('Network error'))
     xhr.send(formData)
   })
 }
 
-/**
- * Upload vendor store photo → save URL to Firestore
- */
 export const uploadVendorPhoto = async (vendorUid, file, type = 'photo', onProgress) => {
   const url = await uploadPhoto(file, onProgress)
   await updateDoc(doc(db, 'vendors', vendorUid), { [type]: url })
@@ -61,22 +43,96 @@ export const uploadVendorPhoto = async (vendorUid, file, type = 'photo', onProgr
   return url
 }
 
-/**
- * Upload menu item photo → save URL to Firestore
- */
 export const uploadMenuItemPhoto = async (vendorUid, itemId, file, onProgress) => {
   const url = await uploadPhoto(file, onProgress)
   await updateDoc(doc(db, 'vendors', vendorUid, 'menu', itemId), { photo: url })
   return url
 }
 
+// ── LOCATION UTILS ────────────────────────────────────────────────────────
+/**
+ * Get user's GPS location
+ * @returns {Promise<{lat, lng}>}
+ */
+export const getUserLocation = () => {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Geolocation not supported'))
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => reject(err),
+      { timeout: 10000, enableHighAccuracy: true }
+    )
+  })
+}
+
+/**
+ * Calculate distance between two coordinates in km (Haversine formula)
+ */
+export const getDistance = (lat1, lng1, lat2, lng2) => {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
+    Math.sin(dLng/2) * Math.sin(dLng/2)
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+}
+
+/**
+ * Save user's location to Firestore
+ */
+export const saveUserLocation = async (uid, lat, lng) => {
+  await updateDoc(doc(db, 'users', uid), { location: { lat, lng } })
+}
+
+// ── FCM NOTIFICATION ──────────────────────────────────────────────────────
+/**
+ * Send notification to a specific FCM token via Firebase Cloud Messaging HTTP v1
+ * NOTE: For production, this should be called from a backend/Cloud Function.
+ * For now we use Firestore trigger approach — write to 'notifications' collection
+ * and a Cloud Function sends the actual FCM message.
+ * 
+ * Simpler approach: write notification doc to Firestore,
+ * recipient reads it via onSnapshot and shows toast.
+ */
+export const sendNotification = async (toUid, { title, body, data = {} }) => {
+  try {
+    await addDoc(collection(db, 'notifications'), {
+      toUid,
+      title,
+      body,
+      data,
+      read: false,
+      createdAt: serverTimestamp()
+    })
+  } catch (err) {
+    console.error('Notification send error:', err)
+  }
+}
+
+/**
+ * Listen for notifications for a user
+ */
+export const listenNotifications = (uid, callback) =>
+  onSnapshot(
+    query(collection(db, 'notifications'), where('toUid', '==', uid), where('read', '==', false)),
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    err => console.error('Notifications error:', err)
+  )
+
+/**
+ * Mark notification as read
+ */
+export const markNotificationRead = (notifId) =>
+  updateDoc(doc(db, 'notifications', notifId), { read: true })
+
 // ── AUTH ──────────────────────────────────────────────────────────────────
-export const loginUser = (email, password) =>
-  signInWithEmailAndPassword(auth, email, password)
-
-export const logoutUser = () => signOut(auth)
-
-export const getUserRole = async (uid) => {
+export const loginUser    = (email, password) => signInWithEmailAndPassword(auth, email, password)
+export const logoutUser   = () => signOut(auth)
+export const getUserRole  = async (uid) => {
   const snap = await getDoc(doc(db, 'users', uid))
   return snap.exists() ? snap.data() : null
 }
@@ -84,37 +140,21 @@ export const getUserRole = async (uid) => {
 // ── FOUNDER: CREATE VENDOR ────────────────────────────────────────────────
 export const founderCreateVendor = async (founderUid, vendorData) => {
   const { email, password, storeName, address, phone, plan, category } = vendorData
-
-  const currentApp = auth.app
-  const config = currentApp.options
-  const secondaryApp = initializeApp(config, 'secondary-' + Date.now())
+  const secondaryApp  = initializeApp(auth.app.options, 'secondary-' + Date.now())
   const secondaryAuth = getAuth(secondaryApp)
-
   const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password)
   const vendorUid = cred.user.uid
   await updateProfile(cred.user, { displayName: storeName })
   await signOut(secondaryAuth)
 
   const vendorDoc = {
-    uid: vendorUid,
-    role: 'vendor',
-    email,
-    storeName,
-    address: address || '',
-    phone: phone || '',
-    plan: plan || '₹500/month',
-    category: category || 'Thali',
-    isOpen: false,
-    prepTime: 20,
-    subscriptionStatus: 'active',
-    rating: 4.5,
-    totalOrders: 0,
-    photo: '',
-    banner: '',
-    createdBy: founderUid,
-    createdAt: serverTimestamp()
+    uid: vendorUid, role: 'vendor', email, storeName,
+    address: address || '', phone: phone || '',
+    plan: plan || '₹500/month', category: category || 'Thali',
+    isOpen: false, prepTime: 20, subscriptionStatus: 'active',
+    rating: 4.5, totalOrders: 0, photo: '', banner: '',
+    createdBy: founderUid, createdAt: serverTimestamp()
   }
-
   await setDoc(doc(db, 'users', vendorUid), vendorDoc)
   await setDoc(doc(db, 'vendors', vendorUid), vendorDoc)
   return vendorUid
@@ -122,10 +162,9 @@ export const founderCreateVendor = async (founderUid, vendorData) => {
 
 // ── VENDORS ───────────────────────────────────────────────────────────────
 export const getAllVendors = (callback) =>
-  onSnapshot(
-    collection(db, 'vendors'),
-    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-    (err) => { console.error('Vendors error:', err.code); callback([]) }
+  onSnapshot(collection(db, 'vendors'),
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    err => { console.error('Vendors error:', err.code); callback([]) }
   )
 
 export const updateVendorStore = async (uid, data) => {
@@ -135,8 +174,7 @@ export const updateVendorStore = async (uid, data) => {
 
 // ── MENU ──────────────────────────────────────────────────────────────────
 export const getMenuItems = (vendorUid, callback) =>
-  onSnapshot(
-    collection(db, 'vendors', vendorUid, 'menu'),
+  onSnapshot(collection(db, 'vendors', vendorUid, 'menu'),
     snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
     err => { console.error('Menu error:', err.code); callback([]) }
   )
@@ -153,17 +191,25 @@ export const deleteMenuItem = (vendorUid, itemId) =>
   deleteDoc(doc(db, 'vendors', vendorUid, 'menu', itemId))
 
 // ── ORDERS ────────────────────────────────────────────────────────────────
-export const placeOrder = (orderData) =>
-  addDoc(collection(db, 'orders'), {
+export const placeOrder = async (orderData) => {
+  const ref = await addDoc(collection(db, 'orders'), {
     ...orderData, status: 'pending', createdAt: serverTimestamp()
   })
+  // Notify vendor about new order
+  await sendNotification(orderData.vendorUid, {
+    title: '🔔 New Order!',
+    body: `${orderData.userName} ordered ₹${orderData.total} — ${orderData.items?.map(i=>`${i.qty}x ${i.name}`).join(', ')}`,
+    data: { orderId: ref.id, type: 'new_order' }
+  })
+  return ref
+}
 
 export const getVendorOrders = (vendorUid, callback) =>
   onSnapshot(
     query(collection(db, 'orders'), where('vendorUid', '==', vendorUid)),
     snap => {
       const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      orders.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+      orders.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
       callback(orders)
     },
     err => { console.error('Vendor orders error:', err.code); callback([]) }
@@ -174,24 +220,38 @@ export const getUserOrders = (userUid, callback) =>
     query(collection(db, 'orders'), where('userUid', '==', userUid)),
     snap => {
       const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      orders.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+      orders.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
       callback(orders)
     },
     err => { console.error('User orders error:', err.code); callback([]) }
   )
 
 export const getAllOrders = (callback) =>
-  onSnapshot(
-    collection(db, 'orders'),
+  onSnapshot(collection(db, 'orders'),
     snap => {
       const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      orders.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+      orders.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
       callback(orders)
     },
     err => { console.error('All orders error:', err.code); callback([]) }
   )
 
-export const updateOrderStatus = (orderId, status) =>
-  updateDoc(doc(db, 'orders', orderId), {
-    status, updatedAt: serverTimestamp()
-  })
+export const updateOrderStatus = async (orderId, status, orderData = {}) => {
+  await updateDoc(doc(db, 'orders', orderId), { status, updatedAt: serverTimestamp() })
+
+  // Notify user about status change
+  if (orderData.userUid) {
+    const statusMessages = {
+      accepted:         { title: '✅ Order Accepted!',       body: `${orderData.vendorName} accepted your order` },
+      preparing:        { title: '👨‍🍳 Preparing Your Order', body: `${orderData.vendorName} is preparing your food` },
+      ready:            { title: '🎉 Order Ready!',           body: 'Your order is ready for delivery' },
+      out_for_delivery: { title: '🚴 Out for Delivery!',      body: 'Your order is on the way!' },
+      delivered:        { title: '✅ Order Delivered!',       body: `Enjoy your meal! Rate ${orderData.vendorName}` },
+      cancelled:        { title: '❌ Order Cancelled',        body: 'Your order was cancelled' },
+    }
+    const msg = statusMessages[status]
+    if (msg) {
+      await sendNotification(orderData.userUid, { ...msg, data: { orderId, type: 'order_status' } })
+    }
+  }
+}
