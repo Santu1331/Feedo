@@ -176,6 +176,11 @@ export const founderCreateVendor = async (founderUid, vendorData) => {
     rating: 4.5, totalOrders: 0, photo: '', banner: '',
     location: vendorData.location || null,
     locationName: vendorData.locationName || '',
+    deliveryCharge: vendorData.deliveryCharge ?? 30,
+    deliveryCharge: vendorData.deliveryCharge ?? 30,
+    fssai: vendorData.fssai || '',
+    openTime: vendorData.openTime || '',
+    closeTime: vendorData.closeTime || '',
     createdBy: founderUid, createdAt: serverTimestamp()
   }
   await setDoc(doc(db, 'users', vendorUid), vendorDoc)

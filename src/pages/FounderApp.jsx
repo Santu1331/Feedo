@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { logoutUser, getAllOrders, getAllVendors, founderCreateVendor, uploadPhoto, updateVendorStore } from '../firebase/services'
+import { doc, deleteDoc } from 'firebase/firestore'
+import { db } from '../firebase/config'
 import toast from 'react-hot-toast'
 
 export default function FounderApp() {
@@ -11,8 +13,10 @@ export default function FounderApp() {
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({
     storeName:'', email:'', phone:'', password:'',
-    confirmPass:'', address:'', category:'Thali', plan:'₹500/month'
+    confirmPass:'', address:'', category:'Thali', plan:'₹500/month', deliveryCharge:'30'
   })
+  const [selectedOrder, setSelectedOrder] = useState(null) // order details modal
+  const [analyticsTab, setAnalyticsTab] = useState('items') // most ordered
 
   // Photo states
   const [vendorPhotoFile, setVendorPhotoFile] = useState(null)
@@ -114,7 +118,7 @@ export default function FounderApp() {
     setCreating(true)
     try {
       // Step 1: Create vendor account
-      const vendorUid = await founderCreateVendor(user.uid, { email, password, storeName, address, phone, plan, category, location: newVendorLoc, locationName: newVendorLocName })
+      const vendorUid = await founderCreateVendor(user.uid, { email, password, storeName, address, phone, plan, category, location: newVendorLoc, locationName: newVendorLocName, deliveryCharge: Number(form.deliveryCharge) || 30 })
 
       // Step 2: Upload photo if selected
       if (vendorPhotoFile && vendorUid) {
@@ -124,7 +128,7 @@ export default function FounderApp() {
       }
 
       toast.success(`✅ Vendor "${storeName}" created!`)
-      setForm({ storeName:'', email:'', phone:'', password:'', confirmPass:'', address:'', category:'Thali', plan:'₹500/month' })
+      setForm({ storeName:'', email:'', phone:'', password:'', confirmPass:'', address:'', category:'Thali', plan:'₹500/month', deliveryCharge:'30' })
       setVendorPhotoFile(null)
       setVendorPhotoPreview(null)
       setPhotoProgress(0)
@@ -162,6 +166,33 @@ export default function FounderApp() {
     e.target.value = ''
   }
 
+  // ── DELETE VENDOR ────────────────────────────────────────────────────────
+  const handleDeleteVendor = async (vendorId, vendorName) => {
+    if (!window.confirm(`Delete "${vendorName}"? This cannot be undone!`)) return
+    try {
+      await deleteDoc(doc(db, 'vendors', vendorId))
+      await deleteDoc(doc(db, 'users', vendorId))
+      toast.success(`"${vendorName}" deleted!`)
+    } catch (err) {
+      toast.error('Delete failed: ' + err.message)
+    }
+  }
+
+  // ── MOST ORDERED ITEMS ────────────────────────────────────────────────────
+  const getMostOrdered = () => {
+    const counts = {}
+    orders.forEach(o => {
+      o.items?.forEach(item => {
+        const key = item.name
+        counts[key] = (counts[key] || 0) + item.qty
+      })
+    })
+    return Object.entries(counts)
+      .sort((a,b) => b[1]-a[1])
+      .slice(0, 10)
+      .map(([name, qty]) => ({ name, qty }))
+  }
+
   const inp = {
     width:'100%', padding:'11px 13px',
     borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb',
@@ -189,7 +220,8 @@ export default function FounderApp() {
           { id:'overview',  label:'Overview' },
           { id:'orders',    label:`Orders (${todayOrders.length})` },
           { id:'vendors',   label:`Vendors (${vendors.length})` },
-          { id:'addvendor', label:'+ Add Vendor' }
+          { id:'addvendor', label:'+ Add Vendor' },
+          { id:'analytics', label:'📊 Analytics' }
         ].map(t2 => (
           <button key={t2.id} onClick={() => setTab(t2.id)} style={{
             flexShrink:0, padding:'11px 14px', fontSize:12, fontWeight:500,
@@ -233,22 +265,78 @@ export default function FounderApp() {
         {/* ── ORDERS ── */}
         {tab==='orders' && (
           <>
-            <div style={{ fontSize:12, color:'#6b7280', marginBottom:10 }}>All orders · live</div>
+            {/* Order detail modal */}
+            {selectedOrder && (
+              <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+                onClick={e => { if(e.target===e.currentTarget) setSelectedOrder(null) }}>
+                <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', padding:20, width:'100%', maxWidth:430, maxHeight:'80vh', overflowY:'auto' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+                    <div style={{ fontSize:15, fontWeight:700 }}>Order Details</div>
+                    <button onClick={() => setSelectedOrder(null)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer' }}>✕</button>
+                  </div>
+                  <div style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:12 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>Customer</span>
+                      <span style={{ fontSize:12, fontWeight:600 }}>{selectedOrder.userName}</span>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>Phone</span>
+                      <span style={{ fontSize:12, fontWeight:600 }}>{selectedOrder.userPhone || '—'}</span>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>Vendor</span>
+                      <span style={{ fontSize:12, fontWeight:600 }}>{selectedOrder.vendorName}</span>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>Address</span>
+                      <span style={{ fontSize:12, fontWeight:600, maxWidth:180, textAlign:'right' }}>{selectedOrder.address || '—'}</span>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>Date</span>
+                      <span style={{ fontSize:12 }}>{selectedOrder.createdAt?.toDate?.()?.toLocaleString('en-IN') || '—'}</span>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between' }}>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>Status</span>
+                      <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:8,
+                        background: selectedOrder.status==='delivered'?'#d1fae5':selectedOrder.status==='cancelled'?'#fee2e2':'#fef3c7',
+                        color: selectedOrder.status==='delivered'?'#065f46':selectedOrder.status==='cancelled'?'#991b1b':'#92400e'
+                      }}>{selectedOrder.status?.replace('_',' ')}</span>
+                    </div>
+                  </div>
+                  <div style={{ fontSize:12, fontWeight:600, color:'#6b7280', marginBottom:8, textTransform:'uppercase' }}>Items Ordered</div>
+                  {selectedOrder.items?.map((item, i) => (
+                    <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+                      <span style={{ fontSize:13 }}>{item.qty}x {item.name}</span>
+                      <span style={{ fontSize:13, fontWeight:600 }}>₹{item.price * item.qty}</span>
+                    </div>
+                  ))}
+                  <div style={{ display:'flex', justifyContent:'space-between', marginTop:10, paddingTop:10, borderTopWidth:2, borderTopStyle:'solid', borderTopColor:'#e5e7eb' }}>
+                    <span style={{ fontSize:14, fontWeight:700 }}>Total</span>
+                    <span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{selectedOrder.total}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{ fontSize:12, color:'#6b7280', marginBottom:10 }}>All orders · live · tap for details</div>
             {orders.length===0 && <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>No orders yet</div>}
             {orders.slice(0,50).map(o => (
-              <div key={o.id} style={{ display:'flex', gap:8, alignItems:'center', padding:'10px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+              <div key={o.id} onClick={() => setSelectedOrder(o)} style={{ display:'flex', gap:8, alignItems:'center', padding:'10px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', cursor:'pointer' }}>
                 <div style={{ fontSize:11, color:'#9ca3af', minWidth:42 }}>
                   {o.createdAt?.toDate?.()?.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})||'--'}
                 </div>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:12, fontWeight:600 }}>{o.userName}</div>
-                  <div style={{ fontSize:11, color:'#6b7280' }}>{o.vendorName}</div>
+                  <div style={{ fontSize:11, color:'#6b7280' }}>{o.vendorName} · {o.items?.length} item(s)</div>
+                  {o.address && <div style={{ fontSize:10, color:'#9ca3af', marginTop:1 }}>📍 {o.address?.slice(0,35)}{o.address?.length>35?'...':''}</div>}
                 </div>
-                <div style={{ fontSize:13, fontWeight:600, minWidth:48, textAlign:'right' }}>₹{o.total}</div>
-                <span style={{ fontSize:9, fontWeight:600, padding:'2px 7px', borderRadius:8, minWidth:55, textAlign:'center',
-                  background: o.status==='delivered'?'#d1fae5':o.status==='cancelled'?'#fee2e2':o.status==='preparing'?'#dbeafe':'#fef3c7',
-                  color: o.status==='delivered'?'#065f46':o.status==='cancelled'?'#991b1b':o.status==='preparing'?'#1e40af':'#92400e'
-                }}>{o.status?.replace('_',' ')}</span>
+                <div style={{ textAlign:'right' }}>
+                  <div style={{ fontSize:13, fontWeight:600 }}>₹{o.total}</div>
+                  <span style={{ fontSize:9, fontWeight:600, padding:'2px 7px', borderRadius:8,
+                    background: o.status==='delivered'?'#d1fae5':o.status==='cancelled'?'#fee2e2':o.status==='preparing'?'#dbeafe':'#fef3c7',
+                    color: o.status==='delivered'?'#065f46':o.status==='cancelled'?'#991b1b':o.status==='preparing'?'#1e40af':'#92400e'
+                  }}>{o.status?.replace('_',' ')}</span>
+                </div>
               </div>
             ))}
           </>
@@ -302,7 +390,8 @@ export default function FounderApp() {
                     }}>{v.subscriptionStatus==='active'?'Paid':'Due'}</span>
                   </div>
                   <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8 }}>{v.email} · {v.category}</div>
-                  <div style={{ display:'flex', gap:16 }}>
+                <div style={{ fontSize:11, color:'#6b7280', marginBottom:8 }}>🚴 Delivery: {v.deliveryCharge === 0 ? 'Free' : ('₹' + (v.deliveryCharge ?? 30))} · 📞 {v.phone || '—'}</div>
+                  <div style={{ display:'flex', gap:16, marginBottom:10 }}>
                     {[
                       { val: v.totalOrders||0,               lbl:'Orders' },
                       { val: `${v.onTimePercent||100}%`,     lbl:'On-time' },
@@ -315,9 +404,127 @@ export default function FounderApp() {
                       </div>
                     ))}
                   </div>
+                  <button
+                    onClick={() => handleDeleteVendor(v.id, v.storeName)}
+                    style={{ width:'100%', background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:8, padding:'8px 0', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
+                  >
+                    🗑️ Delete Vendor
+                  </button>
                 </div>
               </div>
             ))}
+          </>
+        )}
+
+        {/* ── ANALYTICS ── */}
+        {tab==='analytics' && (
+          <>
+            <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>📊 Analytics</div>
+
+            {/* Summary stats */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
+              {[
+                { label:'Total Orders',    val: orders.length, icon:'📦' },
+                { label:'Total Revenue',   val: '₹' + orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0).toLocaleString(), icon:'💰' },
+                { label:'Delivered',       val: orders.filter(o=>o.status==='delivered').length, icon:'✅' },
+                { label:'Cancelled',       val: orders.filter(o=>o.status==='cancelled').length, icon:'❌' },
+              ].map(s => (
+                <div key={s.label} style={{ background:'#f9fafb', borderRadius:10, padding:12 }}>
+                  <div style={{ fontSize:20, marginBottom:4 }}>{s.icon}</div>
+                  <div style={{ fontSize:20, fontWeight:700 }}>{s.val}</div>
+                  <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Tab switcher */}
+            <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+              {[['items','🍽️ Most Ordered'],['vendors','🏪 Top Vendors'],['users','👤 Top Users']].map(([id,label]) => (
+                <button key={id} onClick={() => setAnalyticsTab(id)} style={{ flex:1, padding:'8px 0', fontSize:11, fontWeight:600, borderRadius:8, border:'none', cursor:'pointer', fontFamily:'Poppins', background: analyticsTab===id?'#E24B4A':'#f3f4f6', color: analyticsTab===id?'#fff':'#6b7280' }}>{label}</button>
+              ))}
+            </div>
+
+            {/* Most ordered items */}
+            {analyticsTab==='items' && (
+              <div style={{ background:'#fff', borderRadius:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', overflow:'hidden' }}>
+                <div style={{ padding:'12px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', fontSize:12, fontWeight:600, color:'#6b7280' }}>TOP 10 MOST ORDERED ITEMS</div>
+                {getMostOrdered().length === 0 && <div style={{ padding:20, textAlign:'center', color:'#9ca3af', fontSize:13 }}>No orders yet</div>}
+                {getMostOrdered().map((item, i) => {
+                  const max = getMostOrdered()[0]?.qty || 1
+                  return (
+                    <div key={item.name} style={{ padding:'10px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                          <span style={{ fontSize:16, fontWeight:700, color:'#E24B4A', minWidth:22 }}>#{i+1}</span>
+                          <span style={{ fontSize:13, fontWeight:500 }}>{item.name}</span>
+                        </div>
+                        <span style={{ fontSize:12, fontWeight:700, color:'#E24B4A' }}>{item.qty} orders</span>
+                      </div>
+                      <div style={{ background:'#f3f4f6', borderRadius:4, height:6, overflow:'hidden' }}>
+                        <div style={{ height:'100%', background:'#E24B4A', width:((item.qty/max)*100)+'%', borderRadius:4 }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Top vendors by orders */}
+            {analyticsTab==='vendors' && (
+              <div style={{ background:'#fff', borderRadius:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', overflow:'hidden' }}>
+                <div style={{ padding:'12px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', fontSize:12, fontWeight:600, color:'#6b7280' }}>TOP VENDORS BY ORDERS</div>
+                {vendors.map(v => {
+                  const vOrders = orders.filter(o => o.vendorUid === v.id)
+                  const vRevenue = vOrders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0)
+                  return (
+                    <div key={v.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
+                      <div style={{ width:36, height:36, borderRadius:9, overflow:'hidden', background:'#fee2e2', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        {v.photo ? <img src={v.photo} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span>🏪</span>}
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, fontWeight:600 }}>{v.storeName}</div>
+                        <div style={{ fontSize:11, color:'#6b7280' }}>{vOrders.length} orders · ₹{vRevenue.toLocaleString()} revenue</div>
+                      </div>
+                      <div style={{ background: v.isOpen?'#dcfce7':'#fee2e2', borderRadius:20, padding:'3px 8px' }}>
+                        <span style={{ fontSize:10, fontWeight:600, color: v.isOpen?'#16a34a':'#dc2626' }}>{v.isOpen?'Open':'Closed'}</span>
+                      </div>
+                    </div>
+                  )
+                }).sort((a,b) => orders.filter(o=>o.vendorUid===b.key).length - orders.filter(o=>o.vendorUid===a.key).length)}
+              </div>
+            )}
+
+            {/* Top users */}
+            {analyticsTab==='users' && (
+              <div style={{ background:'#fff', borderRadius:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', overflow:'hidden' }}>
+                <div style={{ padding:'12px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', fontSize:12, fontWeight:600, color:'#6b7280' }}>TOP USERS BY ORDERS</div>
+                {(() => {
+                  const userMap = {}
+                  orders.forEach(o => {
+                    if (!userMap[o.userUid]) userMap[o.userUid] = { name: o.userName, phone: o.userPhone, count: 0, spent: 0 }
+                    userMap[o.userUid].count++
+                    if (o.status === 'delivered') userMap[o.userUid].spent += o.total || 0
+                  })
+                  return Object.values(userMap)
+                    .sort((a,b) => b.count - a.count)
+                    .slice(0,10)
+                    .map((u, i) => (
+                      <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
+                        <div style={{ width:34, height:34, borderRadius:'50%', background:'#E24B4A', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                          <span style={{ fontSize:14, fontWeight:700, color:'#fff' }}>#{i+1}</span>
+                        </div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:13, fontWeight:600 }}>{u.name}</div>
+                          <div style={{ fontSize:11, color:'#6b7280' }}>{u.phone || '—'} · ₹{u.spent.toLocaleString()} spent</div>
+                        </div>
+                        <div style={{ background:'#fef3c7', borderRadius:20, padding:'3px 10px' }}>
+                          <span style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>{u.count} orders</span>
+                        </div>
+                      </div>
+                    ))
+                })()}
+              </div>
+            )}
           </>
         )}
 
@@ -401,6 +608,12 @@ export default function FounderApp() {
                     <option>Free Trial</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Delivery Charge */}
+              <div>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🚴 Delivery Charge (₹)</label>
+                <input style={inp} type="number" placeholder="e.g. 30 (enter 0 for free)" {...f('deliveryCharge')} />
               </div>
 
               {/* Vendor Location */}
