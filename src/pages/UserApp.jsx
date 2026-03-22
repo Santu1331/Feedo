@@ -70,6 +70,42 @@ export default function UserApp() {
   // Setup FCM notifications
   useNotifications(user?.uid, 'user')
 
+  // ── ANDROID BACK BUTTON HANDLER ──────────────────────────────────────────
+  useEffect(() => {
+    // Push state so back button doesn't exit app
+    window.history.pushState({ tab }, '', window.location.href)
+
+    const handlePopState = (e) => {
+      // Prevent app close — handle navigation internally
+      if (tab === 'vendor-menu') {
+        setTab('home')
+        setSearchQuery('')
+      } else if (tab === 'cart') {
+        setTab('home')
+      } else if (showCheckout) {
+        setShowCheckout(false)
+      } else if (showVendorInfo) {
+        setShowVendorInfo(false)
+      } else if (showLocationPicker) {
+        setShowLocationPicker(false)
+      } else if (orderSuccess) {
+        setOrderSuccess(null)
+        setTab('orders')
+      } else if (tab !== 'home') {
+        setTab('home')
+      } else {
+        // On home — push state again to prevent exit
+        window.history.pushState({ tab: 'home' }, '', window.location.href)
+        return
+      }
+      // Re-push state after handling back
+      window.history.pushState({ tab }, '', window.location.href)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [tab, showCheckout, showVendorInfo, showLocationPicker, orderSuccess])
+
   useEffect(() => { return getAllVendors(setVendors) }, [])
   useEffect(() => { if (!user) return; return getUserOrders(user.uid, setOrders) }, [user])
   useEffect(() => { if (!selectedVendor) return; return getMenuItems(selectedVendor.id, setMenuItems) }, [selectedVendor])
