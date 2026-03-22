@@ -46,6 +46,7 @@ export default function UserApp() {
   const [notifications, setNotifications] = useState([])
   const [showNotifs, setShowNotifs] = useState(false)
   const [orderSuccess, setOrderSuccess] = useState(null) // stores placed order info
+  const [showVendorInfo, setShowVendorInfo] = useState(false) // vendor info bottom sheet
 
   // Location states
   const [userLat, setUserLat] = useState(null)
@@ -178,6 +179,7 @@ export default function UserApp() {
 
   const cartTotal = cart.reduce((s,c) => s + c.price*c.qty, 0)
   const cartCount = cart.reduce((s,c) => s + c.qty, 0)
+  const deliveryFee = cartVendor?.deliveryCharge ?? 30
 
   const handlePlaceOrder = async () => {
     if (!deliveryName.trim()) return toast.error('Enter your name')
@@ -466,7 +468,7 @@ export default function UserApp() {
                     <div style={{ fontSize:12, color:'#6b7280', marginTop:3 }}>{v.category}</div>
                     <div style={{ display:'flex', gap:12, marginTop:8 }}>
                       <span style={{ fontSize:12, color:'#6b7280' }}>🕐 {v.prepTime||20}-{(v.prepTime||20)+15} min</span>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>₹30 delivery</span>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>{v.deliveryCharge === 0 ? '🎉 Free delivery' : ('₹' + (v.deliveryCharge ?? 30) + ' delivery')}</span>
                     </div>
                     {v.address && <div style={{ fontSize:11, color:'#9ca3af', marginTop:5 }}>📍 {v.address}</div>}
                   </div>
@@ -492,7 +494,7 @@ export default function UserApp() {
             </div>
             <div style={{ padding:'10px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', gap:16 }}>
               <span style={{ fontSize:12, color:'#6b7280' }}>🕐 {selectedVendor.prepTime||20}-{(selectedVendor.prepTime||20)+15} min</span>
-              <span style={{ fontSize:12, color:'#6b7280' }}>₹30 delivery</span>
+              <span style={{ fontSize:12, color:'#6b7280' }}>{selectedVendor.deliveryCharge === 0 ? '🎉 Free delivery' : ('₹' + (selectedVendor.deliveryCharge ?? 30) + ' delivery')}</span>
               {selectedVendor.distance !== null && userLat && (
                 <span style={{ fontSize:12, color:'#16a34a' }}>📍 {selectedVendor.distance < 1 ? `${Math.round(selectedVendor.distance*1000)}m away` : `${selectedVendor.distance?.toFixed(1)}km away`}</span>
               )}
@@ -535,6 +537,105 @@ export default function UserApp() {
                 )
               })}
             </div>
+
+            {/* ── VENDOR INFO — Zomato/Swiggy Professional Style ── */}
+            <div style={{ margin:'20px 0 100px', background:'#fff' }}>
+
+              {/* Section header */}
+              <div style={{ padding:'0 16px 12px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', letterSpacing:0.2 }}>Restaurant Info</div>
+              </div>
+
+              {/* Stats row */}
+              <div style={{ display:'flex', padding:'14px 16px', gap:12, borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+                <div style={{ flex:1, textAlign:'center', padding:'10px 8px', background:'#f9fafb', borderRadius:10 }}>
+                  <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>⭐ {selectedVendor.rating || 4.5}</div>
+                  <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>Rating</div>
+                </div>
+                <div style={{ flex:1, textAlign:'center', padding:'10px 8px', background:'#f9fafb', borderRadius:10 }}>
+                  <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>{selectedVendor.prepTime || 20}–{(selectedVendor.prepTime || 20)+15}</div>
+                  <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>Min delivery</div>
+                </div>
+                <div style={{ flex:1, textAlign:'center', padding:'10px 8px', background:'#f9fafb', borderRadius:10 }}>
+                  <div style={{ fontSize:16, fontWeight:700, color: selectedVendor.deliveryCharge === 0 ? '#16a34a' : '#1f2937' }}>
+                    {selectedVendor.deliveryCharge === 0 ? 'FREE' : ('₹' + (selectedVendor.deliveryCharge ?? 30))}
+                  </div>
+                  <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>Delivery</div>
+                </div>
+                <div style={{ flex:1, textAlign:'center', padding:'10px 8px', background:'#f9fafb', borderRadius:10 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color: selectedVendor.isOpen ? '#16a34a' : '#dc2626' }}>
+                    {selectedVendor.isOpen ? 'Open' : 'Closed'}
+                  </div>
+                  <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>Status</div>
+                </div>
+              </div>
+
+              {/* Address */}
+              {selectedVendor.address && (
+                <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'flex-start' }}>
+                  <div style={{ width:38, height:38, borderRadius:10, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    <span style={{ fontSize:17 }}>📍</span>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginBottom:3, fontWeight:500 }}>ADDRESS</div>
+                    <div style={{ fontSize:13, color:'#1f2937', fontWeight:500, lineHeight:1.4 }}>{selectedVendor.address}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Hours */}
+              {selectedVendor.openTime && selectedVendor.closeTime && (
+                <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'center' }}>
+                  <div style={{ width:38, height:38, borderRadius:10, background:'#eff6ff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    <span style={{ fontSize:17 }}>🕐</span>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginBottom:3, fontWeight:500 }}>OPENING HOURS</div>
+                    <div style={{ fontSize:13, color:'#1f2937', fontWeight:500 }}>{selectedVendor.openTime} – {selectedVendor.closeTime}</div>
+                  </div>
+                  <div style={{ background: selectedVendor.isOpen ? '#dcfce7' : '#fee2e2', borderRadius:20, padding:'4px 10px' }}>
+                    <span style={{ fontSize:11, fontWeight:600, color: selectedVendor.isOpen ? '#16a34a' : '#dc2626' }}>
+                      {selectedVendor.isOpen ? 'Open Now' : 'Closed'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* FSSAI */}
+              {selectedVendor.fssai && (
+                <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'center' }}>
+                  <div style={{ width:38, height:38, borderRadius:10, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    <span style={{ fontSize:17 }}>🏛️</span>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginBottom:3, fontWeight:500 }}>FSSAI LICENCE</div>
+                    <div style={{ fontSize:13, color:'#1f2937', fontWeight:500 }}>{selectedVendor.fssai}</div>
+                  </div>
+                  <div style={{ background:'#dcfce7', borderRadius:20, padding:'4px 10px' }}>
+                    <span style={{ fontSize:11, fontWeight:600, color:'#16a34a' }}>✓ Verified</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Phone + Call */}
+              {selectedVendor.phone && (
+                <div style={{ display:'flex', gap:14, padding:'14px 16px', alignItems:'center' }}>
+                  <div style={{ width:38, height:38, borderRadius:10, background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    <span style={{ fontSize:17 }}>📞</span>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginBottom:3, fontWeight:500 }}>CONTACT</div>
+                    <div style={{ fontSize:13, color:'#1f2937', fontWeight:500 }}>+91 {selectedVendor.phone}</div>
+                  </div>
+                  <button
+                    onClick={() => callVendor(selectedVendor.phone)}
+                    style={{ background:'#E24B4A', color:'#fff', border:'none', borderRadius:20, padding:'8px 18px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:5 }}
+                  >
+                    📞 Call
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -561,11 +662,11 @@ export default function UserApp() {
               <>
                 <div style={{ background:'#f9fafb', borderRadius:10, padding:12, margin:'12px 0' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee</span><span style={{ fontSize:12 }}>₹30</span></div>
-                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:600 }}>Total</span><span style={{ fontSize:14, fontWeight:600 }}>₹{cartTotal+30}</span></div>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee</span><span style={{ fontSize:12 }}>{deliveryFee === 0 ? 'Free 🎉' : ('₹' + deliveryFee)}</span></div>
+                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:600 }}>Total</span><span style={{ fontSize:14, fontWeight:600 }}>{'₹' + (cartTotal + deliveryFee)}</span></div>
                 </div>
                 <button onClick={() => setShowCheckout(true)} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
-                  Proceed to Checkout · ₹{cartTotal+30}
+                  {'Proceed to Checkout · ₹' + (cartTotal + deliveryFee)}
                 </button>
               </>
             )}
@@ -597,11 +698,11 @@ export default function UserApp() {
                 </div>
                 <div style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:12 }}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}><span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee</span><span style={{ fontSize:12 }}>₹30</span></div>
-                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:700 }}>Total</span><span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{cartTotal+30}</span></div>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}><span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee</span><span style={{ fontSize:12 }}>{deliveryFee === 0 ? 'Free 🎉' : ('₹' + deliveryFee)}</span></div>
+                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:700 }}>Total</span><span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>{'₹' + (cartTotal + deliveryFee)}</span></div>
                 </div>
                 <div style={{ background:'#fef3c7', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#78350f', marginBottom:12 }}>💵 Payment: <strong>Cash on Delivery (COD)</strong></div>
-                <button onClick={handlePlaceOrder} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:8 }}>🎉 Place Order · ₹{cartTotal+30}</button>
+                <button onClick={handlePlaceOrder} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:8 }}>{'🎉 Place Order · ₹' + (cartTotal + deliveryFee)}</button>
                 <button onClick={() => setShowCheckout(false)} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:11, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>← Back to Cart</button>
               </div>
             )}
