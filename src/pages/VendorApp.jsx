@@ -28,6 +28,13 @@ export default function VendorApp() {
   const [newCatInput, setNewCatInput] = useState('')
   const [showAddCat, setShowAddCat] = useState(false)
 
+  // Store details states
+  const [deliveryCharge, setDeliveryCharge] = useState('')
+  const [fssai, setFssai] = useState('')
+  const [openTime, setOpenTime] = useState('')
+  const [closeTime, setCloseTime] = useState('')
+  const [savingDetails, setSavingDetails] = useState(false)
+
   // Photo states
   const [vendorPhotoUploading, setVendorPhotoUploading] = useState(false)
   const [vendorPhotoProgress, setVendorPhotoProgress] = useState(0)
@@ -69,6 +76,10 @@ export default function VendorApp() {
     setIsOpen(userData?.isOpen || false)
     // Load saved custom categories from userData
     if (userData?.customCategories) setCustomCategories(userData.customCategories)
+    if (userData?.deliveryCharge !== undefined) setDeliveryCharge(String(userData.deliveryCharge || ''))
+    if (userData?.fssai) setFssai(userData.fssai)
+    if (userData?.openTime) setOpenTime(userData.openTime)
+    if (userData?.closeTime) setCloseTime(userData.closeTime)
     if (userData?.location) {
       setVendorLocation(userData.location)
       setLocationName(userData.locationName || '')
@@ -133,6 +144,21 @@ export default function VendorApp() {
     toast.success(`📍 Location set: ${name}`)
     setLocationSearch("")
     setLocationSuggestions([])
+  }
+
+  // ── SAVE STORE DETAILS ───────────────────────────────────────────────────
+  const handleSaveDetails = async () => {
+    setSavingDetails(true)
+    try {
+      await updateVendorStore(user.uid, {
+        deliveryCharge: Number(deliveryCharge) || 0,
+        fssai: fssai.trim(),
+        openTime: openTime.trim(),
+        closeTime: closeTime.trim(),
+      })
+      toast.success('Store details saved! ✅')
+    } catch { toast.error('Failed to save. Try again.') }
+    setSavingDetails(false)
   }
 
   const toggleStore = async () => {
@@ -733,6 +759,63 @@ export default function VendorApp() {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* ── Delivery Charge + FSSAI + Hours ── */}
+            <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
+              <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>🏪 Store Details</div>
+
+              {/* Delivery Charge */}
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🚴 Delivery Charge (₹)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 20 (0 for free delivery)"
+                  value={deliveryCharge}
+                  onChange={e => setDeliveryCharge(e.target.value)}
+                  style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }}
+                />
+              </div>
+
+              {/* FSSAI */}
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>📋 FSSAI Licence Number</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 10012345000123"
+                  value={fssai}
+                  onChange={e => setFssai(e.target.value)}
+                  style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }}
+                />
+              </div>
+
+              {/* Opening Hours */}
+              <div style={{ marginBottom:12 }}>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🕐 Opening Hours</label>
+                <div style={{ display:'flex', gap:8, marginTop:4, alignItems:'center' }}>
+                  <input
+                    type="time"
+                    value={openTime}
+                    onChange={e => setOpenTime(e.target.value)}
+                    style={{ flex:1, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none' }}
+                  />
+                  <span style={{ fontSize:12, color:'#6b7280' }}>to</span>
+                  <input
+                    type="time"
+                    value={closeTime}
+                    onChange={e => setCloseTime(e.target.value)}
+                    style={{ flex:1, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none' }}
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={handleSaveDetails}
+                disabled={savingDetails}
+                style={{ width:'100%', background: savingDetails?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
+              >
+                {savingDetails ? 'Saving...' : '💾 Save Store Details'}
+              </button>
             </div>
 
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>
