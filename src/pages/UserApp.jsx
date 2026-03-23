@@ -249,17 +249,20 @@ export default function UserApp() {
     if (!deliveryAddress.trim() && !deliveryHostel.trim()) return toast.error('Enter delivery address')
     try {
       const fullAddress = [deliveryHostel.trim(), deliveryAddress.trim(), deliveryNote.trim() ? `Note: ${deliveryNote.trim()}` : ''].filter(Boolean).join(' · ')
-      await placeOrder({
-        userUid: user.uid,
-        userName: deliveryName.trim(),
-        userPhone: deliveryPhone.trim(),
-        userEmail: user.email,
-        vendorUid: cartVendor.id,
-        vendorName: cartVendor.storeName,
-        items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty })),
-        subtotal: cartTotal, deliveryFee: 30, total: cartTotal+30,
-        address: fullAddress, paymentMode: 'COD'
-      })
+    await placeOrder({
+  userUid: user.uid,
+  userName: deliveryName.trim(),
+  userPhone: deliveryPhone.trim(),
+  userEmail: user.email,
+  vendorUid: cartVendor.id,
+  vendorName: cartVendor.storeName,
+  items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty })),
+  subtotal: cartTotal,
+  deliveryFee: deliveryFee,   // ✅ FIXED
+  total: cartTotal + deliveryFee, // ✅ FIXED
+  address: fullAddress,
+  paymentMode: 'COD'
+})
       // Get vendor details for success page
       const vendorSnap = await import('firebase/firestore').then(({doc, getDoc}) =>
         getDoc(doc(db, 'vendors', cartVendor.id))
@@ -591,7 +594,7 @@ export default function UserApp() {
                     <div style={{ fontSize:12, color:'#6b7280', marginTop:3 }}>{v.category}</div>
                     <div style={{ display:'flex', gap:12, marginTop:8 }}>
                       <span style={{ fontSize:12, color:'#6b7280' }}>🕐 {v.prepTime||20}-{(v.prepTime||20)+15} min</span>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>{v.deliveryCharge === 0 ? '🎉 Free delivery' : ('₹' + (v.deliveryCharge ?? 30) + ' delivery')}</span>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>{v.deliveryCharge === 0 ? '🎉 Free delivery' : ('₹' + (v.deliveryCharge ?? 0) + ' delivery')}</span>
                     </div>
                     {v.address && <div style={{ fontSize:11, color:'#9ca3af', marginTop:5 }}>📍 {v.address}</div>}
                   </div>
