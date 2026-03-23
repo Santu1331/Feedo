@@ -19,7 +19,19 @@ export default function FounderApp() {
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [newOrderAlert, setNewOrderAlert] = useState(null)
   const prevOrderCountRef = useRef(0)
-  const { playNotifSound, startAlarm, stopAlarm } = useOrderAlert()
+  const { playNotifSound, startAlarm, stopAlarm, unlockAudio } = useOrderAlert()
+  const [audioUnlocked, setAudioUnlocked] = useState(false)
+
+  // Unlock audio on first click
+  useEffect(() => {
+    const unlock = () => { unlockAudio(); setAudioUnlocked(true) }
+    document.addEventListener('click', unlock, { once: true })
+    document.addEventListener('touchstart', unlock, { once: true })
+    return () => {
+      document.removeEventListener('click', unlock)
+      document.removeEventListener('touchstart', unlock)
+    }
+  }, [])
   const [analyticsTab, setAnalyticsTab] = useState('overview') // overview, items, vendors, users, monthly
   const [orderFilter, setOrderFilter] = useState('all') // all, delivered, cancelled, pending, preparing
   const [users, setUsers] = useState([]) // all users

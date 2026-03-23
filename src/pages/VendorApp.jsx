@@ -30,10 +30,25 @@ export default function VendorApp() {
   const [showAddCat, setShowAddCat] = useState(false)
 
   // Order alert states
-  const [newOrderAlert, setNewOrderAlert] = useState(null) // pending order for alert
+  const [newOrderAlert, setNewOrderAlert] = useState(null)
   const [alertDismissed, setAlertDismissed] = useState(false)
+  const [audioUnlocked, setAudioUnlocked] = useState(false)
   const prevOrderCountRef = useRef(0)
-  const { startAlarm, stopAlarm, playNotifSound } = useOrderAlert()
+  const { startAlarm, stopAlarm, playNotifSound, unlockAudio } = useOrderAlert()
+
+  // Unlock audio on first user interaction
+  useEffect(() => {
+    const unlock = () => {
+      unlockAudio()
+      setAudioUnlocked(true)
+    }
+    document.addEventListener('click', unlock, { once: true })
+    document.addEventListener('touchstart', unlock, { once: true })
+    return () => {
+      document.removeEventListener('click', unlock)
+      document.removeEventListener('touchstart', unlock)
+    }
+  }, [])
 
   // Store details states
   const [deliveryCharge, setDeliveryCharge] = useState('')
