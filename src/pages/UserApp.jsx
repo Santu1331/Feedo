@@ -555,12 +555,12 @@ export default function UserApp() {
             )}
 
             <div style={{ padding:'12px 16px 6px', fontSize:15, fontWeight:600, color:'#1f2937', display:'flex', alignItems:'center', gap:6 }}>
-              {searchQuery.trim() ? '🔍 Search Results' : t('Vendors Near You','तुमच्या जवळचे विक्रेते')}
+              {searchQuery.trim() ? '🔍 Search Results' : t('Restaurants Near You','तुमच्या जवळची रेस्टॉरंट')}
               {userLat && !searchQuery && <span style={{ fontSize:11, color:'#16a34a', fontWeight:400 }}>· sorted by distance</span>}
             </div>
 
             {filteredVendors.length===0 && !searchQuery && (
-              <div style={{ textAlign:'center', padding:40, color:'#9ca3af', fontSize:13 }}>No vendors available yet</div>
+              <div style={{ textAlign:'center', padding:40, color:'#9ca3af', fontSize:13 }}>No restaurants available yet</div>
             )}
 
             <div style={{ padding:'0 16px' }}>
@@ -947,7 +947,7 @@ export default function UserApp() {
           const o = selectedOrder
           const STEPS = [
             { key:'pending',          icon:'📋', label:'Order Placed',     sub:'Your order has been placed' },
-            { key:'accepted',         icon:'✅', label:'Order Accepted',   sub:'Vendor accepted your order' },
+            { key:'accepted',         icon:'✅', label:'Order Accepted',   sub:'Restaurant accepted your order' },
             { key:'preparing',        icon:'👨‍🍳', label:'Preparing',        sub:'Your food is being prepared' },
             { key:'ready',            icon:'🎉', label:'Ready',             sub:'Your order is ready!' },
             { key:'out_for_delivery', icon:'🚴', label:'Out for Delivery', sub:'On the way to you!' },
@@ -1082,7 +1082,7 @@ export default function UserApp() {
                       <button onClick={() => callVendor(o.vendorPhone)}
                         style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'11px 0', background:'#E24B4A', border:'none', borderRadius:10, cursor:'pointer', fontFamily:'Poppins' }}>
                         <span style={{ fontSize:16 }}>📞</span>
-                        <span style={{ fontSize:13, fontWeight:600, color:'#fff' }}>Call Vendor</span>
+                        <span style={{ fontSize:13, fontWeight:600, color:'#fff' }}>Call Restaurant</span>
                       </button>
                       <button onClick={() => notifyVendorWhatsApp(o.vendorPhone, { userName: o.userName, userPhone: o.userPhone || '', address: o.address, items: o.items, subtotal: o.subtotal, deliveryFee: o.deliveryFee, total: o.total })}
                         style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'11px 0', background:'#25D366', border:'none', borderRadius:10, cursor:'pointer', fontFamily:'Poppins' }}>

@@ -177,7 +177,6 @@ export const founderCreateVendor = async (founderUid, vendorData) => {
     location: vendorData.location || null,
     locationName: vendorData.locationName || '',
     deliveryCharge: vendorData.deliveryCharge ?? 30,
-    deliveryCharge: vendorData.deliveryCharge ?? 30,
     fssai: vendorData.fssai || '',
     openTime: vendorData.openTime || '',
     closeTime: vendorData.closeTime || '',
@@ -192,7 +191,7 @@ export const founderCreateVendor = async (founderUid, vendorData) => {
 export const getAllVendors = (callback) =>
   onSnapshot(collection(db, 'vendors'),
     snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-    err => { console.error('Vendors error:', err.code); callback([]) }
+    err => { console.error('Restaurants error:', err.code); callback([]) }
   )
 
 export const updateVendorStore = async (uid, data) => {
@@ -243,7 +242,7 @@ export const getVendorOrders = (vendorUid, callback) =>
       orders.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
       callback(orders)
     },
-    err => { console.error('Vendor orders error:', err.code); callback([]) }
+    err => { console.error('Restaurant orders error:', err.code); callback([]) }
   )
 
 export const getUserOrders = (userUid, callback) =>

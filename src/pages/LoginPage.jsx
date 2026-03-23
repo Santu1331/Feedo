@@ -40,7 +40,7 @@ export default function LoginPage() {
 
     if (wantsVendor) {
       window.open('https://forms.gle/1arTekd59tidriKcA', '_blank')
-      toast('Opening vendor registration form! 🏪', { icon: '🤝' })
+      toast('Opening restaurant registration form! 🏪', { icon: '🤝' })
       setWantsVendor(false)
       return
     }
@@ -93,7 +93,7 @@ export default function LoginPage() {
       const actualRole = userData.role
       if (actualRole !== role) {
         await logoutUser()
-        toast.error(role === 'vendor' ? 'You are not a Vendor. Try User login.' : `You are not a User. You have ${actualRole} access.`)
+        toast.error(role === 'vendor' ? 'You are not a Restaurant. Try User login.' : `You are not a User. You have ${actualRole} access.`)
         setLoading(false)
         return
       }
@@ -116,7 +116,7 @@ export default function LoginPage() {
 
   const roleInfo = {
     user:   { hint: 'Order food from local restaurants',               color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
-    vendor: { hint: 'Login with credentials given by FeedoZone founder', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+    vendor: { hint: 'Login with credentials given by FeedoZone team', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
   }
   const r = roleInfo[role]
 
@@ -159,7 +159,7 @@ export default function LoginPage() {
             fontSize: 14, cursor: 'pointer',
             fontFamily: 'Poppins, sans-serif', transition: 'all 0.15s',
           }}>
-            {r2 === 'user' ? '👤 User' : '🏪 Vendor'}
+            {r2 === 'user' ? '👤 User' : '🏪 Restaurant'}
           </button>
         ))}
       </div>
@@ -259,7 +259,7 @@ export default function LoginPage() {
         /* ── LOGIN FORM ── */
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <input type="email"
-            placeholder={role === 'vendor' ? 'Vendor email (given by founder)' : 'Your email address'}
+            placeholder={role === 'vendor' ? 'Restaurant email (given by founder)' : 'Your email address'}
             value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
           <input type="password" placeholder="Password"
             value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} />
@@ -270,7 +270,7 @@ export default function LoginPage() {
             cursor: loading ? 'not-allowed' : 'pointer',
             fontFamily: 'Poppins, sans-serif', marginTop: 4,
           }}>
-            {loading ? 'Verifying...' : `Login as ${role.charAt(0).toUpperCase() + role.slice(1)}`}
+            {loading ? 'Verifying...' : `Login as ${role === 'vendor' ? 'Restaurant' : 'User'}`}
           </button>
           {role === 'user' && (
             <p style={{ textAlign: 'center', fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>
@@ -283,12 +283,12 @@ export default function LoginPage() {
         </form>
       )}
 
-      {/* Become a Partner — Vendor tab */}
+      {/* Become a Partner — Restaurant tab */}
       {role === 'vendor' && (
         <div style={{ marginTop: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
             <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
-            <span style={{ fontSize: 12, color: '#9ca3af', whiteSpace: 'nowrap' }}>New vendor?</span>
+            <span style={{ fontSize: 12, color: '#9ca3af', whiteSpace: 'nowrap' }}>New restaurant?</span>
             <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
           </div>
           <button onClick={() => window.open('https://forms.gle/1arTekd59tidriKcA', '_blank')} style={{
@@ -300,10 +300,10 @@ export default function LoginPage() {
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             boxShadow: '0 2px 8px rgba(124,58,237,0.25)',
           }}>
-            🤝 Become a Partner
+            🤝 Become a Restaurant Partner
           </button>
           <p style={{ textAlign: 'center', fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-            Submit your details — our team will set up your vendor account
+            Submit your details — our team will set up your restaurant account
           </p>
         </div>
       )}
