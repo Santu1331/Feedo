@@ -58,6 +58,7 @@ export default function UserApp() {
   const [showNotifs, setShowNotifs] = useState(false)
   const [orderSuccess, setOrderSuccess] = useState(null) // stores placed order info
   const [showVendorInfo, setShowVendorInfo] = useState(false) // vendor info bottom sheet
+  const [selectedOrder, setSelectedOrder] = useState(null) // order tracking page
   const [showReview, setShowReview] = useState(false) // review modal
   const [reviewVendor, setReviewVendor] = useState(null)
   const [reviewRating, setReviewRating] = useState(5)
@@ -97,6 +98,8 @@ export default function UserApp() {
       if (tab === 'vendor-menu') {
         setTab('home')
         setSearchQuery('')
+      } else if (selectedOrder) {
+        setSelectedOrder(null)
       } else if (tab === 'cart') {
         setTab('home')
       } else if (showCheckout) {
@@ -264,11 +267,12 @@ export default function UserApp() {
         vendorPhone: vendorInfo.phone || '',
         vendorPhoto: vendorInfo.photo || '',
         items: cart.map(i => ({ ...i })),
-        total: cartTotal + 30,
+        total: cartTotal + deliveryFee,
         subtotal: cartTotal,
-        deliveryFee: 30,
+        deliveryFee: deliveryFee,
         address: fullAddress,
         userName: deliveryName.trim(),
+        userPhone: deliveryPhone.trim(),
         prepTime: vendorInfo.prepTime || 20,
       })
 
@@ -887,40 +891,196 @@ export default function UserApp() {
           </div>
         )}
 
-        {/* ORDERS */}
-        {tab==='orders' && (
-          <div style={{ padding:16, background:'#fff', minHeight:'100%' }}>
-            <div style={{ fontSize:15, fontWeight:600, marginBottom:12 }}>{t('My Orders','माझे ऑर्डर')}</div>
-            {orders.length===0 && <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>No orders yet!</div>}
-            {orders.map(o => (
-              <div key={o.id} style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, padding:14, marginBottom:10 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                  <div style={{ fontSize:13, fontWeight:600 }}>{o.vendorName}</div>
-                  <span style={{ fontSize:10, fontWeight:600, padding:'3px 9px', borderRadius:10,
-                    background: o.status==='delivered'?'#d1fae5':o.status==='cancelled'?'#fee2e2':o.status==='preparing'?'#dbeafe':'#fef3c7',
-                    color: o.status==='delivered'?'#065f46':o.status==='cancelled'?'#991b1b':o.status==='preparing'?'#1e40af':'#92400e'
-                  }}>{o.status?.replace('_',' ')}</span>
+        {/* ORDERS LIST */}
+        {tab==='orders' && !selectedOrder && (
+          <div style={{ background:'#f7f7f7', minHeight:'100%' }}>
+            <div style={{ padding:'16px 16px 8px', fontSize:15, fontWeight:700, color:'#1f2937' }}>{t('My Orders','माझे ऑर्डर')}</div>
+            {orders.length===0 && (
+              <div style={{ textAlign:'center', padding:'60px 20px', color:'#9ca3af' }}>
+                <div style={{ fontSize:48, marginBottom:12 }}>🛍️</div>
+                <div style={{ fontSize:14, fontWeight:600 }}>No orders yet!</div>
+                <div style={{ fontSize:12, marginTop:4 }}>Order something delicious 🍽️</div>
+              </div>
+            )}
+            <div style={{ padding:'0 16px 80px' }}>
+              {orders.map(o => {
+                const isActive = !['delivered','cancelled'].includes(o.status)
+                return (
+                  <div key={o.id} onClick={() => setSelectedOrder(o)}
+                    style={{ background:'#fff', borderRadius:14, padding:14, marginBottom:10, cursor:'pointer', boxShadow:'0 2px 8px rgba(0,0,0,0.06)', borderWidth:1, borderStyle:'solid', borderColor: isActive?'#fecaca':'#f3f4f6' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
+                      <div>
+                        <div style={{ fontSize:14, fontWeight:700, color:'#1f2937' }}>{o.vendorName}</div>
+                        <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>{o.createdAt?.toDate?.()?.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})||''}</div>
+                      </div>
+                      <span style={{ fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:20,
+                        background: o.status==='delivered'?'#d1fae5':o.status==='cancelled'?'#fee2e2':o.status==='out_for_delivery'?'#dbeafe':o.status==='preparing'?'#fef3c7':'#fff7ed',
+                        color: o.status==='delivered'?'#065f46':o.status==='cancelled'?'#991b1b':o.status==='out_for_delivery'?'#1e40af':o.status==='preparing'?'#92400e':'#c2410c'
+                      }}>{o.status==='out_for_delivery'?'Out for Delivery':o.status?.replace('_',' ').replace(/\w/g,c=>c.toUpperCase())}</span>
+                    </div>
+                    <div style={{ fontSize:12, color:'#6b7280', marginBottom:8 }}>{o.items?.slice(0,2).map(i=>i.qty+'x '+i.name).join(', ')}{o.items?.length>2?` +${o.items.length-2} more`:''}</div>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <span style={{ fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹{o.total}</span>
+                      {isActive
+                        ? <span style={{ fontSize:11, color:'#E24B4A', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+                            <span style={{ width:6, height:6, borderRadius:'50%', background:'#E24B4A', display:'inline-block' }} />
+                            Track Order →
+                          </span>
+                        : <span style={{ fontSize:11, color:'#9ca3af' }}>Tap for details →</span>
+                      }
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ORDER TRACKING PAGE */}
+        {tab==='orders' && selectedOrder && (() => {
+          const o = selectedOrder
+          const STEPS = [
+            { key:'pending',          icon:'📋', label:'Order Placed',     sub:'Your order has been placed' },
+            { key:'accepted',         icon:'✅', label:'Order Accepted',   sub:'Vendor accepted your order' },
+            { key:'preparing',        icon:'👨‍🍳', label:'Preparing',        sub:'Your food is being prepared' },
+            { key:'ready',            icon:'🎉', label:'Ready',             sub:'Your order is ready!' },
+            { key:'out_for_delivery', icon:'🚴', label:'Out for Delivery', sub:'On the way to you!' },
+            { key:'delivered',        icon:'✅', label:'Delivered',         sub:'Enjoy your meal!' },
+          ]
+          const stepOrder = ['pending','accepted','preparing','ready','out_for_delivery','delivered']
+          const currentIdx = stepOrder.indexOf(o.status)
+          const isCancelled = o.status === 'cancelled'
+
+          return (
+            <div style={{ background:'#f7f7f7', minHeight:'100%' }}>
+
+              {/* Header */}
+              <div style={{ background: isCancelled?'#dc2626':'#E24B4A', padding:'16px 16px 20px', color:'#fff' }}>
+                <button onClick={() => setSelectedOrder(null)} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', padding:'5px 12px', borderRadius:20, fontSize:12, cursor:'pointer', fontFamily:'Poppins', marginBottom:12 }}>
+                  ← Back
+                </button>
+                <div style={{ fontSize:11, opacity:0.85, marginBottom:4 }}>ORDER TRACKING</div>
+                <div style={{ fontSize:18, fontWeight:700 }}>{o.vendorName}</div>
+                <div style={{ fontSize:12, opacity:0.85, marginTop:3 }}>
+                  {o.createdAt?.toDate?.()?.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})||''}
                 </div>
-                <div style={{ fontSize:12, color:'#6b7280', marginBottom:6 }}>{o.items?.map(i=>`${i.qty}x ${i.name}`).join(', ')}</div>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <span style={{ fontSize:13, fontWeight:600 }}>₹{o.total}</span>
-                  <span style={{ fontSize:11, color:'#9ca3af' }}>{o.createdAt?.toDate?.()?.toLocaleDateString('en-IN')||''}</span>
+              </div>
+
+              <div style={{ padding:'0 16px 100px', marginTop:-8 }}>
+
+                {/* Status card */}
+                {!isCancelled ? (
+                  <div style={{ background:'#fff', borderRadius:16, padding:20, marginBottom:14, boxShadow:'0 4px 16px rgba(0,0,0,0.08)' }}>
+                    <div style={{ textAlign:'center', marginBottom:20 }}>
+                      <div style={{ fontSize:40, marginBottom:8 }}>{STEPS[currentIdx]?.icon || '📋'}</div>
+                      <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>{STEPS[currentIdx]?.label}</div>
+                      <div style={{ fontSize:12, color:'#6b7280', marginTop:4 }}>{STEPS[currentIdx]?.sub}</div>
+                    </div>
+
+                    {/* Progress steps */}
+                    <div style={{ position:'relative' }}>
+                      {/* Vertical line */}
+                      <div style={{ position:'absolute', left:19, top:20, bottom:20, width:2, background:'#f3f4f6', zIndex:0 }} />
+                      <div style={{ position:'absolute', left:19, top:20, width:2, background:'#E24B4A', zIndex:1,
+                        height: currentIdx === 0 ? '0%' : (currentIdx / (stepOrder.length-1) * 100) + '%',
+                        transition:'height 0.5s ease'
+                      }} />
+
+                      {STEPS.map((step, i) => {
+                        const done = i <= currentIdx
+                        const active = i === currentIdx
+                        return (
+                          <div key={step.key} style={{ display:'flex', alignItems:'center', gap:14, padding:'10px 0', position:'relative', zIndex:2 }}>
+                            <div style={{
+                              width:40, height:40, borderRadius:'50%', flexShrink:0,
+                              background: done ? '#E24B4A' : '#f3f4f6',
+                              display:'flex', alignItems:'center', justifyContent:'center',
+                              fontSize: active ? 18 : 14,
+                              boxShadow: active ? '0 0 0 4px rgba(226,75,74,0.2)' : 'none',
+                              transition:'all 0.3s'
+                            }}>
+                              {done ? (active ? step.icon : '✓') : <span style={{ fontSize:12, color:'#d1d5db' }}>{i+1}</span>}
+                            </div>
+                            <div style={{ flex:1 }}>
+                              <div style={{ fontSize:13, fontWeight: done?700:400, color: done?'#1f2937':'#9ca3af' }}>{step.label}</div>
+                              {active && <div style={{ fontSize:11, color:'#E24B4A', marginTop:2, fontWeight:500 }}>{step.sub}</div>}
+                            </div>
+                            {done && !active && <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>✓</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ background:'#fee2e2', borderRadius:16, padding:20, marginBottom:14, textAlign:'center' }}>
+                    <div style={{ fontSize:40, marginBottom:8 }}>❌</div>
+                    <div style={{ fontSize:16, fontWeight:700, color:'#dc2626' }}>Order Cancelled</div>
+                    <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>This order has been cancelled</div>
+                  </div>
+                )}
+
+                {/* Order details */}
+                <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#9ca3af', marginBottom:12, textTransform:'uppercase', letterSpacing:0.5 }}>Order Details</div>
+                  {o.items?.map((item, i) => (
+                    <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
+                      <span style={{ fontSize:13, color:'#374151' }}>{item.qty}x {item.name}</span>
+                      <span style={{ fontSize:13, fontWeight:600 }}>₹{item.price * item.qty}</span>
+                    </div>
+                  ))}
+                  <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
+                    <span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee</span>
+                    <span style={{ fontSize:12 }}>₹{o.deliveryFee || 30}</span>
+                  </div>
+                  <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10 }}>
+                    <span style={{ fontSize:14, fontWeight:700 }}>Total</span>
+                    <span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{o.total}</span>
+                  </div>
                 </div>
-                {o.address && <div style={{ fontSize:11, color:'#9ca3af', marginTop:4 }}>📍 {o.address}</div>}
-                {/* Call vendor button for active orders */}
-                {!['delivered','cancelled'].includes(o.status) && o.vendorPhone && (
-                  <button
-                    onClick={() => callVendor(o.vendorPhone)}
-                    style={{ marginTop:8, display:'flex', alignItems:'center', gap:6, padding:'7px 12px', background:'#f0fdf4', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0', borderRadius:8, cursor:'pointer', fontFamily:'Poppins', border:'none' }}
-                  >
-                    <span style={{ fontSize:14 }}>📞</span>
-                    <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>Call Vendor</span>
+
+                {/* Delivery address */}
+                {o.address && (
+                  <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, display:'flex', gap:12, alignItems:'flex-start' }}>
+                    <div style={{ width:38, height:38, borderRadius:10, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <span style={{ fontSize:18 }}>📍</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:3 }}>DELIVERY ADDRESS</div>
+                      <div style={{ fontSize:13, color:'#1f2937', fontWeight:500, lineHeight:1.5 }}>{o.address}</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Contact vendor */}
+                {o.vendorPhone && !isCancelled && (
+                  <div style={{ background:'#fff', borderRadius:14, padding:14, marginBottom:12 }}>
+                    <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:10 }}>NEED HELP?</div>
+                    <div style={{ display:'flex', gap:10 }}>
+                      <button onClick={() => callVendor(o.vendorPhone)}
+                        style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'11px 0', background:'#E24B4A', border:'none', borderRadius:10, cursor:'pointer', fontFamily:'Poppins' }}>
+                        <span style={{ fontSize:16 }}>📞</span>
+                        <span style={{ fontSize:13, fontWeight:600, color:'#fff' }}>Call Vendor</span>
+                      </button>
+                      <button onClick={() => notifyVendorWhatsApp(o.vendorPhone, { userName: o.userName, userPhone: o.userPhone || '', address: o.address, items: o.items, subtotal: o.subtotal, deliveryFee: o.deliveryFee, total: o.total })}
+                        style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'11px 0', background:'#25D366', border:'none', borderRadius:10, cursor:'pointer', fontFamily:'Poppins' }}>
+                        <span style={{ fontSize:16 }}>💬</span>
+                        <span style={{ fontSize:13, fontWeight:600, color:'#fff' }}>WhatsApp</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Reorder button for delivered */}
+                {o.status === 'delivered' && (
+                  <button onClick={() => { const v = vendors.find(x=>x.id===o.vendorUid); if(v) openVendor(v); setSelectedOrder(null) }}
+                    style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:12, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
+                    🔄 Reorder from {o.vendorName}
                   </button>
                 )}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          )
+        })()}
 
         {/* PROFILE */}
         {tab==='profile' && (
@@ -1056,7 +1216,7 @@ export default function UserApp() {
               {orderSuccess.vendorPhone && (
                 <div style={{ display:'flex', gap:10 }}>
                   <button
-                    onClick={() => notifyVendorWhatsApp(orderSuccess.vendorPhone, { userName: orderSuccess.userName, userPhone: '', address: orderSuccess.address, items: orderSuccess.items, subtotal: orderSuccess.subtotal, deliveryFee: orderSuccess.deliveryFee, total: orderSuccess.total })}
+                    onClick={() => notifyVendorWhatsApp(orderSuccess.vendorPhone, { userName: orderSuccess.userName, userPhone: orderSuccess.userPhone || '', address: orderSuccess.address, items: orderSuccess.items, subtotal: orderSuccess.subtotal, deliveryFee: orderSuccess.deliveryFee, total: orderSuccess.total })}
                     style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'11px 0', background:'#25D366', border:'none', borderRadius:10, cursor:'pointer', fontFamily:'Poppins' }}
                   >
                     <span style={{ fontSize:18 }}>💬</span>
@@ -1091,7 +1251,7 @@ export default function UserApp() {
 
             {/* Track order button */}
             <button
-              onClick={() => { setOrderSuccess(null); setTab('orders') }}
+              onClick={() => { const latestOrder = orders[0]; setOrderSuccess(null); setTab('orders'); if(latestOrder) setTimeout(()=>setSelectedOrder(latestOrder), 100) }}
               style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10 }}
             >
               📋 Track My Order

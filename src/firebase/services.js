@@ -67,7 +67,7 @@ export const notifyVendorWhatsApp = (vendorPhone, orderData) => {
   const message = `🔔 *New FeedoZone Order!*
 
 👤 *Customer:* ${orderData.userName}
-📱 *Phone:* ${orderData.userPhone || 'Not provided'}
+📱 *Phone:* +91 ${orderData.userPhone || 'Not shared'}
 📍 *Delivery:* ${orderData.address}
 
 🍽️ *Items:*
