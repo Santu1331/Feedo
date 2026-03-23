@@ -8,6 +8,7 @@ import {
 import { useNotifications } from '../hooks/useNotifications'
 import { listenNotifications, markNotificationRead } from '../firebase/services'
 import toast from 'react-hot-toast'
+import { useOrderAlert } from '../hooks/useOrderAlert'
 
 const STATUS_NEXT  = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
 const STATUS_LABEL = { pending:'Accept Order', accepted:'Start Preparing', preparing:'Mark Ready', ready:'Out for Delivery', out_for_delivery:'Mark Delivered' }
@@ -27,6 +28,12 @@ export default function VendorApp() {
   const [customCategories, setCustomCategories] = useState([])
   const [newCatInput, setNewCatInput] = useState('')
   const [showAddCat, setShowAddCat] = useState(false)
+
+  // Order alert states
+  const [newOrderAlert, setNewOrderAlert] = useState(null) // pending order for alert
+  const [alertDismissed, setAlertDismissed] = useState(false)
+  const prevOrderCountRef = useRef(0)
+  const { startAlarm, stopAlarm, playNotifSound } = useOrderAlert()
 
   // Store details states
   const [deliveryCharge, setDeliveryCharge] = useState('')
@@ -70,6 +77,24 @@ export default function VendorApp() {
       })
     })
   }, [user])
+
+  // ── DETECT NEW ORDERS + PLAY ALARM ──────────────────────────────────────
+  useEffect(() => {
+    const pendingOrders = orders.filter(o => o.status === 'pending')
+    const pendingCount = pendingOrders.length
+
+    if (pendingCount > prevOrderCountRef.current && prevOrderCountRef.current >= 0) {
+      // New pending order arrived!
+      const latestOrder = pendingOrders[0]
+      setNewOrderAlert(latestOrder)
+      setAlertDismissed(false)
+      startAlarm()
+    } else if (pendingCount === 0) {
+      stopAlarm()
+    }
+
+    prevOrderCountRef.current = pendingCount
+  }, [orders])
 
   useEffect(() => {
     if (!user) return
@@ -283,6 +308,28 @@ export default function VendorApp() {
     borderRadius:8, fontSize:13,
     fontFamily:'Poppins,sans-serif', outline:'none',
     marginTop:4, boxSizing:'border-box'
+  }
+
+  // ── DISMISS ALERT ──────────────────────────────────────────────────────
+  const handleDismissAlert = () => {
+    stopAlarm()
+    setNewOrderAlert(null)
+    setAlertDismissed(true)
+    setTab('orders') // switch to orders tab
+  }
+
+  const handleAcceptFromAlert = async () => {
+    if (!newOrderAlert) return
+    stopAlarm()
+    try {
+      await updateOrderStatus(newOrderAlert.id, 'accepted', {
+        userUid: newOrderAlert.userUid,
+        vendorName: userData?.storeName || '',
+      })
+      toast.success('✅ Order Accepted!')
+    } catch { toast.error('Failed to accept') }
+    setNewOrderAlert(null)
+    setTab('orders')
   }
 
   return (

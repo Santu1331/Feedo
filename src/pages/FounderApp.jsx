@@ -4,6 +4,7 @@ import { logoutUser, getAllOrders, getAllVendors, founderCreateVendor, uploadPho
 import { doc, deleteDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import toast from 'react-hot-toast'
+import { useOrderAlert } from '../hooks/useOrderAlert'
 
 export default function FounderApp() {
   const { user } = useAuth()
@@ -16,6 +17,9 @@ export default function FounderApp() {
     confirmPass:'', address:'', category:'Thali', plan:'₹500/month', deliveryCharge:'30'
   })
   const [selectedOrder, setSelectedOrder] = useState(null)
+  const [newOrderAlert, setNewOrderAlert] = useState(null)
+  const prevOrderCountRef = useRef(0)
+  const { playNotifSound, startAlarm, stopAlarm } = useOrderAlert()
   const [analyticsTab, setAnalyticsTab] = useState('overview') // overview, items, vendors, users, monthly
   const [orderFilter, setOrderFilter] = useState('all') // all, delivered, cancelled, pending, preparing
   const [users, setUsers] = useState([]) // all users
@@ -56,6 +60,23 @@ export default function FounderApp() {
 
     return () => { u1(); u2() }
   }, [])
+
+  // ── DETECT NEW ORDERS ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (orders.length === 0) { prevOrderCountRef.current = 0; return }
+    if (orders.length > prevOrderCountRef.current && prevOrderCountRef.current > 0) {
+      const latest = orders[0]
+      setNewOrderAlert(latest)
+      startAlarm()
+      toast('🔔 New order from ' + latest.userName + ' — ₹' + latest.total, {
+        duration: 8000, icon: '🍽️',
+        style: { background:'#1f2937', color:'#fff', fontFamily:'Poppins' }
+      })
+      // Auto stop alarm after 15 seconds
+      setTimeout(() => stopAlarm(), 15000)
+    }
+    prevOrderCountRef.current = orders.length
+  }, [orders])
 
   const todayOrders = orders.filter(o => {
     const d = o.createdAt?.toDate?.()
@@ -142,7 +163,7 @@ export default function FounderApp() {
         await updateVendorStore(vendorUid, { photo: photoUrl })
       }
 
-      toast.success(`✅ Restaurant "${storeName}" created!`)
+      toast.success(`✅ Vendor "${storeName}" created!`)
       setForm({ storeName:'', email:'', phone:'', password:'', confirmPass:'', address:'', category:'Thali', plan:'₹500/month', deliveryCharge:'30' })
       setVendorPhotoFile(null)
       setVendorPhotoPreview(null)
@@ -172,7 +193,7 @@ export default function FounderApp() {
     try {
       const url = await uploadPhoto(file, setExistingProgress)
       await updateVendorStore(vendorId, { photo: url })
-      toast.success('Restaurant photo updated! ✅')
+      toast.success('Vendor photo updated! ✅')
     } catch {
       toast.error('Upload failed. Try again.')
     }
@@ -212,7 +233,7 @@ export default function FounderApp() {
     if (data.length === 0) return toast.error('No orders found for selected period!')
 
     // Build CSV
-    const headers = ['Order Date', 'Order Time', 'Customer Name', 'Customer Phone', 'Restaurant', 'Items', 'Subtotal', 'Delivery Fee', 'Total', 'Payment', 'Status', 'Address']
+    const headers = ['Order Date', 'Order Time', 'Customer Name', 'Customer Phone', 'Vendor', 'Items', 'Subtotal', 'Delivery Fee', 'Total', 'Payment', 'Status', 'Address']
     
     const rows = data.map(o => [
       formatDate(o),
@@ -257,7 +278,7 @@ export default function FounderApp() {
   const exportVendorWise = () => {
     if (vendors.length === 0) return toast.error('No vendors found!')
 
-    const rows = [['Restaurant Name', 'Email', 'Phone', 'Category', 'Plan', 'Total Orders', 'Delivered Orders', 'Total Revenue', 'Status']]
+    const rows = [['Vendor Name', 'Email', 'Phone', 'Category', 'Plan', 'Total Orders', 'Delivered Orders', 'Total Revenue', 'Status']]
 
     vendors.forEach(v => {
       const vOrders = orders.filter(o => o.vendorUid === v.id)
@@ -328,6 +349,29 @@ export default function FounderApp() {
   return (
     <div style={{ maxWidth:430, margin:'0 auto', background:'#fff', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' }}>
 
+      {/* ── NEW ORDER ALERT (Founder) ── */}
+      {newOrderAlert && (
+        <div style={{ position:'fixed', top:0, left:'50%', transform:'translateX(-50%)', zIndex:9999, width:'100%', maxWidth:430, padding:'12px 16px', background:'linear-gradient(135deg,#E24B4A,#c73232)', fontFamily:'Poppins,sans-serif', boxShadow:'0 4px 20px rgba(0,0,0,0.3)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+            <span style={{ fontSize:24 }}>🔔</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>New Order — ₹{newOrderAlert.total}</div>
+              <div style={{ fontSize:11, color:'rgba(255,255,255,0.85)' }}>{newOrderAlert.userName} · {newOrderAlert.vendorName}</div>
+            </div>
+            <div style={{ display:'flex', gap:6 }}>
+              <button
+                onClick={() => { stopAlarm(); setTab('orders'); setSelectedOrder(newOrderAlert); setNewOrderAlert(null) }}
+                style={{ background:'rgba(255,255,255,0.25)', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
+              >View</button>
+              <button
+                onClick={() => { stopAlarm(); setNewOrderAlert(null) }}
+                style={{ background:'rgba(255,255,255,0.15)', color:'#fff', border:'none', borderRadius:8, padding:'6px 10px', fontSize:14, cursor:'pointer' }}
+              >✕</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── HEADER ── */}
       <div style={{ background:'#111', padding:16, flexShrink:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -343,8 +387,8 @@ export default function FounderApp() {
         {[
           { id:'overview',  label:'Overview' },
           { id:'orders',    label:`Orders (${todayOrders.length})` },
-          { id:'vendors',   label:`Restaurants (${vendors.length})` },
-          { id:'addvendor', label:'+ Add Restaurant' },
+          { id:'vendors',   label:`Vendors (${vendors.length})` },
+          { id:'addvendor', label:'+ Add Vendor' },
           { id:'analytics', label:'📊 Analytics' }
         ].map(t2 => (
           <button key={t2.id} onClick={() => setTab(t2.id)} style={{
@@ -373,7 +417,7 @@ export default function FounderApp() {
               {[
                 { label:'Today Revenue', val:`₹${todayRevenue.toLocaleString()}`, sub:`avg ₹${todayOrders.length?Math.round(todayRevenue/todayOrders.length):0}` },
                 { label:'Subscriptions', val:`₹${subRevenue.toLocaleString()}`, sub:'this month' },
-                { label:'Active Restaurants', val:`${vendors.filter(v=>v.isOpen).length}/${vendors.length}`, sub:`${vendors.length-vendors.filter(v=>v.isOpen).length} offline` }
+                { label:'Active Vendors', val:`${vendors.filter(v=>v.isOpen).length}/${vendors.length}`, sub:`${vendors.length-vendors.filter(v=>v.isOpen).length} offline` }
               ].map(s => (
                 <div key={s.label} style={{ background:'#f9fafb', borderRadius:10, padding:12 }}>
                   <div style={{ fontSize:10, color:'#6b7280', marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>{s.label}</div>
@@ -424,8 +468,8 @@ export default function FounderApp() {
                 >
                   <span style={{ fontSize:18 }}>🏪</span>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:600, color:'#1f2937' }}>Restaurant-wise Report</div>
-                    <div style={{ fontSize:11, color:'#9ca3af' }}>{vendors.length} restaurants · orders + revenue</div>
+                    <div style={{ fontSize:12, fontWeight:600, color:'#1f2937' }}>Vendor-wise Report</div>
+                    <div style={{ fontSize:11, color:'#9ca3af' }}>{vendors.length} vendors · orders + revenue</div>
                   </div>
                   <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>↓ Download</span>
                 </button>
@@ -491,7 +535,7 @@ export default function FounderApp() {
                       <span style={{ fontSize:12, fontWeight:600 }}>{selectedOrder.userPhone || '—'}</span>
                     </div>
                     <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>Restaurant</span>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>Vendor</span>
                       <span style={{ fontSize:12, fontWeight:600 }}>{selectedOrder.vendorName}</span>
                     </div>
                     <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
@@ -579,9 +623,9 @@ export default function FounderApp() {
         {/* ── VENDORS LIST ── */}
         {tab==='vendors' && (
           <>
-            <div style={{ fontSize:12, color:'#6b7280', marginBottom:10 }}>{vendors.length} registered restaurants</div>
+            <div style={{ fontSize:12, color:'#6b7280', marginBottom:10 }}>{vendors.length} registered vendors</div>
             {vendors.length===0 && (
-              <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>No restaurants yet. Add your first restaurant!</div>
+              <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>No vendors yet. Add your first vendor!</div>
             )}
             {vendors.map(v => (
               <div key={v.id} style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, overflow:'hidden', marginBottom:12 }}>
@@ -642,7 +686,7 @@ export default function FounderApp() {
                     onClick={() => handleDeleteVendor(v.id, v.storeName)}
                     style={{ width:'100%', background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:8, padding:'8px 0', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
                   >
-                    🗑️ Delete Restaurant
+                    🗑️ Delete Vendor
                   </button>
                 </div>
               </div>
@@ -661,7 +705,7 @@ export default function FounderApp() {
                 { id:'overview', label:'📊 Overview' },
                 { id:'monthly',  label:'📅 Monthly' },
                 { id:'items',    label:'🍽️ Items' },
-                { id:'vendors',  label:'🏪 Restaurants' },
+                { id:'vendors',  label:'🏪 Vendors' },
                 { id:'users',    label:'👤 Users' },
               ].map(t => (
                 <button key={t.id} onClick={() => setAnalyticsTab(t.id)}
@@ -693,7 +737,7 @@ export default function FounderApp() {
                 { icon:'⏳', label:'Pending',          val: pending,         bg:'#fffbeb', click: () => { setTab('orders'); setOrderFilter('pending') } },
                 { icon:'👥', label:'Total Users',      val: users.length,    bg:'#eff6ff', click: null },
                 { icon:'🔥', label:'Active (30 days)', val: activeUsers,     bg:'#fff7ed', click: null },
-                { icon:'🏪', label:'Active Restaurants',  val: vendors.filter(v=>v.isOpen).length, bg:'#f0fdf4', click: null },
+                { icon:'🏪', label:'Active Vendors',  val: vendors.filter(v=>v.isOpen).length, bg:'#f0fdf4', click: null },
               ]
 
               return (
@@ -801,7 +845,7 @@ export default function FounderApp() {
             {/* Top vendors by orders */}
             {analyticsTab==='vendors' && (
               <div style={{ background:'#fff', borderRadius:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', overflow:'hidden' }}>
-                <div style={{ padding:'12px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', fontSize:12, fontWeight:600, color:'#6b7280' }}>TOP RESTAURANTS BY ORDERS</div>
+                <div style={{ padding:'12px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', fontSize:12, fontWeight:600, color:'#6b7280' }}>TOP VENDORS BY ORDERS</div>
                 {vendors.map(v => {
                   const vOrders = orders.filter(o => o.vendorUid === v.id)
                   const vRevenue = vOrders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0)
@@ -861,7 +905,7 @@ export default function FounderApp() {
         {tab==='addvendor' && (
           <div style={{ borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, padding:16 }}>
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16 }}>
-              <span style={{ fontSize:14, fontWeight:600 }}>Create Restaurant Account</span>
+              <span style={{ fontSize:14, fontWeight:600 }}>Create Vendor Account</span>
               <span style={{ fontSize:10, background:'#FCEBEB', color:'#A32D2D', padding:'2px 8px', borderRadius:10, fontWeight:600 }}>Founder Only</span>
             </div>
 
@@ -897,11 +941,11 @@ export default function FounderApp() {
               </div>
 
               <div>
-                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Restaurant Name *</label>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Store / Vendor Name *</label>
                 <input style={inp} placeholder="e.g. Shree Ganesh Thali" {...f('storeName')} />
               </div>
               <div>
-                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Restaurant Email * (used for login)</label>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Vendor Email * (used for login)</label>
                 <input style={inp} type="email" placeholder="vendor@example.com" {...f('email')} />
               </div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
@@ -1003,7 +1047,7 @@ export default function FounderApp() {
                   fontFamily:'Poppins', marginTop:4
                 }}
               >
-                {creating ? 'Creating Account...' : '✅ Create Restaurant Account'}
+                {creating ? 'Creating Account...' : '✅ Create Vendor Account'}
               </button>
             </div>
 
