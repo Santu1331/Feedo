@@ -9,6 +9,7 @@ import { useNotifications } from '../hooks/useNotifications'
 import { listenNotifications, markNotificationRead } from '../firebase/services'
 import toast from 'react-hot-toast'
 import { useOrderAlert } from '../hooks/useOrderAlert'
+import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
 
 const STATUS_NEXT  = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
 const STATUS_LABEL = { pending:'Accept Order', accepted:'Start Preparing', preparing:'Mark Ready', ready:'Out for Delivery', out_for_delivery:'Mark Delivered' }
@@ -35,6 +36,7 @@ export default function VendorApp() {
   const [audioUnlocked, setAudioUnlocked] = useState(false)
   const prevOrderCountRef = useRef(0)
   const { startAlarm, stopAlarm, playNotifSound, unlockAudio } = useOrderAlert()
+  usePendingOrderNotifier(true) // trigger FCM every 10 sec for pending orders
 
   // Unlock audio on first user interaction
   useEffect(() => {

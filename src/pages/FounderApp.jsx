@@ -5,6 +5,7 @@ import { doc, deleteDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import toast from 'react-hot-toast'
 import { useOrderAlert } from '../hooks/useOrderAlert'
+import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
 
 export default function FounderApp() {
   const { user } = useAuth()
@@ -20,6 +21,7 @@ export default function FounderApp() {
   const [newOrderAlert, setNewOrderAlert] = useState(null)
   const prevOrderCountRef = useRef(0)
   const { playNotifSound, startAlarm, stopAlarm, unlockAudio } = useOrderAlert()
+  usePendingOrderNotifier(true) // trigger FCM every 10 sec
   const [audioUnlocked, setAudioUnlocked] = useState(false)
 
   // Unlock audio on first click

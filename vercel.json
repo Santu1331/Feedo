@@ -1,5 +1,11 @@
 {
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/notify-pending-orders?secret=feedozone_cron_2025",
+      "schedule": "* * * * *"
+    }
   ]
 }
