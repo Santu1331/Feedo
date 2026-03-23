@@ -142,7 +142,7 @@ export default function LoginPage() {
       {/* Logo */}
       <div style={{ textAlign: 'center', marginBottom: 28, marginTop: isSignupMode ? 0 : 40 }}>
         <div style={{ fontSize: 36, fontWeight: 700, color: '#E24B4A', letterSpacing: -1 }}>Feedo</div>
-        <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>Warananagar, Kolhapur</div>
+        <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>Click, Eat, Repeat.</div>
       </div>
 
       {/* Role selector */}
