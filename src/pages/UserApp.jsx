@@ -43,7 +43,7 @@ const VegDot = ({ isVeg }) => (
 
 export default function UserApp() {
   const { user, userData } = useAuth()
-  const [tab, setTab] = useState('home')
+  const [tab, setTab] = useState(() => localStorage.getItem('feedo_tab') || 'home')
   const [vendors, setVendors] = useState([])
   const [selectedVendor, setSelectedVendor] = useState(null)
   const [menuItems, setMenuItems] = useState([])
@@ -125,6 +125,12 @@ export default function UserApp() {
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [tab, showCheckout, showVendorInfo, showLocationPicker, orderSuccess])
+
+  // Save tab to localStorage on change
+  useEffect(() => {
+    // Don't save vendor-menu tab (no vendor data after reload)
+    if (tab !== 'vendor-menu') localStorage.setItem('feedo_tab', tab)
+  }, [tab])
 
   useEffect(() => { return getAllVendors(setVendors) }, [])
   useEffect(() => { if (!user) return; return getUserOrders(user.uid, setOrders) }, [user])
@@ -955,14 +961,31 @@ export default function UserApp() {
             <div style={{ background:'#f7f7f7', minHeight:'100%' }}>
 
               {/* Header */}
-              <div style={{ background: isCancelled?'#dc2626':'#E24B4A', padding:'16px 16px 20px', color:'#fff' }}>
-                <button onClick={() => setSelectedOrder(null)} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', padding:'5px 12px', borderRadius:20, fontSize:12, cursor:'pointer', fontFamily:'Poppins', marginBottom:12 }}>
-                  ← Back
+              <div style={{
+                background: isCancelled ? 'linear-gradient(135deg,#dc2626,#b91c1c)' : o.status==='delivered' ? 'linear-gradient(135deg,#16a34a,#15803d)' : 'linear-gradient(135deg,#E24B4A,#c73232)',
+                padding:'20px 16px 32px', color:'#fff'
+              }}>
+                <button onClick={() => setSelectedOrder(null)} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', padding:'5px 12px', borderRadius:20, fontSize:12, cursor:'pointer', fontFamily:'Poppins', marginBottom:16 }}>
+                  ← My Orders
                 </button>
-                <div style={{ fontSize:11, opacity:0.85, marginBottom:4 }}>ORDER TRACKING</div>
-                <div style={{ fontSize:18, fontWeight:700 }}>{o.vendorName}</div>
-                <div style={{ fontSize:12, opacity:0.85, marginTop:3 }}>
-                  {o.createdAt?.toDate?.()?.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})||''}
+                <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+                  <div style={{ width:56, height:56, borderRadius:'50%', background:'rgba(255,255,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28, border:'2px solid rgba(255,255,255,0.3)', flexShrink:0 }}>
+                    {isCancelled ? '❌' : o.status==='delivered' ? '✅' : o.status==='out_for_delivery' ? '🚴' : o.status==='preparing' ? '👨‍🍳' : o.status==='accepted' ? '✅' : '📋'}
+                  </div>
+                  <div>
+                    <div style={{ fontSize:11, opacity:0.8, letterSpacing:0.5, marginBottom:3 }}>ORDER TRACKING</div>
+                    <div style={{ fontSize:17, fontWeight:700 }}>{o.vendorName}</div>
+                    <div style={{ fontSize:12, opacity:0.85, marginTop:2 }}>
+                      {o.createdAt?.toDate?.()?.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})||''}
+                      {' · '}₹{o.total}
+                    </div>
+                  </div>
+                </div>
+                {/* Status badge */}
+                <div style={{ marginTop:14, background:'rgba(255,255,255,0.2)', borderRadius:20, display:'inline-block', padding:'5px 16px' }}>
+                  <span style={{ fontSize:12, fontWeight:700 }}>
+                    {isCancelled ? '❌ Cancelled' : o.status==='delivered' ? '✅ Delivered!' : o.status==='out_for_delivery' ? '🚴 On the way!' : o.status==='preparing' ? '👨‍🍳 Preparing...' : o.status==='accepted' ? '✅ Accepted!' : '⏳ Order Placed'}
+                  </span>
                 </div>
               </div>
 
