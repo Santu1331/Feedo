@@ -241,7 +241,7 @@ export default function UserApp() {
 
   const cartTotal = cart.reduce((s,c) => s + c.price*c.qty, 0)
   const cartCount = cart.reduce((s,c) => s + c.qty, 0)
-  const deliveryFee = cartVendor?.deliveryCharge ?? 30
+  const deliveryFee = Number(cartVendor?.deliveryCharge) || 0
 
   const handlePlaceOrder = async () => {
     if (!deliveryName.trim()) return toast.error('Enter your name')
@@ -594,7 +594,7 @@ export default function UserApp() {
                     <div style={{ fontSize:12, color:'#6b7280', marginTop:3 }}>{v.category}</div>
                     <div style={{ display:'flex', gap:12, marginTop:8 }}>
                       <span style={{ fontSize:12, color:'#6b7280' }}>🕐 {v.prepTime||20}-{(v.prepTime||20)+15} min</span>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>{v.deliveryCharge === 0 ? '🎉 Free delivery' : ('₹' + (v.deliveryCharge ?? 0) + ' delivery')}</span>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>{Number(v.deliveryCharge) === 0 ? '🎉 Free delivery' : ('₹' + (v.deliveryCharge ?? 0) + ' delivery')}</span>
                     </div>
                     {v.address && <div style={{ fontSize:11, color:'#9ca3af', marginTop:5 }}>📍 {v.address}</div>}
                   </div>
@@ -620,7 +620,7 @@ export default function UserApp() {
             </div>
             <div style={{ padding:'10px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', gap:16 }}>
               <span style={{ fontSize:12, color:'#6b7280' }}>🕐 {selectedVendor.prepTime||20}-{(selectedVendor.prepTime||20)+15} min</span>
-              <span style={{ fontSize:12, color:'#6b7280' }}>{selectedVendor.deliveryCharge === 0 ? '🎉 Free delivery' : ('₹' + (selectedVendor.deliveryCharge ?? 30) + ' delivery')}</span>
+              <span style={{ fontSize:12, color:'#6b7280' }}>{!selectedVendor.deliveryCharge ? '🎉 Free delivery' : ('₹' + selectedVendor.deliveryCharge + ' delivery')}</span>
               {selectedVendor.distance !== null && userLat && (
                 <span style={{ fontSize:12, color:'#16a34a' }}>📍 {selectedVendor.distance < 1 ? `${Math.round(selectedVendor.distance*1000)}m away` : `${selectedVendor.distance?.toFixed(1)}km away`}</span>
               )}
@@ -683,8 +683,8 @@ export default function UserApp() {
                   <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>Min delivery</div>
                 </div>
                 <div style={{ flex:1, textAlign:'center', padding:'10px 8px', background:'#f9fafb', borderRadius:10 }}>
-                  <div style={{ fontSize:16, fontWeight:700, color: selectedVendor.deliveryCharge === 0 ? '#16a34a' : '#1f2937' }}>
-                    {selectedVendor.deliveryCharge === 0 ? 'FREE' : ('₹' + (selectedVendor.deliveryCharge ?? 30))}
+                  <div style={{ fontSize:16, fontWeight:700, color: !selectedVendor.deliveryCharge ? '#16a34a' : '#1f2937' }}>
+                    {!selectedVendor.deliveryCharge ? 'FREE' : ('₹' + selectedVendor.deliveryCharge)}
                   </div>
                   <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>Delivery</div>
                 </div>
@@ -1056,7 +1056,7 @@ export default function UserApp() {
                   ))}
                   <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
                     <span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee</span>
-                    <span style={{ fontSize:12 }}>₹{o.deliveryFee || 30}</span>
+                    <span style={{ fontSize:12 }}>{o.deliveryFee === 0 ? 'Free 🎉' : ('₹' + o.deliveryFee)}</span>
                   </div>
                   <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10 }}>
                     <span style={{ fontSize:14, fontWeight:700 }}>Total</span>

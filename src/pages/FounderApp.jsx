@@ -15,7 +15,7 @@ export default function FounderApp() {
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({
     storeName:'', email:'', phone:'', password:'',
-    confirmPass:'', address:'', category:'Thali', plan:'₹500/month', deliveryCharge:'30'
+    confirmPass:'', address:'', category:'Thali', plan:'₹500/month', deliveryCharge:30
   })
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [newOrderAlert, setNewOrderAlert] = useState(null)
