@@ -15,8 +15,10 @@ export default function FounderApp() {
     storeName:'', email:'', phone:'', password:'',
     confirmPass:'', address:'', category:'Thali', plan:'₹500/month', deliveryCharge:'30'
   })
-  const [selectedOrder, setSelectedOrder] = useState(null) // order details modal
-  const [analyticsTab, setAnalyticsTab] = useState('items') // most ordered
+  const [selectedOrder, setSelectedOrder] = useState(null)
+  const [analyticsTab, setAnalyticsTab] = useState('overview') // overview, items, vendors, users, monthly
+  const [orderFilter, setOrderFilter] = useState('all') // all, delivered, cancelled, pending, preparing
+  const [users, setUsers] = useState([]) // all users
 
   // Excel export states
   const [exportMonth, setExportMonth] = useState(new Date().getMonth())
@@ -44,6 +46,14 @@ export default function FounderApp() {
   useEffect(() => {
     const u1 = getAllOrders(setOrders)
     const u2 = getAllVendors(setVendors)
+
+    // Load all users
+    import('firebase/firestore').then(({ collection, onSnapshot, query, where }) => {
+      const q = query(collection(db, 'users'), where('role', '==', 'user'))
+      const unsub = onSnapshot(q, snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      return unsub
+    })
+
     return () => { u1(); u2() }
   }, [])
 
@@ -515,9 +525,36 @@ export default function FounderApp() {
               </div>
             )}
 
-            <div style={{ fontSize:12, color:'#6b7280', marginBottom:10 }}>All orders · live · tap for details</div>
+            {/* Order filters */}
+            <div style={{ display:'flex', gap:6, marginBottom:12, overflowX:'auto', paddingBottom:4 }}>
+              {[
+                { id:'all',          label:'All',           count: orders.length },
+                { id:'pending',      label:'Pending',       count: orders.filter(o=>o.status==='pending').length },
+                { id:'preparing',    label:'Preparing',     count: orders.filter(o=>o.status==='preparing'||o.status==='accepted').length },
+                { id:'delivered',    label:'Delivered',     count: orders.filter(o=>o.status==='delivered').length },
+                { id:'cancelled',    label:'Cancelled',     count: orders.filter(o=>o.status==='cancelled').length },
+              ].map(f => (
+                <button key={f.id} onClick={() => setOrderFilter(f.id)}
+                  style={{ flexShrink:0, padding:'6px 12px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600,
+                    background: orderFilter===f.id ? '#E24B4A' : '#f3f4f6',
+                    color: orderFilter===f.id ? '#fff' : '#6b7280'
+                  }}>
+                  {f.label} ({f.count})
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8 }}>
+              {orderFilter === 'all' ? orders.length : orders.filter(o => {
+                if (orderFilter === 'preparing') return o.status==='preparing'||o.status==='accepted'
+                return o.status === orderFilter
+              }).length} orders · tap for details
+            </div>
             {orders.length===0 && <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>No orders yet</div>}
-            {orders.slice(0,50).map(o => (
+            {orders.filter(o => {
+              if (orderFilter === 'all') return true
+              if (orderFilter === 'preparing') return o.status==='preparing'||o.status==='accepted'
+              return o.status === orderFilter
+            }).slice(0,50).map(o => (
               <div key={o.id} onClick={() => setSelectedOrder(o)} style={{ display:'flex', gap:8, alignItems:'center', padding:'10px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', cursor:'pointer' }}>
                 <div style={{ fontSize:11, color:'#9ca3af', minWidth:42 }}>
                   {o.createdAt?.toDate?.()?.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})||'--'}
@@ -618,28 +655,123 @@ export default function FounderApp() {
           <>
             <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>📊 Analytics</div>
 
-            {/* Summary stats */}
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
+            {/* ── ANALYTICS TAB SWITCHER ── */}
+            <div style={{ display:'flex', gap:6, marginBottom:14, overflowX:'auto', paddingBottom:2 }}>
               {[
-                { label:'Total Orders',    val: orders.length, icon:'📦' },
-                { label:'Total Revenue',   val: '₹' + orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0).toLocaleString(), icon:'💰' },
-                { label:'Delivered',       val: orders.filter(o=>o.status==='delivered').length, icon:'✅' },
-                { label:'Cancelled',       val: orders.filter(o=>o.status==='cancelled').length, icon:'❌' },
-              ].map(s => (
-                <div key={s.label} style={{ background:'#f9fafb', borderRadius:10, padding:12 }}>
-                  <div style={{ fontSize:20, marginBottom:4 }}>{s.icon}</div>
-                  <div style={{ fontSize:20, fontWeight:700 }}>{s.val}</div>
-                  <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>{s.label}</div>
-                </div>
+                { id:'overview', label:'📊 Overview' },
+                { id:'monthly',  label:'📅 Monthly' },
+                { id:'items',    label:'🍽️ Items' },
+                { id:'vendors',  label:'🏪 Vendors' },
+                { id:'users',    label:'👤 Users' },
+              ].map(t => (
+                <button key={t.id} onClick={() => setAnalyticsTab(t.id)}
+                  style={{ flexShrink:0, padding:'7px 14px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600,
+                    background: analyticsTab===t.id?'#E24B4A':'#f3f4f6',
+                    color: analyticsTab===t.id?'#fff':'#6b7280'
+                  }}>{t.label}
+                </button>
               ))}
             </div>
 
-            {/* Tab switcher */}
-            <div style={{ display:'flex', gap:8, marginBottom:14 }}>
-              {[['items','🍽️ Most Ordered'],['vendors','🏪 Top Vendors'],['users','👤 Top Users']].map(([id,label]) => (
-                <button key={id} onClick={() => setAnalyticsTab(id)} style={{ flex:1, padding:'8px 0', fontSize:11, fontWeight:600, borderRadius:8, border:'none', cursor:'pointer', fontFamily:'Poppins', background: analyticsTab===id?'#E24B4A':'#f3f4f6', color: analyticsTab===id?'#fff':'#6b7280' }}>{label}</button>
-              ))}
-            </div>
+            {/* ── OVERVIEW ── */}
+            {analyticsTab==='overview' && (() => {
+              const totalRev = orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0)
+              const delivered = orders.filter(o=>o.status==='delivered').length
+              const cancelled = orders.filter(o=>o.status==='cancelled').length
+              const pending = orders.filter(o=>o.status==='pending').length
+              const activeUsers = [...new Set(orders.filter(o => {
+                const d = o.createdAt?.toDate?.()
+                const now = new Date()
+                return d && (now - d) < 30 * 24 * 60 * 60 * 1000
+              }).map(o => o.userUid))].length
+
+              const stats = [
+                { icon:'📦', label:'Total Orders',    val: orders.length,   bg:'#fff5f5', click: () => setOrderFilter('all') },
+                { icon:'💰', label:'Total Revenue',   val: '₹'+totalRev.toLocaleString(), bg:'#f0fdf4', click: null },
+                { icon:'✅', label:'Delivered',        val: delivered,       bg:'#f0fdf4', click: () => { setTab('orders'); setOrderFilter('delivered') } },
+                { icon:'❌', label:'Cancelled',        val: cancelled,       bg:'#fff5f5', click: () => { setTab('orders'); setOrderFilter('cancelled') } },
+                { icon:'⏳', label:'Pending',          val: pending,         bg:'#fffbeb', click: () => { setTab('orders'); setOrderFilter('pending') } },
+                { icon:'👥', label:'Total Users',      val: users.length,    bg:'#eff6ff', click: null },
+                { icon:'🔥', label:'Active (30 days)', val: activeUsers,     bg:'#fff7ed', click: null },
+                { icon:'🏪', label:'Active Vendors',  val: vendors.filter(v=>v.isOpen).length, bg:'#f0fdf4', click: null },
+              ]
+
+              return (
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                  {stats.map(s => (
+                    <div key={s.label}
+                      onClick={s.click || undefined}
+                      style={{ background: s.bg, borderRadius:12, padding:14, cursor: s.click?'pointer':'default',
+                        borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6',
+                        boxShadow: s.click?'0 2px 8px rgba(0,0,0,0.06)':'none'
+                      }}>
+                      <div style={{ fontSize:22, marginBottom:6 }}>{s.icon}</div>
+                      <div style={{ fontSize:20, fontWeight:700, color:'#1f2937' }}>{s.val}</div>
+                      <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>{s.label}</div>
+                      {s.click && <div style={{ fontSize:10, color:'#E24B4A', marginTop:4, fontWeight:600 }}>Tap to filter →</div>}
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+
+            {/* ── MONTHLY REVENUE ── */}
+            {analyticsTab==='monthly' && (() => {
+              const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+              const year = new Date().getFullYear()
+              const monthlyData = months.map((m, i) => {
+                const mo = orders.filter(o => {
+                  const d = o.createdAt?.toDate?.()
+                  return d && d.getMonth()===i && d.getFullYear()===year
+                })
+                return {
+                  month: m,
+                  orders: mo.length,
+                  revenue: mo.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0),
+                  delivered: mo.filter(o=>o.status==='delivered').length,
+                  cancelled: mo.filter(o=>o.status==='cancelled').length,
+                }
+              })
+              const maxRev = Math.max(...monthlyData.map(m=>m.revenue), 1)
+              const totalYearRev = monthlyData.reduce((s,m)=>s+m.revenue,0)
+              const totalYearOrders = monthlyData.reduce((s,m)=>s+m.orders,0)
+              return (
+                <>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
+                    <div style={{ background:'#f0fdf4', borderRadius:12, padding:14 }}>
+                      <div style={{ fontSize:11, color:'#6b7280', marginBottom:4 }}>{year} TOTAL REVENUE</div>
+                      <div style={{ fontSize:20, fontWeight:700, color:'#16a34a' }}>₹{totalYearRev.toLocaleString()}</div>
+                    </div>
+                    <div style={{ background:'#fff5f5', borderRadius:12, padding:14 }}>
+                      <div style={{ fontSize:11, color:'#6b7280', marginBottom:4 }}>{year} TOTAL ORDERS</div>
+                      <div style={{ fontSize:20, fontWeight:700, color:'#E24B4A' }}>{totalYearOrders}</div>
+                    </div>
+                  </div>
+                  <div style={{ background:'#fff', borderRadius:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', overflow:'hidden' }}>
+                    <div style={{ padding:'12px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', fontSize:12, fontWeight:700, color:'#1f2937' }}>
+                      📅 Monthly Revenue — {year}
+                    </div>
+                    {monthlyData.map((m, i) => (
+                      <div key={m.month} style={{ padding:'10px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
+                          <div>
+                            <span style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{m.month}</span>
+                            <span style={{ fontSize:11, color:'#9ca3af', marginLeft:8 }}>{m.orders} orders</span>
+                          </div>
+                          <div style={{ textAlign:'right' }}>
+                            <div style={{ fontSize:13, fontWeight:700, color: m.revenue>0?'#16a34a':'#9ca3af' }}>₹{m.revenue.toLocaleString()}</div>
+                            <div style={{ fontSize:10, color:'#9ca3af' }}>✅{m.delivered} ❌{m.cancelled}</div>
+                          </div>
+                        </div>
+                        <div style={{ background:'#f3f4f6', borderRadius:4, height:6, overflow:'hidden' }}>
+                          <div style={{ height:'100%', background: m.revenue>0?'#16a34a':'#e5e7eb', width:((m.revenue/maxRev)*100)+'%', borderRadius:4, transition:'width 0.5s' }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )
+            })()}
 
             {/* Most ordered items */}
             {analyticsTab==='items' && (
