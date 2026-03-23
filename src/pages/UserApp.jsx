@@ -17,7 +17,18 @@ const S = {
   bnItem: () => ({ flex:1, padding:'10px 0', display:'flex', flexDirection:'column', alignItems:'center', gap:3, cursor:'pointer', border:'none', background:'transparent', fontFamily:'Poppins,sans-serif' }),
 }
 
-const CATEGORIES = ['All','Thali','Biryani','Chinese','Snacks','Juice','Sweets']
+const CATEGORIES = [
+  { id:'All',     emoji:'🍽️',  label:'All' },
+  { id:'Thali',   emoji:'🥘',  label:'Thali' },
+  { id:'Biryani', emoji:'🍚',  label:'Biryani' },
+  { id:'Pizza',   emoji:'🍕',  label:'Pizza' },
+  { id:'Chinese', emoji:'🍜',  label:'Chinese' },
+  { id:'Snacks',  emoji:'🍟',  label:'Snacks' },
+  { id:'Juice',   emoji:'🥤',  label:'Juice' },
+  { id:'Sweets',  emoji:'🍮',  label:'Sweets' },
+  { id:'Roti',    emoji:'🫓',  label:'Roti' },
+  { id:'Rice',    emoji:'🍛',  label:'Rice' },
+]
 
 const VegDot = ({ isVeg }) => (
   <div style={{
@@ -47,6 +58,12 @@ export default function UserApp() {
   const [showNotifs, setShowNotifs] = useState(false)
   const [orderSuccess, setOrderSuccess] = useState(null) // stores placed order info
   const [showVendorInfo, setShowVendorInfo] = useState(false) // vendor info bottom sheet
+  const [showReview, setShowReview] = useState(false) // review modal
+  const [reviewVendor, setReviewVendor] = useState(null)
+  const [reviewRating, setReviewRating] = useState(5)
+  const [reviewText, setReviewText] = useState('')
+  const [reviews, setReviews] = useState([]) // vendor reviews
+  const [submittingReview, setSubmittingReview] = useState(false)
 
   // Location states
   const [userLat, setUserLat] = useState(null)
@@ -189,7 +206,7 @@ export default function UserApp() {
     setLocationSuggestions([])
   }
 
-  const openVendor = (v) => { setSelectedVendor(v); setTab('vendor-menu') }
+  const openVendor = (v) => { setSelectedVendor(v); setTab('vendor-menu'); setShowVendorInfo(false); loadReviews(v.id) }
 
   const addToCart = (item) => {
     if (cartVendor && cartVendor.id !== selectedVendor.id) {
@@ -260,10 +277,45 @@ export default function UserApp() {
     } catch (e) { console.error(e); toast.error('Failed to place order. Try again.') }
   }
 
+  // ── SUBMIT REVIEW ─────────────────────────────────────────────────────────
+  const handleSubmitReview = async () => {
+    if (!reviewText.trim()) return toast.error('Please write a review!')
+    setSubmittingReview(true)
+    try {
+      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
+      await addDoc(collection(db, 'reviews'), {
+        vendorId: reviewVendor.id,
+        vendorName: reviewVendor.storeName,
+        userId: user.uid,
+        userName: userData?.name || 'Anonymous',
+        rating: reviewRating,
+        text: reviewText.trim(),
+        createdAt: serverTimestamp()
+      })
+      toast.success('Review submitted! ⭐')
+      setShowReview(false)
+      setReviewText('')
+      setReviewRating(5)
+    } catch (err) { toast.error('Failed to submit review') }
+    setSubmittingReview(false)
+  }
+
+  // ── LOAD REVIEWS FOR VENDOR ────────────────────────────────────────────────
+  const loadReviews = async (vendorId) => {
+    try {
+      const { collection, query, where, orderBy, getDocs } = await import('firebase/firestore')
+      const q = query(collection(db, 'reviews'), where('vendorId', '==', vendorId))
+      const snap = await getDocs(q)
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      data.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
+      setReviews(data)
+    } catch { setReviews([]) }
+  }
+
   // ── SORT vendors by distance if location available ─────────────────────
   const filteredVendors = vendors
     .filter(v => {
-      const matchCat = catFilter === 'All' || v.category === catFilter
+      const matchCat = catFilter === 'All' || v.category === catFilter || (catFilter !== 'All' && v.customCategories?.includes(catFilter))
       const q = searchQuery.toLowerCase().trim()
       const matchSearch = !q ||
         v.storeName?.toLowerCase().includes(q) ||
@@ -305,14 +357,22 @@ export default function UserApp() {
             {/* Location display — opens picker modal */}
             <div
               onClick={() => setShowLocationPicker(true)}
-              style={{ fontSize:12, opacity:0.95, marginTop:3, cursor:'pointer', display:'flex', alignItems:'center', gap:5, maxWidth:220 }}
+              style={{ marginTop:6, cursor:'pointer', display:'flex', alignItems:'center', gap:8, maxWidth:220 }}
             >
-              <span style={{ fontSize:14 }}>📍</span>
+              {/* Lollipop location icon */}
+              <div style={{ position:'relative', width:22, height:26, flexShrink:0 }}>
+                <div style={{ width:18, height:18, borderRadius:'50% 50% 50% 0', background:'#fff', transform:'rotate(-45deg)', position:'absolute', top:0, left:2, boxShadow:'0 2px 6px rgba(0,0,0,0.2)' }} />
+                <div style={{ width:8, height:8, borderRadius:'50%', background:'#E24B4A', position:'absolute', top:5, left:7 }} />
+                <div style={{ width:2, height:10, background:'rgba(255,255,255,0.8)', position:'absolute', bottom:0, left:10, borderRadius:2 }} />
+              </div>
               <div style={{ display:'flex', flexDirection:'column' }}>
-                <span style={{ fontSize:11, opacity:0.8, lineHeight:1 }}>Delivering to</span>
-                <span style={{ fontSize:13, fontWeight:600, lineHeight:1.3, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:180 }}>
-                  {locationLoading ? 'Detecting...' : locationName || 'Select Location ▾'}
-                </span>
+                <span style={{ fontSize:10, opacity:0.75, lineHeight:1, letterSpacing:0.3 }}>DELIVERING TO</span>
+                <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                  <span style={{ fontSize:13, fontWeight:700, lineHeight:1.4, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:160 }}>
+                    {locationLoading ? 'Detecting...' : locationName || 'Select Location'}
+                  </span>
+                  <span style={{ fontSize:10, opacity:0.8 }}>▾</span>
+                </div>
               </div>
             </div>
           </div>
@@ -455,15 +515,32 @@ export default function UserApp() {
             )}
 
             {!searchQuery.trim() && (
-              <div style={{ display:'flex', gap:8, padding:'12px 16px 4px', overflowX:'auto' }}>
-                {CATEGORIES.map(c => (
-                  <div key={c} onClick={() => setCatFilter(c)} style={{
-                    flexShrink:0, background: catFilter===c?'#E24B4A':'#fff',
-                    color: catFilter===c?'#fff':'#6b7280',
-                    borderWidth:1, borderStyle:'solid', borderColor: catFilter===c?'#E24B4A':'#e5e7eb',
-                    borderRadius:20, padding:'6px 14px', fontSize:12, fontWeight:500, cursor:'pointer'
-                  }}>{c}</div>
-                ))}
+              <div style={{ background:'#fff', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+                <div style={{ overflowX:'auto', padding:'16px 16px 12px' }}>
+                  <div style={{ display:'flex', gap:18, width:'max-content' }}>
+                    {CATEGORIES.map(c => {
+                      const active = catFilter === c.id
+                      const bgMap = { All:'#fff0f0', Thali:'#fef3c7', Biryani:'#fef9c3', Pizza:'#fff1f2', Chinese:'#f0f9ff', Snacks:'#fff7ed', Juice:'#f0fdf4', Sweets:'#fdf4ff', Roti:'#fefce8', Rice:'#f0fdf4' }
+                      return (
+                        <div key={c.id} onClick={() => setCatFilter(c.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:7, cursor:'pointer', flexShrink:0 }}>
+                          <div style={{
+                            width:64, height:64, borderRadius:'50%',
+                            background: active ? '#E24B4A' : (bgMap[c.id] || '#fff5f5'),
+                            display:'flex', alignItems:'center', justifyContent:'center',
+                            fontSize:28,
+                            boxShadow: active ? '0 6px 18px rgba(226,75,74,0.45)' : '0 2px 10px rgba(0,0,0,0.07)',
+                            borderWidth:2.5, borderStyle:'solid',
+                            borderColor: active ? '#E24B4A' : 'transparent',
+                            transform: active ? 'scale(1.08)' : 'scale(1)',
+                            transition:'all 0.2s'
+                          }}>{c.emoji}</div>
+                          <span style={{ fontSize:11, fontWeight:active?700:500, color:active?'#E24B4A':'#374151', whiteSpace:'nowrap', letterSpacing:0.1 }}>{c.label}</span>
+                          {active && <div style={{ width:18, height:3, background:'#E24B4A', borderRadius:2 }} />}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -672,6 +749,71 @@ export default function UserApp() {
                 </div>
               )}
             </div>
+
+            {/* ── REVIEWS SECTION ── */}
+            <div style={{ background:'#fff', borderTopWidth:8, borderTopStyle:'solid', borderTopColor:'#f7f7f7', marginTop:8 }}>
+              <div style={{ padding:'16px 16px 10px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#1f2937' }}>Ratings & Reviews</div>
+                  {reviews.length > 0 && (
+                    <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:4 }}>
+                      <span style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>
+                        {(reviews.reduce((s,r) => s+r.rating, 0) / reviews.length).toFixed(1)}
+                      </span>
+                      <div style={{ display:'flex', gap:1 }}>
+                        {[1,2,3,4,5].map(s => (
+                          <span key={s} style={{ fontSize:13, color: s <= Math.round(reviews.reduce((sum,r)=>sum+r.rating,0)/reviews.length) ? '#f59e0b' : '#e5e7eb' }}>★</span>
+                        ))}
+                      </div>
+                      <span style={{ fontSize:12, color:'#9ca3af' }}>({reviews.length} reviews)</span>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => { setReviewVendor(selectedVendor); setShowReview(true) }}
+                  style={{ background:'transparent', color:'#E24B4A', borderWidth:1.5, borderStyle:'solid', borderColor:'#E24B4A', borderRadius:20, padding:'8px 16px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:5 }}
+                >
+                  ✍️ Rate Us
+                </button>
+              </div>
+
+              {reviews.length === 0 && (
+                <div style={{ textAlign:'center', padding:'24px 16px 32px' }}>
+                  <div style={{ fontSize:36, marginBottom:8 }}>⭐</div>
+                  <div style={{ fontSize:13, color:'#9ca3af' }}>No reviews yet</div>
+                  <div style={{ fontSize:12, color:'#d1d5db', marginTop:4 }}>Be the first to review this restaurant!</div>
+                </div>
+              )}
+
+              {reviews.map(r => (
+                <div key={r.id} style={{ padding:'14px 16px', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#f7f7f7' }}>
+                  <div style={{ display:'flex', alignItems:'flex-start', gap:10, marginBottom:8 }}>
+                    <div style={{ width:36, height:36, borderRadius:'50%', background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <span style={{ fontSize:15, fontWeight:700, color:'#fff' }}>{r.userName?.[0]?.toUpperCase() || 'U'}</span>
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <div style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{r.userName}</div>
+                        <div style={{ fontSize:10, color:'#9ca3af' }}>
+                          {r.createdAt?.toDate?.()?.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) || ''}
+                        </div>
+                      </div>
+                      <div style={{ display:'flex', gap:2, marginTop:3 }}>
+                        {[1,2,3,4,5].map(s => (
+                          <span key={s} style={{ fontSize:13, color: s<=r.rating?'#f59e0b':'#e5e7eb' }}>★</span>
+                        ))}
+                        <span style={{ fontSize:11, color:'#9ca3af', marginLeft:4 }}>
+                          {['','Poor','Fair','Good','Great','Excellent'][r.rating]}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize:13, color:'#374151', lineHeight:1.6, paddingLeft:46 }}>{r.text}</div>
+                </div>
+              ))}
+              <div style={{ height:100 }} />
+            </div>
+
           </div>
         )}
 
@@ -820,6 +962,55 @@ export default function UserApp() {
           </div>
         )}
       </div>
+
+      {/* ── REVIEW MODAL ── */}
+      {showReview && reviewVendor && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:998, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}
+          onClick={e => { if(e.target===e.currentTarget) setShowReview(false) }}>
+          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', padding:20, maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
+
+            {/* Handle */}
+            <div style={{ display:'flex', justifyContent:'center', marginBottom:16 }}>
+              <div style={{ width:40, height:4, borderRadius:2, background:'#e5e7eb' }} />
+            </div>
+
+            <div style={{ fontSize:16, fontWeight:700, color:'#1f2937', marginBottom:4 }}>Rate your experience</div>
+            <div style={{ fontSize:12, color:'#9ca3af', marginBottom:16 }}>{reviewVendor.storeName}</div>
+
+            {/* Star Rating */}
+            <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:18 }}>
+              {[1,2,3,4,5].map(s => (
+                <button key={s} onClick={() => setReviewRating(s)}
+                  style={{ background:'none', border:'none', cursor:'pointer', fontSize:36, color: s<=reviewRating?'#f59e0b':'#e5e7eb', transition:'all 0.15s', transform: s<=reviewRating?'scale(1.15)':'scale(1)' }}>
+                  ★
+                </button>
+              ))}
+            </div>
+
+            {/* Rating label */}
+            <div style={{ textAlign:'center', fontSize:13, fontWeight:600, color:'#E24B4A', marginBottom:14 }}>
+              {['','😞 Poor','😐 Fair','🙂 Good','😊 Great','🤩 Excellent!'][reviewRating]}
+            </div>
+
+            {/* Review text */}
+            <textarea
+              placeholder="Share your experience with other users..."
+              value={reviewText}
+              onChange={e => setReviewText(e.target.value)}
+              rows={3}
+              style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', resize:'none', boxSizing:'border-box', marginBottom:14, lineHeight:1.5 }}
+            />
+
+            <button
+              onClick={handleSubmitReview}
+              disabled={submittingReview}
+              style={{ width:'100%', background: submittingReview?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:12, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
+            >
+              {submittingReview ? 'Submitting...' : '⭐ Submit Review'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── ORDER SUCCESS PAGE ── */}
       {orderSuccess && (
