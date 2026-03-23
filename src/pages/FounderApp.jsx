@@ -18,6 +18,11 @@ export default function FounderApp() {
   const [selectedOrder, setSelectedOrder] = useState(null) // order details modal
   const [analyticsTab, setAnalyticsTab] = useState('items') // most ordered
 
+  // Excel export states
+  const [exportMonth, setExportMonth] = useState(new Date().getMonth())
+  const [exportYear, setExportYear] = useState(new Date().getFullYear())
+  const [exportType, setExportType] = useState('all') // all, vendor, monthly
+
   // Photo states
   const [vendorPhotoFile, setVendorPhotoFile] = useState(null)
   const [vendorPhotoPreview, setVendorPhotoPreview] = useState(null)
@@ -166,6 +171,115 @@ export default function FounderApp() {
     e.target.value = ''
   }
 
+  // ── EXCEL EXPORT ─────────────────────────────────────────────────────────
+  const exportToExcel = (type) => {
+    let data = []
+    let filename = ''
+
+    const formatDate = (o) => o.createdAt?.toDate?.()?.toLocaleDateString('en-IN') || ''
+    const formatTime = (o) => o.createdAt?.toDate?.()?.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'}) || ''
+
+    if (type === 'monthly') {
+      // Filter by selected month/year
+      data = orders.filter(o => {
+        const d = o.createdAt?.toDate?.()
+        return d && d.getMonth() === exportMonth && d.getFullYear() === exportYear
+      })
+      const monthName = new Date(exportYear, exportMonth).toLocaleString('en-IN', { month:'long' })
+      filename = `FeedoZone_Orders_${monthName}_${exportYear}.csv`
+    } else if (type === 'today') {
+      const today = new Date()
+      data = orders.filter(o => {
+        const d = o.createdAt?.toDate?.()
+        return d && d.getDate()===today.getDate() && d.getMonth()===today.getMonth() && d.getFullYear()===today.getFullYear()
+      })
+      filename = `FeedoZone_Orders_Today_${today.toLocaleDateString('en-IN').replace(/\//g,'-')}.csv`
+    } else {
+      data = [...orders]
+      filename = `FeedoZone_All_Orders.csv`
+    }
+
+    if (data.length === 0) return toast.error('No orders found for selected period!')
+
+    // Build CSV
+    const headers = ['Order Date', 'Order Time', 'Customer Name', 'Customer Phone', 'Vendor', 'Items', 'Subtotal', 'Delivery Fee', 'Total', 'Payment', 'Status', 'Address']
+    
+    const rows = data.map(o => [
+      formatDate(o),
+      formatTime(o),
+      o.userName || '',
+      o.userPhone || '',
+      o.vendorName || '',
+      o.items?.map(i => i.qty + 'x ' + i.name).join(' | ') || '',
+      o.subtotal || '',
+      o.deliveryFee || '',
+      o.total || '',
+      o.paymentMode || 'COD',
+      o.status || '',
+      (o.address || '').replace(/,/g, ';')
+    ])
+
+    // Add summary row
+    const totalRevenue = data.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0)
+    rows.push([])
+    rows.push(['SUMMARY', '', '', '', '', '', '', '', '', '', '', ''])
+    rows.push(['Total Orders', data.length, '', '', '', '', '', '', '', '', '', ''])
+    rows.push(['Delivered', data.filter(o=>o.status==='delivered').length, '', '', '', '', '', '', '', '', '', ''])
+    rows.push(['Cancelled', data.filter(o=>o.status==='cancelled').length, '', '', '', '', '', '', '', '', '', ''])
+    rows.push(['Total Revenue (Delivered)', '', '', '', '', '', '', '', '₹' + totalRevenue, '', '', ''])
+
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(','))
+      .join('\n')
+
+    // Download
+    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success(`✅ Downloaded: ${filename}`)
+  }
+
+  // Vendor-wise export
+  const exportVendorWise = () => {
+    if (vendors.length === 0) return toast.error('No vendors found!')
+
+    const rows = [['Vendor Name', 'Email', 'Phone', 'Category', 'Plan', 'Total Orders', 'Delivered Orders', 'Total Revenue', 'Status']]
+
+    vendors.forEach(v => {
+      const vOrders = orders.filter(o => o.vendorUid === v.id)
+      const delivered = vOrders.filter(o => o.status === 'delivered')
+      const revenue = delivered.reduce((s,o) => s+(o.total||0), 0)
+      rows.push([
+        v.storeName || '',
+        v.email || '',
+        v.phone || '',
+        v.category || '',
+        v.plan || '',
+        vOrders.length,
+        delivered.length,
+        '₹' + revenue,
+        v.isOpen ? 'Open' : 'Closed'
+      ])
+    })
+
+    const csvContent = rows
+      .map(row => row.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(','))
+      .join('\n')
+
+    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'FeedoZone_Vendor_Report.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('✅ Vendor report downloaded!')
+  }
+
   // ── DELETE VENDOR ────────────────────────────────────────────────────────
   const handleDeleteVendor = async (vendorId, vendorName) => {
     if (!window.confirm(`Delete "${vendorName}"? This cannot be undone!`)) return
@@ -259,6 +373,89 @@ export default function FounderApp() {
               ))}
             </div>
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:11, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>Logout</button>
+
+            {/* ── EXCEL EXPORT SECTION ── */}
+            <div style={{ marginTop:16, background:'#f9fafb', borderRadius:12, padding:14, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
+                <span style={{ fontSize:18 }}>📊</span>
+                <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>Export to Excel</div>
+                <span style={{ fontSize:10, background:'#dcfce7', color:'#166534', padding:'2px 8px', borderRadius:10, fontWeight:600 }}>CSV / Excel</span>
+              </div>
+
+              {/* Quick export buttons */}
+              <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:14 }}>
+                <button
+                  onClick={() => exportToExcel('today')}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}
+                >
+                  <span style={{ fontSize:18 }}>📅</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:12, fontWeight:600, color:'#1f2937' }}>Today's Orders</div>
+                    <div style={{ fontSize:11, color:'#9ca3af' }}>{todayOrders.length} orders · ₹{todayRevenue} revenue</div>
+                  </div>
+                  <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>↓ Download</span>
+                </button>
+
+                <button
+                  onClick={() => exportToExcel('all')}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}
+                >
+                  <span style={{ fontSize:18 }}>📦</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:12, fontWeight:600, color:'#1f2937' }}>All Orders</div>
+                    <div style={{ fontSize:11, color:'#9ca3af' }}>{orders.length} total orders</div>
+                  </div>
+                  <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>↓ Download</span>
+                </button>
+
+                <button
+                  onClick={exportVendorWise}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}
+                >
+                  <span style={{ fontSize:18 }}>🏪</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:12, fontWeight:600, color:'#1f2937' }}>Vendor-wise Report</div>
+                    <div style={{ fontSize:11, color:'#9ca3af' }}>{vendors.length} vendors · orders + revenue</div>
+                  </div>
+                  <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>↓ Download</span>
+                </button>
+              </div>
+
+              {/* Monthly export */}
+              <div style={{ background:'#fff', borderRadius:10, padding:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+                <div style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:10 }}>📆 Monthly Export</div>
+                <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+                  <select
+                    value={exportMonth}
+                    onChange={e => setExportMonth(Number(e.target.value))}
+                    style={{ flex:1, padding:'9px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none', background:'#fff' }}
+                  >
+                    {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m,i) => (
+                      <option key={i} value={i}>{m}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={exportYear}
+                    onChange={e => setExportYear(Number(e.target.value))}
+                    style={{ width:90, padding:'9px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none', background:'#fff' }}
+                  >
+                    {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+                <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8 }}>
+                  {orders.filter(o => {
+                    const d = o.createdAt?.toDate?.()
+                    return d && d.getMonth() === exportMonth && d.getFullYear() === exportYear
+                  }).length} orders in {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][exportMonth]} {exportYear}
+                </div>
+                <button
+                  onClick={() => exportToExcel('monthly')}
+                  style={{ width:'100%', background:'#16a34a', color:'#fff', border:'none', padding:'10px 0', borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+                >
+                  📊 Download Monthly Report
+                </button>
+              </div>
+            </div>
           </>
         )}
 
