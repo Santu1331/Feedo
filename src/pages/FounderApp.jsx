@@ -216,6 +216,19 @@ export default function FounderApp() {
     e.target.value = ''
   }
 
+  // ── DELETE ORDER ─────────────────────────────────────────────────────────
+  const handleDeleteOrder = async (orderId, e) => {
+    e?.stopPropagation()
+    if (!window.confirm('Delete this order? This cannot be undone.')) return
+    try {
+      await deleteDoc(doc(db, 'orders', orderId))
+      if (selectedOrder?.id === orderId) setSelectedOrder(null)
+      toast.success('Order deleted ✅')
+    } catch (err) {
+      toast.error('Failed to delete order')
+    }
+  }
+
   // ── EXCEL EXPORT ─────────────────────────────────────────────────────────
   const exportToExcel = (type) => {
     let data = []
@@ -579,6 +592,12 @@ export default function FounderApp() {
                     <span style={{ fontSize:14, fontWeight:700 }}>Total</span>
                     <span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{selectedOrder.total}</span>
                   </div>
+                  <button
+                    onClick={(e) => handleDeleteOrder(selectedOrder.id, e)}
+                    style={{ width:'100%', marginTop:14, background:'#fee2e2', color:'#dc2626', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
+                  >
+                    🗑️ Delete This Order
+                  </button>
                 </div>
               </div>
             )}
@@ -622,12 +641,16 @@ export default function FounderApp() {
                   <div style={{ fontSize:11, color:'#6b7280' }}>{o.vendorName} · {o.items?.length} item(s)</div>
                   {o.address && <div style={{ fontSize:10, color:'#9ca3af', marginTop:1 }}>📍 {o.address?.slice(0,35)}{o.address?.length>35?'...':''}</div>}
                 </div>
-                <div style={{ textAlign:'right' }}>
+                <div style={{ textAlign:'right', display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
                   <div style={{ fontSize:13, fontWeight:600 }}>₹{o.total}</div>
                   <span style={{ fontSize:9, fontWeight:600, padding:'2px 7px', borderRadius:8,
                     background: o.status==='delivered'?'#d1fae5':o.status==='cancelled'?'#fee2e2':o.status==='preparing'?'#dbeafe':'#fef3c7',
                     color: o.status==='delivered'?'#065f46':o.status==='cancelled'?'#991b1b':o.status==='preparing'?'#1e40af':'#92400e'
                   }}>{o.status?.replace('_',' ')}</span>
+                  <button
+                    onClick={(e) => handleDeleteOrder(o.id, e)}
+                    style={{ background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:6, padding:'3px 8px', fontSize:10, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
+                  >🗑️</button>
                 </div>
               </div>
             ))}
