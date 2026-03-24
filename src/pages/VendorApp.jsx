@@ -118,7 +118,7 @@ export default function VendorApp() {
     setIsOpen(userData?.isOpen || false)
     // Load saved custom categories from userData
     if (userData?.customCategories) setCustomCategories(userData.customCategories)
-    if (userData?.deliveryCharge !== undefined) setDeliveryCharge(String(userData.deliveryCharge || ''))
+    if (userData?.deliveryCharge !== undefined) setDeliveryCharge(String(userData.deliveryCharge ?? ''))
     if (userData?.fssai) setFssai(userData.fssai)
     if (userData?.openTime) setOpenTime(userData.openTime)
     if (userData?.closeTime) setCloseTime(userData.closeTime)
@@ -193,7 +193,7 @@ export default function VendorApp() {
     setSavingDetails(true)
     try {
       await updateVendorStore(user.uid, {
-        deliveryCharge: Number(deliveryCharge) || 0,
+        deliveryCharge: deliveryCharge === '' ? 0 : Number(deliveryCharge),
         fssai: fssai.trim(),
         openTime: openTime.trim(),
         closeTime: closeTime.trim(),

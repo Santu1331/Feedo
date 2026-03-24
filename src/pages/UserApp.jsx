@@ -222,7 +222,10 @@ export default function UserApp() {
       toast.error('Clear cart first — items from ' + cartVendor.storeName)
       return
     }
-    setCartVendor(selectedVendor)
+    setCartVendor({
+  ...selectedVendor,
+  deliveryCharge: Number(selectedVendor.deliveryCharge ?? 0)
+})
     setCart(prev => {
       const ex = prev.find(c => c.id === item.id)
       if (ex) return prev.map(c => c.id === item.id ? { ...c, qty: c.qty+1 } : c)
@@ -241,7 +244,7 @@ export default function UserApp() {
 
   const cartTotal = cart.reduce((s,c) => s + c.price*c.qty, 0)
   const cartCount = cart.reduce((s,c) => s + c.qty, 0)
-  const deliveryFee = Number(cartVendor?.deliveryCharge) || 0
+  const deliveryFee = Number(cartVendor?.deliveryCharge) ?? 0
 
   const handlePlaceOrder = async () => {
     if (!deliveryName.trim()) return toast.error('Enter your name')
@@ -1245,7 +1248,7 @@ export default function UserApp() {
                     onClick={() => notifyVendorWhatsApp(orderSuccess.vendorPhone, { userName: orderSuccess.userName, userPhone: orderSuccess.userPhone || '', address: orderSuccess.address, items: orderSuccess.items, subtotal: orderSuccess.subtotal, deliveryFee: orderSuccess.deliveryFee, total: orderSuccess.total })}
                     style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'11px 0', background:'#25D366', border:'none', borderRadius:10, cursor:'pointer', fontFamily:'Poppins' }}
                   >
-                    <span style={{ fontSize:18 }}>💬</span>
+                    <span stychrmle={{ fontSize:18 }}>💬</span>
                     <span style={{ fontSize:13, fontWeight:600, color:'#fff' }}>WhatsApp</span>
                   </button>
                   <button
