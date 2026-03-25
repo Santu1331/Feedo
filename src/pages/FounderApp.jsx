@@ -38,6 +38,12 @@ export default function FounderApp() {
   const [orderFilter, setOrderFilter] = useState('all') // all, delivered, cancelled, pending, preparing
   const [users, setUsers] = useState([]) // all users
 
+  // Support ticket states
+  const [supportTickets, setSupportTickets] = useState([])
+  const [selectedTicket, setSelectedTicket] = useState(null)
+  const [replyText, setReplyText] = useState('')
+  const [sendingReply, setSendingReply] = useState(false)
+
   // Excel export states
   const [exportMonth, setExportMonth] = useState(new Date().getMonth())
   const [exportYear, setExportYear] = useState(new Date().getFullYear())
@@ -70,6 +76,15 @@ export default function FounderApp() {
       const q = query(collection(db, 'users'), where('role', '==', 'user'))
       const unsub = onSnapshot(q, snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
       return unsub
+    })
+
+    // Load support tickets
+    import('firebase/firestore').then(({ collection, onSnapshot }) => {
+      onSnapshot(collection(db, 'supportTickets'), snap => {
+        const tickets = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        tickets.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
+        setSupportTickets(tickets)
+      })
     })
 
     return () => { u1(); u2() }
@@ -214,6 +229,24 @@ export default function FounderApp() {
     setUploadingPhotoFor(null)
     setExistingProgress(0)
     e.target.value = ''
+  }
+
+  // ── REPLY TO SUPPORT TICKET ───────────────────────────────────────────────
+  const handleReplyTicket = async (ticketId, status = 'replied') => {
+    if (!replyText.trim()) return toast.error('Enter your reply')
+    setSendingReply(true)
+    try {
+      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore')
+      await updateDoc(doc(db, 'supportTickets', ticketId), {
+        founderReply: replyText.trim(),
+        status,
+        repliedAt: serverTimestamp()
+      })
+      setReplyText('')
+      setSelectedTicket(null)
+      toast.success('Reply sent! ✅')
+    } catch { toast.error('Failed to send reply') }
+    setSendingReply(false)
   }
 
   // ── DELETE ORDER ─────────────────────────────────────────────────────────
@@ -416,6 +449,7 @@ export default function FounderApp() {
           { id:'orders',    label:`Orders (${todayOrders.length})` },
           { id:'vendors',   label:`Vendors (${vendors.length})` },
           { id:'addvendor', label:'+ Add Vendor' },
+          { id:'support',   label:`💬 Support${supportTickets.filter(t=>t.status==='open').length>0?` (${supportTickets.filter(t=>t.status==='open').length})`:''}` },
           { id:'analytics', label:'📊 Analytics' }
         ].map(t2 => (
           <button key={t2.id} onClick={() => setTab(t2.id)} style={{
@@ -652,6 +686,130 @@ export default function FounderApp() {
                     style={{ background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:6, padding:'3px 8px', fontSize:10, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
                   >🗑️</button>
                 </div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* ── SUPPORT TICKETS ── */}
+        {tab==='support' && (
+          <>
+            {/* Ticket detail modal */}
+            {selectedTicket && (
+              <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+                onClick={e => { if(e.target===e.currentTarget) { setSelectedTicket(null); setReplyText('') } }}>
+                <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', padding:20, width:'100%', maxWidth:430, maxHeight:'85vh', overflowY:'auto' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+                    <div style={{ fontSize:15, fontWeight:700 }}>Support Ticket</div>
+                    <button onClick={() => { setSelectedTicket(null); setReplyText('') }} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer' }}>✕</button>
+                  </div>
+                  {/* Ticket info */}
+                  <div style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:12 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>From</span>
+                      <span style={{ fontSize:12, fontWeight:600 }}>{selectedTicket.userName}</span>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>Email</span>
+                      <span style={{ fontSize:12 }}>{selectedTicket.userEmail}</span>
+                    </div>
+                    {selectedTicket.userPhone && (
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                        <span style={{ fontSize:12, color:'#6b7280' }}>Phone</span>
+                        <span style={{ fontSize:12 }}>{selectedTicket.userPhone}</span>
+                      </div>
+                    )}
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>Category</span>
+                      <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:10, background:'#fef3c7', color:'#92400e' }}>{selectedTicket.category}</span>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between' }}>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>Date</span>
+                      <span style={{ fontSize:11, color:'#9ca3af' }}>{selectedTicket.createdAt?.toDate?.()?.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
+                    </div>
+                  </div>
+                  {/* Message */}
+                  <div style={{ fontSize:12, fontWeight:600, color:'#6b7280', marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>Message</div>
+                  <div style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:14, fontSize:13, color:'#374151', lineHeight:1.6 }}>{selectedTicket.message}</div>
+                  {/* Previous reply */}
+                  {selectedTicket.founderReply ? (
+                    <div style={{ background:'#eff6ff', borderRadius:10, padding:12, marginBottom:14, borderLeftWidth:3, borderLeftStyle:'solid', borderLeftColor:'#3b82f6' }}>
+                      <div style={{ fontSize:11, fontWeight:600, color:'#1e40af', marginBottom:4 }}>👑 Your Previous Reply</div>
+                      <div style={{ fontSize:13, color:'#1e3a8a' }}>{selectedTicket.founderReply}</div>
+                    </div>
+                  ) : null}
+                  {/* Reply box */}
+                  <div style={{ fontSize:12, fontWeight:600, color:'#6b7280', marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>Your Reply</div>
+                  <textarea
+                    value={replyText}
+                    onChange={e => setReplyText(e.target.value)}
+                    placeholder="Type your reply to the user..."
+                    rows={4}
+                    style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', marginBottom:10, lineHeight:1.6 }}
+                  />
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={() => handleReplyTicket(selectedTicket.id, 'replied')} disabled={sendingReply}
+                      style={{ flex:1, background: sendingReply?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
+                      {sendingReply ? 'Sending...' : '📩 Send Reply'}
+                    </button>
+                    <button onClick={() => handleReplyTicket(selectedTicket.id, 'resolved')} disabled={sendingReply}
+                      style={{ flex:1, background:'#16a34a', color:'#fff', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
+                      ✅ Resolve
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Filter tabs */}
+            <div style={{ display:'flex', gap:6, marginBottom:12 }}>
+              {[
+                { id:'open',     label:'Open',     count: supportTickets.filter(t=>t.status==='open').length },
+                { id:'replied',  label:'Replied',  count: supportTickets.filter(t=>t.status==='replied').length },
+                { id:'resolved', label:'Resolved', count: supportTickets.filter(t=>t.status==='resolved').length },
+                { id:'all',      label:'All',      count: supportTickets.length },
+              ].map(f => (
+                <button key={f.id}
+                  onClick={() => setOrderFilter(f.id === 'all' ? 'all_support' : f.id)}
+                  style={{ flexShrink:0, padding:'6px 12px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600,
+                    background: orderFilter===(f.id==='all'?'all_support':f.id) || (f.id==='open' && orderFilter!=='replied' && orderFilter!=='resolved' && orderFilter!=='all_support') ? '#E24B4A' : '#f3f4f6',
+                    color: orderFilter===(f.id==='all'?'all_support':f.id) || (f.id==='open' && orderFilter!=='replied' && orderFilter!=='resolved' && orderFilter!=='all_support') ? '#fff' : '#6b7280'
+                  }}>
+                  {f.label} ({f.count})
+                </button>
+              ))}
+            </div>
+
+            {supportTickets.length === 0 && (
+              <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>
+                <div style={{ fontSize:40, marginBottom:8 }}>💬</div>
+                No support tickets yet
+              </div>
+            )}
+
+            {supportTickets
+              .filter(t => orderFilter==='all_support' ? true : orderFilter==='replied' ? t.status==='replied' : orderFilter==='resolved' ? t.status==='resolved' : t.status==='open')
+              .map(ticket => (
+              <div key={ticket.id} onClick={() => { setSelectedTicket(ticket); setReplyText(ticket.founderReply||'') }}
+                style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor: ticket.status==='open'?'#fecaca':'#f3f4f6', borderRadius:12, padding:14, marginBottom:10, cursor:'pointer' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{ticket.userName}</div>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{ticket.userEmail}</div>
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
+                    <span style={{ fontSize:9, fontWeight:600, padding:'2px 7px', borderRadius:8,
+                      background: ticket.status==='resolved'?'#d1fae5': ticket.status==='replied'?'#dbeafe':'#fee2e2',
+                      color: ticket.status==='resolved'?'#065f46': ticket.status==='replied'?'#1e40af':'#991b1b'
+                    }}>{ticket.status==='resolved'?'✅ Resolved': ticket.status==='replied'?'💬 Replied':'🔴 Open'}</span>
+                    <span style={{ fontSize:9, color:'#9ca3af' }}>{ticket.createdAt?.toDate?.()?.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</span>
+                  </div>
+                </div>
+                <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:10, background:'#fef3c7', color:'#92400e', marginBottom:6, display:'inline-block' }}>{ticket.category}</span>
+                <div style={{ fontSize:12, color:'#6b7280', marginTop:4 }}>{ticket.message.slice(0,80)}{ticket.message.length>80?'...':''}</div>
+                {ticket.founderReply && (
+                  <div style={{ marginTop:8, fontSize:11, color:'#3b82f6', fontWeight:500 }}>💬 You replied: {ticket.founderReply.slice(0,50)}...</div>
+                )}
               </div>
             ))}
           </>

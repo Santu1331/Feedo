@@ -66,6 +66,16 @@ export default function UserApp() {
   const [reviews, setReviews] = useState([]) // vendor reviews
   const [submittingReview, setSubmittingReview] = useState(false)
 
+  // Support & Legal states
+  const [showSupport, setShowSupport] = useState(false)
+  const [showTerms, setShowTerms] = useState(false)
+  const [showPrivacy, setShowPrivacy] = useState(false)
+  const [supportMsg, setSupportMsg] = useState('')
+  const [supportCategory, setSupportCategory] = useState('General')
+  const [sendingSupport, setSendingSupport] = useState(false)
+  const [supportSent, setSupportSent] = useState(false)
+  const [myTickets, setMyTickets] = useState([])
+
   // Location states
   const [userLat, setUserLat] = useState(null)
   const [userLng, setUserLng] = useState(null)
@@ -245,6 +255,44 @@ export default function UserApp() {
   const cartTotal = cart.reduce((s,c) => s + c.price*c.qty, 0)
   const cartCount = cart.reduce((s,c) => s + c.qty, 0)
   const deliveryFee = Number(cartVendor?.deliveryCharge) ?? 0
+
+  // ── SUPPORT TICKETS ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user) return
+    let unsub
+    import('firebase/firestore').then(({ collection, query, where, onSnapshot }) => {
+      const q = query(collection(db, 'supportTickets'), where('userUid', '==', user.uid))
+      unsub = onSnapshot(q, snap => {
+        const tickets = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        tickets.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
+        setMyTickets(tickets)
+      })
+    })
+    return () => unsub?.()
+  }, [user])
+
+  const handleSendSupport = async () => {
+    if (!supportMsg.trim()) return toast.error('Please describe your issue')
+    setSendingSupport(true)
+    try {
+      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
+      await addDoc(collection(db, 'supportTickets'), {
+        userUid: user.uid,
+        userName: userData?.name || 'User',
+        userEmail: user.email,
+        userPhone: userData?.mobile || '',
+        category: supportCategory,
+        message: supportMsg.trim(),
+        status: 'open',
+        founderReply: '',
+        createdAt: serverTimestamp()
+      })
+      setSupportSent(true)
+      setSupportMsg('')
+      toast.success('Support request sent! We will reply soon. ✅')
+    } catch (e) { toast.error('Failed to send. Try again.') }
+    setSendingSupport(false)
+  }
 
   const handlePlaceOrder = async () => {
     if (!deliveryName.trim()) return toast.error('Enter your name')
@@ -1148,6 +1196,25 @@ export default function UserApp() {
               </button>
             </div>
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>Logout</button>
+
+            {/* ── HELP & LEGAL ── */}
+            <div style={{ marginTop:20, marginBottom:4, fontSize:11, color:'#9ca3af', fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>Help & Legal</div>
+            <div style={{ background:'#fafafa', borderRadius:12, overflow:'hidden', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', marginBottom:80 }}>
+              {[
+                { icon:'💬', label:'Contact Support', sub:'Report issue or ask a question', action: () => { setShowSupport(true); setSupportSent(false) } },
+                { icon:'📜', label:'Terms & Conditions', sub:'Our terms of service', action: () => setShowTerms(true) },
+                { icon:'🔒', label:'Privacy Policy', sub:'How we handle your data', action: () => setShowPrivacy(true) },
+              ].map((item, i, arr) => (
+                <button key={item.label} onClick={item.action} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', background:'transparent', border:'none', borderBottomWidth: i<arr.length-1?1:0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}>
+                  <div style={{ width:36, height:36, borderRadius:10, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>{item.icon}</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{item.label}</div>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{item.sub}</div>
+                  </div>
+                  <span style={{ fontSize:14, color:'#d1d5db' }}>›</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -1295,6 +1362,153 @@ export default function UserApp() {
         </div>
       )}
 
+      {/* ── SUPPORT MODAL ── */}
+      {showSupport && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}
+          onClick={e => { if(e.target===e.currentTarget) setShowSupport(false) }}>
+          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'90vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
+            <div style={{ padding:'16px 20px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, background:'#fff', zIndex:1 }}>
+              <div>
+                <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>💬 Contact Support</div>
+                <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>We typically reply within 24 hours</div>
+              </div>
+              <button onClick={() => setShowSupport(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding:20 }}>
+              {/* New ticket form */}
+              {!supportSent ? (
+                <>
+                  <div style={{ marginBottom:12 }}>
+                    <div style={{ fontSize:12, color:'#6b7280', fontWeight:500, marginBottom:6 }}>Category</div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {['General','Order Issue','Payment','App Bug','Feedback','Other'].map(cat => (
+                        <button key={cat} onClick={() => setSupportCategory(cat)}
+                          style={{ padding:'6px 12px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600,
+                            background: supportCategory===cat ? '#E24B4A' : '#f3f4f6',
+                            color: supportCategory===cat ? '#fff' : '#6b7280'
+                          }}>{cat}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ marginBottom:14 }}>
+                    <div style={{ fontSize:12, color:'#6b7280', fontWeight:500, marginBottom:6 }}>Describe your issue *</div>
+                    <textarea
+                      value={supportMsg}
+                      onChange={e => setSupportMsg(e.target.value)}
+                      placeholder="Tell us what's wrong or what you need help with..."
+                      rows={5}
+                      style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', lineHeight:1.6 }}
+                    />
+                  </div>
+                  <button onClick={handleSendSupport} disabled={sendingSupport}
+                    style={{ width:'100%', background: sendingSupport?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:12, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:16 }}>
+                    {sendingSupport ? 'Sending...' : '📩 Send Support Request'}
+                  </button>
+                </>
+              ) : (
+                <div style={{ textAlign:'center', padding:'20px 0' }}>
+                  <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
+                  <div style={{ fontSize:16, fontWeight:700, color:'#1f2937', marginBottom:6 }}>Request Sent!</div>
+                  <div style={{ fontSize:13, color:'#6b7280', marginBottom:20 }}>We'll reply to your email within 24 hours.</div>
+                  <button onClick={() => setSupportSent(false)} style={{ background:'#f3f4f6', border:'none', padding:'10px 20px', borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', color:'#374151' }}>Send Another</button>
+                </div>
+              )}
+
+              {/* Past tickets */}
+              {myTickets.length > 0 && (
+                <div>
+                  <div style={{ fontSize:12, fontWeight:600, color:'#6b7280', marginBottom:10, textTransform:'uppercase', letterSpacing:0.5 }}>Your Previous Requests</div>
+                  {myTickets.map(ticket => (
+                    <div key={ticket.id} style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:10, borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                        <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:10,
+                          background: ticket.status==='resolved'?'#d1fae5': ticket.status==='replied'?'#dbeafe':'#fef3c7',
+                          color: ticket.status==='resolved'?'#065f46': ticket.status==='replied'?'#1e40af':'#92400e'
+                        }}>{ticket.status==='resolved'?'✅ Resolved': ticket.status==='replied'?'💬 Replied':'⏳ Open'}</span>
+                        <span style={{ fontSize:10, color:'#9ca3af' }}>{ticket.createdAt?.toDate?.()?.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</span>
+                      </div>
+                      <div style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:4 }}>📌 {ticket.category}</div>
+                      <div style={{ fontSize:12, color:'#6b7280', marginBottom: ticket.founderReply ? 8 : 0 }}>{ticket.message}</div>
+                      {ticket.founderReply ? (
+                        <div style={{ background:'#eff6ff', borderRadius:8, padding:'10px 12px', borderLeftWidth:3, borderLeftStyle:'solid', borderLeftColor:'#3b82f6' }}>
+                          <div style={{ fontSize:10, fontWeight:600, color:'#1e40af', marginBottom:4 }}>👑 FeedoZone Support</div>
+                          <div style={{ fontSize:12, color:'#1e3a8a' }}>{ticket.founderReply}</div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TERMS & CONDITIONS MODAL ── */}
+      {showTerms && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}
+          onClick={e => { if(e.target===e.currentTarget) setShowTerms(false) }}>
+          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'90vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
+            <div style={{ padding:'16px 20px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, background:'#fff' }}>
+              <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>📜 Terms & Conditions</div>
+              <button onClick={() => setShowTerms(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding:'20px 20px 40px', fontSize:13, color:'#374151', lineHeight:1.8 }}>
+              <div style={{ fontSize:11, color:'#9ca3af', marginBottom:16 }}>Last updated: March 2026</div>
+              {[
+                { title:'1. Acceptance of Terms', body:'By using FeedoZone, you agree to these terms. If you do not agree, please do not use our platform.' },
+                { title:'2. Service Description', body:'FeedoZone is a food ordering platform connecting users with local food vendors in Warananagar and surrounding areas.' },
+                { title:'3. User Accounts', body:'You must provide accurate information when creating an account. You are responsible for maintaining the security of your account credentials.' },
+                { title:'4. Orders & Payment', body:'All orders are subject to vendor acceptance. Payments are currently Cash on Delivery (COD). Prices displayed include all applicable charges.' },
+                { title:'5. Cancellation Policy', body:'Orders can be cancelled before the vendor accepts them. Once accepted, cancellations are at the vendor\'s discretion.' },
+                { title:'6. User Conduct', body:'You agree not to misuse the platform, place fake orders, or engage in any fraudulent activity. Violations may result in account suspension.' },
+                { title:'7. Intellectual Property', body:'All content on FeedoZone including logos, designs, and text is owned by FeedoZone and may not be reproduced without permission.' },
+                { title:'8. Limitation of Liability', body:'FeedoZone is not liable for any indirect or consequential damages arising from the use of our service.' },
+                { title:'9. Changes to Terms', body:'We reserve the right to modify these terms at any time. Continued use of the platform constitutes acceptance of the new terms.' },
+                { title:'10. Contact', body:'For any questions about these terms, please contact us through the Support section.' },
+              ].map(s => (
+                <div key={s.title} style={{ marginBottom:16 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:4 }}>{s.title}</div>
+                  <div style={{ fontSize:12, color:'#6b7280', lineHeight:1.7 }}>{s.body}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── PRIVACY POLICY MODAL ── */}
+      {showPrivacy && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}
+          onClick={e => { if(e.target===e.currentTarget) setShowPrivacy(false) }}>
+          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'90vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
+            <div style={{ padding:'16px 20px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, background:'#fff' }}>
+              <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>🔒 Privacy Policy</div>
+              <button onClick={() => setShowPrivacy(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding:'20px 20px 40px', fontSize:13, color:'#374151', lineHeight:1.8 }}>
+              <div style={{ fontSize:11, color:'#9ca3af', marginBottom:16 }}>Last updated: March 2026</div>
+              {[
+                { title:'1. Information We Collect', body:'We collect your name, email, phone number, address, and order history to provide our food delivery service.' },
+                { title:'2. How We Use Your Data', body:'Your data is used to process orders, improve our services, send order updates, and provide customer support.' },
+                { title:'3. Data Sharing', body:'We do not sell your personal data. We share your delivery details with vendors only to fulfill your orders.' },
+                { title:'4. Data Storage', body:'Your data is securely stored on Firebase (Google Cloud). We use industry-standard security measures to protect your information.' },
+                { title:'5. Cookies', body:'We use local storage to remember your preferences such as language and location. No third-party tracking cookies are used.' },
+                { title:'6. Your Rights', body:'You can request to view, update, or delete your personal data at any time by contacting our support team.' },
+                { title:'7. Children\'s Privacy', body:'FeedoZone is not intended for children under 13. We do not knowingly collect data from children.' },
+                { title:'8. Changes to Policy', body:'We may update this privacy policy from time to time. We will notify you of significant changes through the app.' },
+                { title:'9. Contact Us', body:'For privacy-related concerns, reach us through the Contact Support section in the app.' },
+              ].map(s => (
+                <div key={s.title} style={{ marginBottom:16 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:4 }}>{s.title}</div>
+                  <div style={{ fontSize:12, color:'#6b7280', lineHeight:1.7 }}>{s.body}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Cart bar */}
       {cart.length > 0 && (tab==='home' || tab==='vendor-menu') && (
         <div onClick={() => setTab('cart')} style={{ background:'#E24B4A', color:'#fff', padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', flexShrink:0 }}>
@@ -1321,4 +1535,4 @@ export default function UserApp() {
   )
 }
 
-//TEst Deployment 
+//TEst Deployment
