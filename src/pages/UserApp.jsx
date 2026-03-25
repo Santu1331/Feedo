@@ -76,6 +76,11 @@ export default function UserApp() {
   const [supportSent, setSupportSent] = useState(false)
   const [myTickets, setMyTickets] = useState([])
 
+  // Coupon states
+  const [couponInput, setCouponInput] = useState('')
+  const [couponApplied, setCouponApplied] = useState(false)
+  const [couponError, setCouponError] = useState('')
+
   // Location states
   const [userLat, setUserLat] = useState(null)
   const [userLng, setUserLng] = useState(null)
@@ -254,7 +259,24 @@ export default function UserApp() {
 
   const cartTotal = cart.reduce((s,c) => s + c.price*c.qty, 0)
   const cartCount = cart.reduce((s,c) => s + c.qty, 0)
-  const deliveryFee = Number(cartVendor?.deliveryCharge) ?? 0
+  const isRamnavamiOffer = new Date() <= new Date('2026-04-03T23:59:59')
+  const isCouponFreeDelivery = couponApplied
+  const deliveryFee = isCouponFreeDelivery ? 0 : (Number(cartVendor?.deliveryCharge) ?? 0)
+
+  const handleApplyCoupon = () => {
+    const code = couponInput.trim().toUpperCase()
+    if (isRamnavamiOffer && code === 'RAMNAVAMI') {
+      setCouponApplied(true)
+      setCouponError('')
+      toast.success('🎉 Coupon applied! Free delivery unlocked!')
+    } else if (!isRamnavamiOffer && code === 'RAMNAVAMI') {
+      setCouponApplied(false)
+      setCouponError('This offer has expired')
+    } else {
+      setCouponApplied(false)
+      setCouponError('Invalid coupon code')
+    }
+  }
 
   // ── SUPPORT TICKETS ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -557,6 +579,111 @@ export default function UserApp() {
         {tab==='home' && (
           <div style={{ background:'#fff', minHeight:'100%' }}>
 
+            {/* ── 🎉 RAMNAVAMI LAUNCH OFFER BANNER ── */}
+            {(() => {
+              const now = new Date()
+              const offerEnd = new Date('2026-04-03T23:59:59')
+              if (now > offerEnd) return null
+              return (
+                <div style={{ position:'relative', overflow:'hidden', cursor:'pointer' }} onClick={() => setTab('cart')}>
+
+                  {/* ── MAIN CARD ── */}
+                  <div style={{
+                    background: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    minHeight: 160,
+                  }}>
+                    {/* Animated star burst top-right */}
+                    <div style={{ position:'absolute', top:-40, right:-40, width:180, height:180, borderRadius:'50%', background:'radial-gradient(circle, rgba(255,165,0,0.25) 0%, transparent 65%)' }} />
+                    <div style={{ position:'absolute', top:-10, right:60, width:80, height:80, borderRadius:'50%', background:'radial-gradient(circle, rgba(255,100,0,0.2) 0%, transparent 65%)' }} />
+
+                    {/* Floating particles */}
+                    {[
+                      { top:'15%', left:'5%', size:4, opacity:0.6 },
+                      { top:'60%', left:'8%', size:3, opacity:0.4 },
+                      { top:'25%', left:'45%', size:5, opacity:0.3 },
+                      { top:'70%', left:'55%', size:3, opacity:0.5 },
+                      { top:'10%', left:'70%', size:4, opacity:0.4 },
+                    ].map((p, i) => (
+                      <div key={i} style={{ position:'absolute', top:p.top, left:p.left, width:p.size, height:p.size, borderRadius:'50%', background:'#ffd700', opacity:p.opacity }} />
+                    ))}
+
+                    {/* Left: Text content */}
+                    <div style={{ padding:'18px 16px 14px', position:'relative', zIndex:2, paddingRight:120 }}>
+
+                      {/* Top badges */}
+                      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10 }}>
+                        <div style={{ background:'linear-gradient(90deg, #ff6b00, #ff9500)', borderRadius:4, padding:'3px 10px', display:'flex', alignItems:'center', gap:4 }}>
+                          <span style={{ fontSize:8, fontWeight:900, color:'#fff', letterSpacing:1.5, textTransform:'uppercase' }}>🚀 Grand Launch</span>
+                        </div>
+                        <div style={{ background:'rgba(255,215,0,0.2)', borderRadius:4, padding:'3px 8px', borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,215,0,0.5)' }}>
+                          <span style={{ fontSize:8, fontWeight:800, color:'#ffd700', letterSpacing:1 }}>TODAY ONLY</span>
+                        </div>
+                      </div>
+
+                      {/* Main headline */}
+                      <div style={{ marginBottom:6 }}>
+                        <div style={{ fontSize:26, fontWeight:900, color:'#fff', lineHeight:1, letterSpacing:-0.5, textShadow:'0 2px 10px rgba(0,0,0,0.5)' }}>
+                          FREE
+                        </div>
+                        <div style={{ fontSize:26, fontWeight:900, lineHeight:1, letterSpacing:-0.5 }}>
+                          <span style={{ background:'linear-gradient(90deg, #ffd700, #ff9500, #ff6b00)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>
+                            DELIVERY
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Subtext */}
+                      <div style={{ fontSize:11, color:'rgba(255,255,255,0.75)', lineHeight:1.5, marginBottom:12 }}>
+                        🪔 राम नवमी Special · FeedoZone Grand Launch
+                      </div>
+
+                      {/* Coupon code chip */}
+                      <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(255,255,255,0.1)', borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,215,0,0.4)', borderRadius:8, padding:'6px 12px', backdropFilter:'blur(10px)' }}>
+                        <span style={{ fontSize:10, color:'rgba(255,255,255,0.6)', fontWeight:600 }}>USE CODE</span>
+                        <div style={{ width:1, height:12, background:'rgba(255,255,255,0.2)' }} />
+                        <span style={{ fontSize:13, fontWeight:900, color:'#ffd700', letterSpacing:2 }}>RAMNAVAMI</span>
+                      </div>
+                    </div>
+
+                    {/* Right: Diya illustration */}
+                    <div style={{ position:'absolute', right:0, top:0, bottom:0, width:115, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4 }}>
+                      {/* Glow behind diya */}
+                      <div style={{ position:'absolute', width:100, height:100, borderRadius:'50%', background:'radial-gradient(circle, rgba(255,165,0,0.35) 0%, transparent 65%)', top:'50%', left:'50%', transform:'translate(-50%,-55%)' }} />
+                      <div style={{ fontSize:52, lineHeight:1, filter:'drop-shadow(0 0 12px rgba(255,165,0,0.8)) drop-shadow(0 4px 8px rgba(0,0,0,0.5))', position:'relative', zIndex:1 }}>🪔</div>
+                      <div style={{ fontSize:8, fontWeight:800, color:'rgba(255,215,0,0.8)', letterSpacing:2, textAlign:'center', textTransform:'uppercase' }}>Ram Navami</div>
+                      {/* Small diyas */}
+                      <div style={{ display:'flex', gap:6, marginTop:2 }}>
+                        <span style={{ fontSize:14, filter:'drop-shadow(0 0 4px rgba(255,165,0,0.7))' }}>🪔</span>
+                        <span style={{ fontSize:14, filter:'drop-shadow(0 0 4px rgba(255,165,0,0.7))' }}>🪔</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── BOTTOM ACTION STRIP ── */}
+                  <div style={{
+                    background: 'linear-gradient(90deg, #ff6b00 0%, #ff9500 50%, #ffb700 100%)',
+                    padding: '10px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontSize:14 }}>🎊</span>
+                      <div>
+                        <div style={{ fontSize:11, fontWeight:800, color:'#fff', letterSpacing:0.3 }}>FeedoZone is LIVE today!</div>
+                        <div style={{ fontSize:9, color:'rgba(255,255,255,0.8)', fontWeight:500 }}>Apply code at checkout · Ends midnight ⏰</div>
+                      </div>
+                    </div>
+                    <div style={{ background:'rgba(255,255,255,0.25)', borderRadius:20, padding:'5px 12px', borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,255,255,0.4)' }}>
+                      <span style={{ fontSize:11, color:'#fff', fontWeight:800, letterSpacing:0.5 }}>ORDER NOW →</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* Location prompt banner — show only if no location yet */}
             {!userLat && !locationLoading && (
               <div
@@ -682,7 +809,7 @@ export default function UserApp() {
             <div style={{ padding:'8px 16px' }}>
               <div style={{ fontSize:12, fontWeight:600, color:'#9ca3af', marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>Menu</div>
               {menuItems.length===0 && <div style={{ textAlign:'center', padding:40, color:'#9ca3af', fontSize:13 }}>No menu items yet</div>}
-              {menuItems.filter(i => i.available).map(item => {
+              {menuItems.filter(i => i.available !== false).map(item => {
                 const inCart = cart.find(c => c.id===item.id)
                 return (
                   <div key={item.id} style={{ display:'flex', gap:12, padding:'14px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f7f7f7', alignItems:'flex-start' }}>
@@ -902,8 +1029,62 @@ export default function UserApp() {
             ))}
             {cart.length > 0 && !showCheckout && (
               <>
+                {/* ── COUPON CODE BOX ── */}
+                {isRamnavamiOffer && (
+                  <div style={{ marginBottom:12 }}>
+                    {!couponApplied ? (
+                      <div>
+                        <div style={{ fontSize:12, color:'#6b7280', fontWeight:500, marginBottom:6 }}>🏷️ Have a coupon code?</div>
+                        <div style={{ display:'flex', gap:8 }}>
+                          <input
+                            value={couponInput}
+                            onChange={e => { setCouponInput(e.target.value.toUpperCase()); setCouponError('') }}
+                            placeholder="Enter coupon code"
+                            style={{ flex:1, padding:'11px 13px', borderWidth:1.5, borderStyle:'solid', borderColor: couponError ? '#fca5a5' : '#e5e7eb', borderRadius:9, fontSize:13, fontFamily:'Poppins', outline:'none', background:'#fff', letterSpacing:1, fontWeight:600, color:'#1f2937' }}
+                            onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()}
+                          />
+                          <button
+                            onClick={handleApplyCoupon}
+                            style={{ background:'#1f2937', color:'#fff', border:'none', padding:'11px 16px', borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}
+                          >
+                            Apply
+                          </button>
+                        </div>
+                        {couponError && (
+                          <div style={{ fontSize:11, color:'#dc2626', marginTop:5, display:'flex', alignItems:'center', gap:4 }}>
+                            ❌ {couponError}
+                          </div>
+                        )}
+                        <div style={{ fontSize:11, color:'#9ca3af', marginTop:5 }}>
+                          🪔 Try <span style={{ fontWeight:700, color:'#f97316' }}>RAMNAVAMI</span> for free delivery today!
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ background:'#f0fdf4', borderRadius:10, padding:'10px 14px', display:'flex', alignItems:'center', justifyContent:'space-between', borderWidth:1, borderStyle:'solid', borderColor:'#86efac' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                          <span style={{ fontSize:18 }}>🎉</span>
+                          <div>
+                            <div style={{ fontSize:12, fontWeight:700, color:'#16a34a' }}>Coupon RAMNAVAMI applied!</div>
+                            <div style={{ fontSize:11, color:'#15803d' }}>Free delivery unlocked 🚀</div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => { setCouponApplied(false); setCouponInput(''); setCouponError('') }}
+                          style={{ background:'none', border:'none', fontSize:16, cursor:'pointer', color:'#6b7280' }}
+                        >✕</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div style={{ background:'#f9fafb', borderRadius:10, padding:12, margin:'12px 0' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
+                  {couponApplied && (
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                      <span style={{ fontSize:12, color:'#16a34a', fontWeight:500 }}>🏷️ Coupon discount</span>
+                      <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>- ₹{Number(cartVendor?.deliveryCharge) || 0}</span>
+                    </div>
+                  )}
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee</span><span style={{ fontSize:12 }}>{deliveryFee === 0 ? 'Free 🎉' : ('₹' + deliveryFee)}</span></div>
                   <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:600 }}>Total</span><span style={{ fontSize:14, fontWeight:600 }}>{'₹' + (cartTotal + deliveryFee)}</span></div>
                 </div>
@@ -986,9 +1167,24 @@ export default function UserApp() {
                             <span style={{ width:6, height:6, borderRadius:'50%', background:'#E24B4A', display:'inline-block' }} />
                             Track Order →
                           </span>
-                        : <span style={{ fontSize:11, color:'#9ca3af' }}>Tap for details →</span>
+                        : o.status === 'delivered'
+                          ? <span style={{ fontSize:11, color:'#9ca3af' }}>Tap for details →</span>
+                          : <span style={{ fontSize:11, color:'#9ca3af' }}>Tap for details →</span>
                       }
                     </div>
+                    {/* Review nudge for delivered orders */}
+                    {o.status === 'delivered' && (
+                      <div
+                        onClick={e => { e.stopPropagation(); const v = vendors.find(x => x.id === o.vendorUid); if(v) { setReviewVendor(v); setReviewRating(5); setShowReview(true) } }}
+                        style={{ marginTop:10, display:'flex', alignItems:'center', justifyContent:'space-between', background:'linear-gradient(90deg,#fff7ed,#fef3c7)', borderRadius:8, padding:'8px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}
+                      >
+                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                          <span style={{ fontSize:14 }}>⭐</span>
+                          <span style={{ fontSize:11, fontWeight:600, color:'#92400e' }}>Rate your experience</span>
+                        </div>
+                        <span style={{ fontSize:11, fontWeight:700, color:'#d97706' }}>Rate Now →</span>
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -1147,13 +1343,60 @@ export default function UserApp() {
                   </div>
                 )}
 
-                {/* Reorder button for delivered */}
+                {/* ── REVIEW PROMPT for delivered orders ── */}
                 {o.status === 'delivered' && (
-                  <button onClick={() => { const v = vendors.find(x=>x.id===o.vendorUid); if(v) openVendor(v); setSelectedOrder(null) }}
-                    style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:12, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
-                    🔄 Reorder from {o.vendorName}
-                  </button>
+                  <div style={{ background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:16, padding:18, marginBottom:12, borderWidth:1.5, borderStyle:'solid', borderColor:'#fde68a' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:14 }}>
+                      <div style={{ width:46, height:46, borderRadius:12, background:'linear-gradient(135deg,#f59e0b,#d97706)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, flexShrink:0 }}>
+                        ⭐
+                      </div>
+                      <div>
+                        <div style={{ fontSize:14, fontWeight:700, color:'#1f2937' }}>How was your experience?</div>
+                        <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>Your review helps others choose better!</div>
+                      </div>
+                    </div>
+
+                    {/* Star quick-select */}
+                    <div style={{ display:'flex', justifyContent:'center', gap:8, marginBottom:14 }}>
+                      {[1,2,3,4,5].map(star => (
+                        <button
+                          key={star}
+                          onClick={() => {
+                            const vendor = vendors.find(x => x.id === o.vendorUid)
+                            if (vendor) {
+                              setReviewVendor(vendor)
+                              setReviewRating(star)
+                              setShowReview(true)
+                            }
+                          }}
+                          style={{ width:44, height:44, borderRadius:12, border:'none', cursor:'pointer', fontSize:22, background:'rgba(255,255,255,0.7)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 6px rgba(0,0,0,0.08)', transition:'all 0.15s' }}
+                        >
+                          ⭐
+                        </button>
+                      ))}
+                    </div>
+
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button
+                        onClick={() => {
+                          const vendor = vendors.find(x => x.id === o.vendorUid)
+                          if (vendor) { setReviewVendor(vendor); setReviewRating(5); setShowReview(true) }
+                        }}
+                        style={{ flex:1, background:'linear-gradient(135deg,#f59e0b,#d97706)', color:'#fff', border:'none', padding:'11px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}
+                      >
+                        ✍️ Write a Review
+                      </button>
+                      <button
+                        onClick={() => { const v = vendors.find(x=>x.id===o.vendorUid); if(v) openVendor(v); setSelectedOrder(null) }}
+                        style={{ flex:1, background:'#fff', color:'#E24B4A', borderWidth:1.5, borderStyle:'solid', borderColor:'#E24B4A', padding:'11px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}
+                      >
+                        🔄 Reorder
+                      </button>
+                    </div>
+                  </div>
                 )}
+
+                {/* Reorder button for delivered — removed, now inside review card above */}
               </div>
             </div>
           )
