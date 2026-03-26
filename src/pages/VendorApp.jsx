@@ -29,6 +29,7 @@ export default function VendorApp() {
   const [customCategories, setCustomCategories] = useState([])
   const [newCatInput, setNewCatInput] = useState('')
   const [showAddCat, setShowAddCat] = useState(false)
+  const [selectedVendorOrder, setSelectedVendorOrder] = useState(null)
 
   // Order alert states
   const [newOrderAlert, setNewOrderAlert] = useState(null)
@@ -421,32 +422,180 @@ export default function VendorApp() {
         {/* ── ORDERS TAB ── */}
         {tab === 'orders' && (
           <>
+            {/* ── FULL SCREEN ORDER DETAIL ── */}
+            {selectedVendorOrder && (
+              <div style={{ position:'fixed', inset:0, background:'#f7f7f7', zIndex:999, overflowY:'auto', maxWidth:430, margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
+
+                {/* Header */}
+                <div style={{ background: selectedVendorOrder.status==='pending' ? 'linear-gradient(135deg,#E24B4A,#c73232)' : selectedVendorOrder.status==='delivered' ? 'linear-gradient(135deg,#16a34a,#15803d)' : selectedVendorOrder.status==='cancelled' ? 'linear-gradient(135deg,#dc2626,#b91c1c)' : 'linear-gradient(135deg,#1a1a1a,#2a2a2a)', padding:'20px 16px 28px', color:'#fff', position:'relative' }}>
+                  <button onClick={() => setSelectedVendorOrder(null)} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', padding:'6px 14px', borderRadius:20, fontSize:12, cursor:'pointer', fontFamily:'Poppins', marginBottom:16 }}>
+                    ← Back to Orders
+                  </button>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                    <div>
+                      <div style={{ fontSize:11, opacity:0.7, letterSpacing:1, marginBottom:4 }}>ORDER</div>
+                      <div style={{ fontSize:24, fontWeight:900, letterSpacing:-0.5 }}>#{selectedVendorOrder.id.slice(-6).toUpperCase()}</div>
+                      <div style={{ fontSize:12, opacity:0.85, marginTop:4 }}>
+                        {selectedVendorOrder.createdAt?.toDate?.()?.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) || ''}
+                      </div>
+                    </div>
+                    <div style={{ textAlign:'right' }}>
+                      <div style={{ fontSize:28, fontWeight:900 }}>₹{selectedVendorOrder.total}</div>
+                      <div style={{ fontSize:11, opacity:0.8, marginTop:2 }}>💵 Cash on Delivery</div>
+                      <div style={{ marginTop:6, background:'rgba(255,255,255,0.2)', borderRadius:20, padding:'3px 12px', display:'inline-block' }}>
+                        <span style={{ fontSize:11, fontWeight:700 }}>{selectedVendorOrder.status?.replace('_',' ').toUpperCase()}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ padding:'16px 16px 100px', marginTop:-8 }}>
+
+                  {/* Customer Info */}
+                  <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:12, textTransform:'uppercase' }}>Customer Details</div>
+                    <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
+                      <div style={{ width:46, height:46, borderRadius:12, background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                        <span style={{ fontSize:20, fontWeight:700, color:'#fff' }}>{selectedVendorOrder.userName?.[0]?.toUpperCase() || '👤'}</span>
+                      </div>
+                      <div>
+                        <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>{selectedVendorOrder.userName}</div>
+                        <div style={{ fontSize:13, color:'#6b7280', marginTop:2 }}>📱 {selectedVendorOrder.userPhone || 'No phone'}</div>
+                      </div>
+                    </div>
+                    <div style={{ background:'#f9fafb', borderRadius:10, padding:'10px 14px', display:'flex', gap:10, alignItems:'flex-start' }}>
+                      <span style={{ fontSize:18, flexShrink:0 }}>📍</span>
+                      <div>
+                        <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:3 }}>DELIVERY ADDRESS</div>
+                        <div style={{ fontSize:13, color:'#1f2937', fontWeight:500, lineHeight:1.5 }}>{selectedVendorOrder.address || 'No address provided'}</div>
+                      </div>
+                    </div>
+                    {/* Call / WhatsApp */}
+                    {selectedVendorOrder.userPhone && (
+                      <div style={{ display:'flex', gap:8, marginTop:10 }}>
+                        <a href={`tel:+91${selectedVendorOrder.userPhone}`}
+                          style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'10px 0', background:'#E24B4A', borderRadius:10, textDecoration:'none' }}>
+                          <span style={{ fontSize:16 }}>📞</span>
+                          <span style={{ fontSize:12, fontWeight:600, color:'#fff', fontFamily:'Poppins' }}>Call Customer</span>
+                        </a>
+                        <a href={`https://wa.me/91${selectedVendorOrder.userPhone}`} target="_blank" rel="noreferrer"
+                          style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'10px 0', background:'#25D366', borderRadius:10, textDecoration:'none' }}>
+                          <span style={{ fontSize:16 }}>💬</span>
+                          <span style={{ fontSize:12, fontWeight:600, color:'#fff', fontFamily:'Poppins' }}>WhatsApp</span>
+                        </a>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Order Items */}
+                  <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:12, textTransform:'uppercase' }}>Items Ordered</div>
+                    {selectedVendorOrder.items?.map((item, i) => (
+                      <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 0', borderBottomWidth: i < selectedVendorOrder.items.length-1 ? 1 : 0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                          <div style={{ width:34, height:34, borderRadius:8, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>🍛</div>
+                          <div>
+                            <div style={{ fontSize:14, fontWeight:600, color:'#1f2937' }}>{item.name}</div>
+                            <div style={{ fontSize:12, color:'#9ca3af', marginTop:1 }}>₹{item.price} × {item.qty}</div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize:15, fontWeight:700, color:'#E24B4A' }}>₹{item.price * item.qty}</div>
+                      </div>
+                    ))}
+                    {/* Bill summary */}
+                    <div style={{ marginTop:12, paddingTop:12, borderTopWidth:2, borderTopStyle:'dashed', borderTopColor:'#f3f4f6' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                        <span style={{ fontSize:13, color:'#6b7280' }}>Subtotal</span>
+                        <span style={{ fontSize:13 }}>₹{selectedVendorOrder.subtotal || selectedVendorOrder.total}</span>
+                      </div>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                        <span style={{ fontSize:13, color:'#6b7280' }}>Delivery fee</span>
+                        <span style={{ fontSize:13, color: selectedVendorOrder.deliveryFee===0 ? '#16a34a' : '#1f2937' }}>{selectedVendorOrder.deliveryFee === 0 ? 'Free 🎉' : `₹${selectedVendorOrder.deliveryFee}`}</span>
+                      </div>
+                      <div style={{ display:'flex', justifyContent:'space-between', paddingTop:8, borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb' }}>
+                        <span style={{ fontSize:16, fontWeight:800, color:'#1f2937' }}>Total</span>
+                        <span style={{ fontSize:16, fontWeight:800, color:'#E24B4A' }}>₹{selectedVendorOrder.total}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Special note */}
+                  {selectedVendorOrder.address?.includes('Note:') && (
+                    <div style={{ background:'#fef3c7', borderRadius:12, padding:'12px 14px', marginBottom:12, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:'#92400e', marginBottom:4 }}>📝 SPECIAL NOTE</div>
+                      <div style={{ fontSize:13, color:'#78350f' }}>{selectedVendorOrder.address.split('Note:')[1]?.trim()}</div>
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  {!['delivered','cancelled'].includes(selectedVendorOrder.status) && (
+                    <div style={{ display:'flex', gap:10, marginBottom:10 }}>
+                      {selectedVendorOrder.status === 'pending' && (
+                        <button onClick={async () => { await handleReject(selectedVendorOrder.id); setSelectedVendorOrder(null) }}
+                          style={{ flex:1, background:'transparent', color:'#E24B4A', borderWidth:2, borderStyle:'solid', borderColor:'#E24B4A', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+                          ❌ Reject
+                        </button>
+                      )}
+                      {STATUS_NEXT[selectedVendorOrder.status] && (
+                        <button onClick={async () => {
+                          await handleStatus(selectedVendorOrder.id, selectedVendorOrder.status, { userUid: selectedVendorOrder.userUid, vendorName: userData?.storeName || '' })
+                          setSelectedVendorOrder(prev => ({ ...prev, status: STATUS_NEXT[prev.status] }))
+                        }}
+                          style={{ flex:2, background: selectedVendorOrder.status==='pending' ? '#E24B4A' : '#16a34a', color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+                          {STATUS_LABEL[selectedVendorOrder.status]} ✓
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {selectedVendorOrder.status === 'delivered' && (
+                    <div style={{ background:'#d1fae5', borderRadius:12, padding:'14px', textAlign:'center' }}>
+                      <div style={{ fontSize:24, marginBottom:4 }}>✅</div>
+                      <div style={{ fontSize:14, fontWeight:700, color:'#065f46' }}>Order Delivered Successfully!</div>
+                    </div>
+                  )}
+                  {selectedVendorOrder.status === 'cancelled' && (
+                    <div style={{ background:'#fee2e2', borderRadius:12, padding:'14px', textAlign:'center' }}>
+                      <div style={{ fontSize:24, marginBottom:4 }}>❌</div>
+                      <div style={{ fontSize:14, fontWeight:700, color:'#991b1b' }}>Order Cancelled</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {liveOrders.length === 0 && (
               <div style={{ textAlign:'center', color:'#9ca3af', padding:32, fontSize:13 }}>No active orders right now</div>
             )}
             {liveOrders.map(order => (
-              <div key={order.id} style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, padding:14, marginBottom:10 }}>
+              <div key={order.id} onClick={() => setSelectedVendorOrder(order)} style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor: order.status==='pending'?'#fecaca':'#e5e7eb', borderRadius:12, padding:14, marginBottom:10, cursor:'pointer' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                   <div>
-                    <div style={{ fontSize:13, fontWeight:600 }}>#{order.id.slice(-6).toUpperCase()}</div>
-                    <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>{order.userName} · {order.userPhone}</div>
-                    <div style={{ fontSize:11, color:'#6b7280' }}>📍 {order.address}</div>
+                    <div style={{ fontSize:13, fontWeight:700 }}>#{order.id.slice(-6).toUpperCase()}</div>
+                    <div style={{ fontSize:12, color:'#6b7280', marginTop:2, fontWeight:500 }}>{order.userName} · {order.userPhone}</div>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>📍 {order.address?.slice(0,40)}{order.address?.length>40?'...':''}</div>
                   </div>
-                  <span style={{ fontSize:10, fontWeight:600, padding:'3px 9px', borderRadius:10,
-                    background: order.status==='pending'?'#fef3c7':'#dbeafe',
-                    color: order.status==='pending'?'#92400e':'#1e40af'
-                  }}>{order.status?.replace('_',' ')}</span>
+                  <span style={{ fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:20,
+                    background: order.status==='pending'?'#fef3c7': order.status==='accepted'?'#dbeafe': order.status==='preparing'?'#ede9fe': order.status==='ready'?'#dcfce7':'#f3f4f6',
+                    color: order.status==='pending'?'#92400e': order.status==='accepted'?'#1e40af': order.status==='preparing'?'#6d28d9': order.status==='ready'?'#15803d':'#374151'
+                  }}>{order.status?.replace('_',' ').toUpperCase()}</span>
                 </div>
                 <div style={{ fontSize:12, color:'#6b7280', marginBottom:8 }}>
-                  {order.items?.map(i => `${i.qty}x ${i.name}`).join(', ')}
+                  {order.items?.map(i => `${i.qty}x ${i.name}`).join(' · ')}
                 </div>
-                <div style={{ fontSize:14, fontWeight:600, marginBottom:10 }}>₹{order.total} · COD</div>
-                <div style={{ display:'flex', gap:8 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <div style={{ fontSize:16, fontWeight:800, color:'#E24B4A' }}>₹{order.total} <span style={{ fontSize:11, color:'#9ca3af', fontWeight:400 }}>COD</span></div>
+                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                    <span style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Tap for details →</span>
+                  </div>
+                </div>
+                {/* Quick action buttons on card */}
+                <div style={{ display:'flex', gap:8, marginTop:10 }} onClick={e => e.stopPropagation()}>
                   {order.status === 'pending' && (
                     <button onClick={() => handleReject(order.id)} style={{ background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>Reject</button>
                   )}
                   {STATUS_NEXT[order.status] && (
-                    <button onClick={() => handleStatus(order.id, order.status)} style={{ flex:1, background: order.status==='pending'?'#E24B4A':'#1a1a1a', color:'#fff', border:'none', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>
+                    <button onClick={() => handleStatus(order.id, order.status, { userUid: order.userUid, vendorName: userData?.storeName || '' })}
+                      style={{ flex:1, background: order.status==='pending'?'#E24B4A':'#1a1a1a', color:'#fff', border:'none', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>
                       {STATUS_LABEL[order.status]}
                     </button>
                   )}
@@ -457,15 +606,18 @@ export default function VendorApp() {
               <>
                 <div style={{ fontSize:12, color:'#9ca3af', margin:'8px 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>Past Orders</div>
                 {pastOrders.slice(0,10).map(order => (
-                  <div key={order.id} style={{ background:'#f9fafb', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', borderRadius:10, padding:12, marginBottom:8, opacity:0.7 }}>
+                  <div key={order.id} onClick={() => setSelectedVendorOrder(order)} style={{ background:'#f9fafb', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', borderRadius:10, padding:12, marginBottom:8, cursor:'pointer' }}>
                     <div style={{ display:'flex', justifyContent:'space-between' }}>
-                      <div style={{ fontSize:12 }}>#{order.id.slice(-6).toUpperCase()} · {order.items?.length} item(s)</div>
+                      <div>
+                        <div style={{ fontSize:12, fontWeight:600 }}>#{order.id.slice(-6).toUpperCase()} · {order.items?.length} item(s)</div>
+                        <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>{order.userName} · {order.createdAt?.toDate?.()?.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</div>
+                      </div>
                       <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:10,
                         background: order.status==='delivered'?'#d1fae5':'#fee2e2',
                         color: order.status==='delivered'?'#065f46':'#991b1b'
                       }}>{order.status}</span>
                     </div>
-                    <div style={{ fontSize:13, fontWeight:600, marginTop:4 }}>₹{order.total}</div>
+                    <div style={{ fontSize:14, fontWeight:700, color:'#E24B4A', marginTop:6 }}>₹{order.total}</div>
                   </div>
                 ))}
               </>

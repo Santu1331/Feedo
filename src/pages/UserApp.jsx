@@ -76,6 +76,14 @@ export default function UserApp() {
   const [supportSent, setSupportSent] = useState(false)
   const [myTickets, setMyTickets] = useState([])
 
+  // Feedback modal states
+  const [showFeedback, setShowFeedback] = useState(false)
+  const [feedbackText, setFeedbackText] = useState('')
+  const [feedbackType, setFeedbackType] = useState('suggestion')
+  const [feedbackRating, setFeedbackRating] = useState(5)
+  const [sendingFeedback, setSendingFeedback] = useState(false)
+  const [feedbackSent, setFeedbackSent] = useState(false)
+
   // Coupon states
   const [couponInput, setCouponInput] = useState('')
   const [couponApplied, setCouponApplied] = useState(false)
@@ -314,6 +322,31 @@ export default function UserApp() {
       toast.success('Support request sent! We will reply soon. ✅')
     } catch (e) { toast.error('Failed to send. Try again.') }
     setSendingSupport(false)
+  }
+
+  const handleSendFeedback = async () => {
+    if (!feedbackText.trim()) return toast.error('Please write your feedback')
+    setSendingFeedback(true)
+    try {
+      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
+      await addDoc(collection(db, 'supportTickets'), {
+        userUid: user.uid,
+        userName: userData?.name || 'User',
+        userEmail: user.email,
+        userPhone: userData?.mobile || '',
+        category: feedbackType === 'suggestion' ? 'Feedback' : feedbackType === 'bug' ? 'App Bug' : 'General',
+        message: feedbackText.trim(),
+        appRating: feedbackRating,
+        status: 'open',
+        founderReply: '',
+        isFeedback: true,
+        createdAt: serverTimestamp()
+      })
+      setFeedbackSent(true)
+      setFeedbackText('')
+      toast.success('Thank you for your feedback! 🙏')
+    } catch { toast.error('Failed to send. Try again.') }
+    setSendingFeedback(false)
   }
 
   const handlePlaceOrder = async () => {
@@ -746,18 +779,26 @@ export default function UserApp() {
 
             <div style={{ padding:'0 16px' }}>
               {filteredVendors.map(v => (
-                <div key={v.id} onClick={() => openVendor(v)} style={{ background:'#fff', borderRadius:16, overflow:'hidden', marginBottom:16, cursor:'pointer', boxShadow:'0 2px 12px rgba(0,0,0,0.08)', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6' }}>
+                <div key={v.id} onClick={() => openVendor(v)}
+                  style={{ background:'#fff', borderRadius:16, overflow:'hidden', marginBottom:16, cursor:'pointer', boxShadow:'0 2px 12px rgba(0,0,0,0.08)', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', opacity: v.isOpen ? 1 : 0.65 }}>
                   <div style={{ height:140, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#fee2e2,#fecaca)' }}>
                     {v.photo
-                      ? <img src={v.photo} alt={v.storeName} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                      ? <img src={v.photo} alt={v.storeName} style={{ width:'100%', height:'100%', objectFit:'cover', filter: v.isOpen ? 'none' : 'grayscale(60%)' }} />
                       : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:4 }}>
                           <span style={{ fontSize:40 }}>🍽️</span>
                           <span style={{ fontSize:11, color:'#E24B4A', fontWeight:500 }}>No photo yet</span>
                         </div>
                     }
+                    {/* Closed overlay like Zomato */}
+                    {!v.isOpen && (
+                      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.35)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        <div style={{ background:'rgba(0,0,0,0.75)', borderRadius:20, padding:'6px 16px', backdropFilter:'blur(4px)' }}>
+                          <span style={{ fontSize:12, fontWeight:700, color:'#fff' }}>⏰ Opens later</span>
+                        </div>
+                      </div>
+                    )}
                     <div style={{ position:'absolute', top:10, left:10, background:'#E24B4A', color:'#fff', fontSize:10, padding:'3px 10px', borderRadius:20, fontWeight:600 }}>{v.category||'Food'}</div>
-                    <div style={{ position:'absolute', top:10, right:10, background: v.isOpen?'#16a34a':'#dc2626', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:600 }}>{v.isOpen?'● Open':'● Closed'}</div>
-                    {/* Distance badge */}
+                    <div style={{ position:'absolute', top:10, right:10, background: v.isOpen?'#16a34a':'#6b7280', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:600 }}>{v.isOpen?'● Open':'● Closed'}</div>
                     {v.distance !== null && (
                       <div style={{ position:'absolute', bottom:10, left:10, background:'rgba(0,0,0,0.6)', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:500 }}>
                         📍 {v.distance < 1 ? `${Math.round(v.distance*1000)}m` : `${v.distance.toFixed(1)}km`}
@@ -766,18 +807,41 @@ export default function UserApp() {
                   </div>
                   <div style={{ padding:'12px 14px' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                      <div style={{ fontSize:15, fontWeight:700, color:'#1f2937' }}>{v.storeName}</div>
+                      <div style={{ fontSize:15, fontWeight:700, color: v.isOpen ? '#1f2937' : '#6b7280' }}>{v.storeName}</div>
                       <div style={{ background:'#f0fdf4', color:'#16a34a', fontSize:12, fontWeight:700, padding:'2px 8px', borderRadius:8 }}>⭐ {v.rating||4.5}</div>
                     </div>
-                    <div style={{ fontSize:12, color:'#6b7280', marginTop:3 }}>{v.category}</div>
+                    <div style={{ fontSize:12, color:'#9ca3af', marginTop:3 }}>{v.category}</div>
                     <div style={{ display:'flex', gap:12, marginTop:8 }}>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>🕐 {v.prepTime||20}-{(v.prepTime||20)+15} min</span>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>{Number(v.deliveryCharge) === 0 ? '🎉 Free delivery' : ('₹' + (v.deliveryCharge ?? 0) + ' delivery')}</span>
+                      <span style={{ fontSize:12, color:'#9ca3af' }}>🕐 {v.prepTime||20}-{(v.prepTime||20)+15} min</span>
+                      <span style={{ fontSize:12, color: v.isOpen ? '#6b7280' : '#9ca3af' }}>{Number(v.deliveryCharge) === 0 ? '🎉 Free delivery' : ('₹' + (v.deliveryCharge ?? 0) + ' delivery')}</span>
                     </div>
+                    {!v.isOpen && v.openTime && (
+                      <div style={{ marginTop:6, fontSize:11, color:'#E24B4A', fontWeight:500 }}>🕐 Opens at {v.openTime}</div>
+                    )}
                     {v.address && <div style={{ fontSize:11, color:'#9ca3af', marginTop:5 }}>📍 {v.address}</div>}
                   </div>
                 </div>
               ))}
+
+              {/* ── COMING SOON BANNER ── */}
+              {!searchQuery.trim() && (
+                <div style={{ marginTop:4, marginBottom:24 }}>
+                  <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
+                  <div style={{ background:'linear-gradient(135deg,#f9fafb,#f3f4f6)', borderRadius:16, padding:'18px 20px', borderWidth:1.5, borderStyle:'dashed', borderColor:'#e5e7eb', display:'flex', alignItems:'center', gap:16 }}>
+                    <div style={{ width:52, height:52, borderRadius:14, background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:26, boxShadow:'0 2px 8px rgba(0,0,0,0.08)', flexShrink:0 }}>
+                      🍽️
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
+                        <div style={{ width:7, height:7, borderRadius:'50%', background:'#f59e0b', animation:'pulse 1.5s infinite' }} />
+                        <span style={{ fontSize:10, fontWeight:700, color:'#d97706', letterSpacing:0.5, textTransform:'uppercase' }}>Coming Soon</span>
+                      </div>
+                      <div style={{ fontSize:14, fontWeight:700, color:'#1f2937', lineHeight:1.4 }}>More restaurants joining FeedoZone!</div>
+                      <div style={{ fontSize:11, color:'#9ca3af', marginTop:3 }}>New restaurants will be available here soon 🚀</div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1396,6 +1460,23 @@ export default function UserApp() {
                   </div>
                 )}
 
+                {/* ── FEEDBACK BUTTON for delivered orders ── */}
+                {o.status === 'delivered' && (
+                  <div style={{ marginBottom:12 }}>
+                    <button
+                      onClick={() => { setShowFeedback(true); setFeedbackSent(false) }}
+                      style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'14px 16px', background:'#f9fafb', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:14, cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}
+                    >
+                      <div style={{ width:42, height:42, borderRadius:12, background:'linear-gradient(135deg,#6366f1,#8b5cf6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>💡</div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>Share Feedback or Suggestion</div>
+                        <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>Help us improve FeedoZone for you</div>
+                      </div>
+                      <span style={{ fontSize:16, color:'#d1d5db' }}>›</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Reorder button for delivered — removed, now inside review card above */}
               </div>
             </div>
@@ -1747,6 +1828,98 @@ export default function UserApp() {
                   <div style={{ fontSize:12, color:'#6b7280', lineHeight:1.7 }}>{s.body}</div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── FEEDBACK MODAL ── */}
+      {showFeedback && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}
+          onClick={e => { if(e.target===e.currentTarget) setShowFeedback(false) }}>
+          <div style={{ background:'#fff', borderRadius:'24px 24px 0 0', maxHeight:'90vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
+            {/* Handle bar */}
+            <div style={{ display:'flex', justifyContent:'center', padding:'12px 0 0' }}>
+              <div style={{ width:40, height:4, borderRadius:2, background:'#e5e7eb' }} />
+            </div>
+            <div style={{ padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div>
+                <div style={{ fontSize:17, fontWeight:800, color:'#1f2937' }}>💡 Your Feedback</div>
+                <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>We read every message personally</div>
+              </div>
+              <button onClick={() => setShowFeedback(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ padding:'0 20px 40px' }}>
+              {!feedbackSent ? (
+                <>
+                  {/* App rating */}
+                  <div style={{ marginBottom:16 }}>
+                    <div style={{ fontSize:12, color:'#6b7280', fontWeight:600, marginBottom:8 }}>Rate your overall experience</div>
+                    <div style={{ display:'flex', gap:8 }}>
+                      {[1,2,3,4,5].map(s => (
+                        <button key={s} onClick={() => setFeedbackRating(s)}
+                          style={{ flex:1, padding:'10px 0', borderRadius:10, border:'none', cursor:'pointer', fontSize:18, background: s <= feedbackRating ? '#fef3c7' : '#f9fafb', transition:'all 0.15s', transform: s <= feedbackRating ? 'scale(1.1)' : 'scale(1)' }}>
+                          {s <= feedbackRating ? '⭐' : '☆'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Type selector */}
+                  <div style={{ marginBottom:14 }}>
+                    <div style={{ fontSize:12, color:'#6b7280', fontWeight:600, marginBottom:8 }}>Type of feedback</div>
+                    <div style={{ display:'flex', gap:8 }}>
+                      {[
+                        { id:'suggestion', label:'💡 Suggestion', color:'#6366f1' },
+                        { id:'bug', label:'🐛 Bug Report', color:'#ef4444' },
+                        { id:'compliment', label:'❤️ Compliment', color:'#ec4899' },
+                      ].map(t => (
+                        <button key={t.id} onClick={() => setFeedbackType(t.id)}
+                          style={{ flex:1, padding:'8px 4px', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', fontSize:10, fontWeight:700,
+                            borderWidth:2, borderStyle:'solid',
+                            borderColor: feedbackType===t.id ? t.color : '#e5e7eb',
+                            background: feedbackType===t.id ? t.color + '15' : '#fff',
+                            color: feedbackType===t.id ? t.color : '#9ca3af',
+                          }}>
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Message */}
+                  <div style={{ marginBottom:16 }}>
+                    <div style={{ fontSize:12, color:'#6b7280', fontWeight:600, marginBottom:8 }}>Your message *</div>
+                    <textarea
+                      value={feedbackText}
+                      onChange={e => setFeedbackText(e.target.value)}
+                      placeholder={
+                        feedbackType==='suggestion' ? 'What feature would make FeedoZone better for you?' :
+                        feedbackType==='bug' ? 'Describe what went wrong...' :
+                        'Tell us what you loved! 😊'
+                      }
+                      rows={4}
+                      style={{ width:'100%', padding:'12px 14px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', lineHeight:1.6, color:'#1f2937' }}
+                    />
+                  </div>
+
+                  <button onClick={handleSendFeedback} disabled={sendingFeedback}
+                    style={{ width:'100%', background: sendingFeedback ? '#c4b5fd' : 'linear-gradient(135deg,#6366f1,#8b5cf6)', color:'#fff', border:'none', padding:14, borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+                    {sendingFeedback ? 'Sending...' : '📩 Send Feedback'}
+                  </button>
+                </>
+              ) : (
+                <div style={{ textAlign:'center', padding:'20px 0 10px' }}>
+                  <div style={{ fontSize:56, marginBottom:12 }}>🙏</div>
+                  <div style={{ fontSize:18, fontWeight:800, color:'#1f2937', marginBottom:8 }}>Thank You!</div>
+                  <div style={{ fontSize:13, color:'#6b7280', lineHeight:1.6, marginBottom:20 }}>Your feedback means a lot to us. We'll use it to make FeedoZone even better!</div>
+                  <button onClick={() => setShowFeedback(false)}
+                    style={{ background:'linear-gradient(135deg,#6366f1,#8b5cf6)', color:'#fff', border:'none', padding:'12px 28px', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+                    Close
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
