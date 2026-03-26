@@ -89,6 +89,9 @@ export default function UserApp() {
   const [couponApplied, setCouponApplied] = useState(false)
   const [couponError, setCouponError] = useState('')
 
+  // Vendor menu category filter
+  const [menuCatFilter, setMenuCatFilter] = useState('All')
+
   // Location states
   const [userLat, setUserLat] = useState(null)
   const [userLng, setUserLng] = useState(null)
@@ -238,7 +241,7 @@ export default function UserApp() {
     setLocationSuggestions([])
   }
 
-  const openVendor = (v) => { setSelectedVendor(v); setTab('vendor-menu'); setShowVendorInfo(false); loadReviews(v.id) }
+  const openVendor = (v) => { setSelectedVendor(v); setTab('vendor-menu'); setShowVendorInfo(false); loadReviews(v.id); setMenuCatFilter('All') }
 
   const addToCart = (item) => {
     if (cartVendor && cartVendor.id !== selectedVendor.id) {
@@ -870,40 +873,108 @@ export default function UserApp() {
             {!selectedVendor.isOpen && (
               <div style={{ background:'#fee2e2', color:'#991b1b', padding:'10px 16px', fontSize:13 }}>⚠️ Store is currently closed.</div>
             )}
-            <div style={{ padding:'8px 16px' }}>
-              <div style={{ fontSize:12, fontWeight:600, color:'#9ca3af', marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>Menu</div>
-              {menuItems.length===0 && <div style={{ textAlign:'center', padding:40, color:'#9ca3af', fontSize:13 }}>No menu items yet</div>}
-              {menuItems.filter(i => i.available !== false).map(item => {
-                const inCart = cart.find(c => c.id===item.id)
+            <div style={{ padding:'8px 0' }}>
+
+              {/* ── MENU CATEGORY TABS (like Zomato/Swiggy) ── */}
+              {(() => {
+                const availableItems = menuItems.filter(i => i.available !== false)
+                const cats = ['All', ...Array.from(new Set(availableItems.map(i => i.category).filter(Boolean)))]
+                const filteredItems = menuCatFilter === 'All' ? availableItems : availableItems.filter(i => i.category === menuCatFilter)
+
                 return (
-                  <div key={item.id} style={{ display:'flex', gap:12, padding:'14px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f7f7f7', alignItems:'flex-start' }}>
-                    <div style={{ flex:1 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
-                        <VegDot isVeg={item.isVeg !== false} />
-                        <span style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{item.name}</span>
+                  <>
+                    {/* Category pill tabs */}
+                    {cats.length > 1 && (
+                      <div style={{ overflowX:'auto', paddingBottom:2 }}>
+                        <div style={{ display:'flex', gap:8, padding:'8px 16px', width:'max-content' }}>
+                          {cats.map(cat => {
+                            const isActive = menuCatFilter === cat
+                            const count = cat === 'All' ? availableItems.length : availableItems.filter(i => i.category === cat).length
+                            return (
+                              <button key={cat} onClick={() => setMenuCatFilter(cat)} style={{
+                                flexShrink:0, padding:'7px 14px', borderRadius:20,
+                                border:'none', cursor:'pointer', fontFamily:'Poppins',
+                                fontSize:12, fontWeight: isActive ? 700 : 500,
+                                background: isActive ? '#E24B4A' : '#f3f4f6',
+                                color: isActive ? '#fff' : '#6b7280',
+                                boxShadow: isActive ? '0 4px 12px rgba(226,75,74,0.3)' : 'none',
+                                transition:'all 0.2s',
+                                whiteSpace:'nowrap',
+                              }}>
+                                {cat} {count > 0 && <span style={{ opacity: isActive ? 0.8 : 0.6, fontSize:10 }}>({count})</span>}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {/* Active category indicator line */}
+                        <div style={{ height:1, background:'#f3f4f6', marginTop:4 }} />
                       </div>
-                      {item.description && <div style={{ fontSize:11, color:'#9ca3af', marginBottom:4, lineHeight:1.5 }}>{item.description}</div>}
-                      <div style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{item.price}</div>
+                    )}
+
+                    {/* Menu items */}
+                    <div style={{ padding:'0 16px' }}>
+                      {filteredItems.length === 0 && (
+                        <div style={{ textAlign:'center', padding:40, color:'#9ca3af', fontSize:13 }}>
+                          {menuItems.length === 0 ? 'No menu items yet' : `No items in ${menuCatFilter}`}
+                        </div>
+                      )}
+
+                      {/* Group items by category when All is selected */}
+                      {menuCatFilter === 'All' && cats.length > 2 ? (
+                        cats.filter(c => c !== 'All').map(cat => {
+                          const catItems = availableItems.filter(i => i.category === cat)
+                          if (catItems.length === 0) return null
+                          return (
+                            <div key={cat}>
+                              {/* Category section header */}
+                              <div style={{ display:'flex', alignItems:'center', gap:8, padding:'16px 0 8px' }}>
+                                <div style={{ fontSize:13, fontWeight:800, color:'#1f2937', letterSpacing:0.2 }}>{cat}</div>
+                                <div style={{ flex:1, height:1, background:'#f3f4f6' }} />
+                                <span style={{ fontSize:10, color:'#9ca3af', fontWeight:500 }}>{catItems.length} item{catItems.length>1?'s':''}</span>
+                              </div>
+                              {catItems.map(item => <MenuItemCard key={item.id} item={item} />)}
+                            </div>
+                          )
+                        })
+                      ) : (
+                        filteredItems.map(item => <MenuItemCard key={item.id} item={item} />)
+                      )}
                     </div>
-                    <div style={{ position:'relative', flexShrink:0 }}>
-                      <div style={{ width:90, height:90, borderRadius:12, overflow:'hidden', background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                        {item.photo ? <img src={item.photo} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:28 }}>🍛</span>}
-                      </div>
-                      <div style={{ position:'absolute', bottom:-10, left:'50%', transform:'translateX(-50%)' }}>
-                        {inCart ? (
-                          <div style={{ display:'flex', alignItems:'center', gap:6, background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', borderRadius:20, padding:'4px 10px', boxShadow:'0 2px 8px rgba(0,0,0,0.12)' }}>
-                            <button onClick={() => updateQty(item.id,-1)} style={{ background:'none', border:'none', cursor:'pointer', color:'#E24B4A', fontSize:16, fontWeight:700, padding:0, lineHeight:1 }}>−</button>
-                            <span style={{ fontSize:12, fontWeight:700, color:'#E24B4A', minWidth:14, textAlign:'center' }}>{inCart.qty}</span>
-                            <button onClick={() => addToCart(item)} style={{ background:'none', border:'none', cursor:'pointer', color:'#E24B4A', fontSize:16, fontWeight:700, padding:0, lineHeight:1 }}>+</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => addToCart(item)} style={{ background:'#fff', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:'5px 18px', borderRadius:20, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', boxShadow:'0 2px 8px rgba(0,0,0,0.12)' }}>ADD</button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  </>
                 )
-              })}
+
+                function MenuItemCard({ item }) {
+                  const inCart = cart.find(c => c.id === item.id)
+                  return (
+                    <div style={{ display:'flex', gap:12, padding:'14px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f7f7f7', alignItems:'flex-start' }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
+                          <VegDot isVeg={item.isVeg !== false} />
+                          <span style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{item.name}</span>
+                        </div>
+                        {item.description && <div style={{ fontSize:11, color:'#9ca3af', marginBottom:4, lineHeight:1.5 }}>{item.description}</div>}
+                        <div style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{item.price}</div>
+                      </div>
+                      <div style={{ position:'relative', flexShrink:0 }}>
+                        <div style={{ width:90, height:90, borderRadius:12, overflow:'hidden', background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          {item.photo ? <img src={item.photo} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:28 }}>🍛</span>}
+                        </div>
+                        <div style={{ position:'absolute', bottom:-10, left:'50%', transform:'translateX(-50%)' }}>
+                          {inCart ? (
+                            <div style={{ display:'flex', alignItems:'center', gap:6, background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', borderRadius:20, padding:'4px 10px', boxShadow:'0 2px 8px rgba(0,0,0,0.12)' }}>
+                              <button onClick={() => updateQty(item.id,-1)} style={{ background:'none', border:'none', cursor:'pointer', color:'#E24B4A', fontSize:16, fontWeight:700, padding:0, lineHeight:1 }}>−</button>
+                              <span style={{ fontSize:12, fontWeight:700, color:'#E24B4A', minWidth:14, textAlign:'center' }}>{inCart.qty}</span>
+                              <button onClick={() => addToCart(item)} style={{ background:'none', border:'none', cursor:'pointer', color:'#E24B4A', fontSize:16, fontWeight:700, padding:0, lineHeight:1 }}>+</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => addToCart(item)} style={{ background:'#fff', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:'5px 18px', borderRadius:20, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', boxShadow:'0 2px 8px rgba(0,0,0,0.12)' }}>ADD</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+              })()}
             </div>
 
             {/* ── VENDOR INFO — Zomato/Swiggy Professional Style ── */}
@@ -1172,11 +1243,11 @@ export default function UserApp() {
                   </div>
                 </div>
                 <div style={{ marginBottom:10 }}>
-                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Your Address *</label>
+                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Hostel / Building</label>
                   <input style={inp} placeholder="e.g. Hostel B, Men's Hostel..." value={deliveryHostel} onChange={e => setDeliveryHostel(e.target.value)} />
                 </div>
                 <div style={{ marginBottom:10 }}>
-                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Hostel / Room *</label>
+                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Room / Address *</label>
                   <input style={inp} placeholder="e.g. Room 204..." value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} />
                 </div>
                 <div style={{ marginBottom:10 }}>
