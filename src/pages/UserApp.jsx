@@ -1172,11 +1172,11 @@ export default function UserApp() {
                   </div>
                 </div>
                 <div style={{ marginBottom:10 }}>
-                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Hostel / Building</label>
+                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Your Address *</label>
                   <input style={inp} placeholder="e.g. Hostel B, Men's Hostel..." value={deliveryHostel} onChange={e => setDeliveryHostel(e.target.value)} />
                 </div>
                 <div style={{ marginBottom:10 }}>
-                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Room / Address *</label>
+                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Hostel / Room *</label>
                   <input style={inp} placeholder="e.g. Room 204..." value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} />
                 </div>
                 <div style={{ marginBottom:10 }}>
@@ -1611,8 +1611,8 @@ export default function UserApp() {
             <div style={{ background:'#f0fdf4', borderRadius:14, padding:16, marginBottom:16, display:'flex', alignItems:'center', gap:12, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
               <span style={{ fontSize:28 }}>🕐</span>
               <div>
-                <div style={{ fontSize:13, color:'#6b7280' }}>Estimated delivery time</div>
-                <div style={{ fontSize:20, fontWeight:700, color:'#16a34a' }}>{orderSuccess.prepTime + 15}–{orderSuccess.prepTime + 30} min</div>
+                <div style={{ fontSize:13, color:'#6b7280' }}>Delivery Status</div>
+                <div style={{ fontSize:16, fontWeight:700, color:'#16a34a' }}>🚴 Your delivery is coming shortly!</div>
               </div>
             </div>
 
