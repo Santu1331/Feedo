@@ -56,14 +56,14 @@ export default function UserApp() {
   const [showCheckout, setShowCheckout] = useState(false)
   const [notifications, setNotifications] = useState([])
   const [showNotifs, setShowNotifs] = useState(false)
-  const [orderSuccess, setOrderSuccess] = useState(null) // stores placed order info
-  const [showVendorInfo, setShowVendorInfo] = useState(false) // vendor info bottom sheet
-  const [selectedOrder, setSelectedOrder] = useState(null) // order tracking page
-  const [showReview, setShowReview] = useState(false) // review modal
+  const [orderSuccess, setOrderSuccess] = useState(null)
+  const [showVendorInfo, setShowVendorInfo] = useState(false)
+  const [selectedOrder, setSelectedOrder] = useState(null)
+  const [showReview, setShowReview] = useState(false)
   const [reviewVendor, setReviewVendor] = useState(null)
   const [reviewRating, setReviewRating] = useState(5)
   const [reviewText, setReviewText] = useState('')
-  const [reviews, setReviews] = useState([]) // vendor reviews
+  const [reviews, setReviews] = useState([])
   const [submittingReview, setSubmittingReview] = useState(false)
 
   // Support & Legal states
@@ -116,11 +116,9 @@ export default function UserApp() {
 
   // ── ANDROID BACK BUTTON HANDLER ──────────────────────────────────────────
   useEffect(() => {
-    // Push state so back button doesn't exit app
     window.history.pushState({ tab }, '', window.location.href)
 
     const handlePopState = (e) => {
-      // Prevent app close — handle navigation internally
       if (tab === 'vendor-menu') {
         setTab('home')
         setSearchQuery('')
@@ -140,11 +138,9 @@ export default function UserApp() {
       } else if (tab !== 'home') {
         setTab('home')
       } else {
-        // On home — push state again to prevent exit
         window.history.pushState({ tab: 'home' }, '', window.location.href)
         return
       }
-      // Re-push state after handling back
       window.history.pushState({ tab }, '', window.location.href)
     }
 
@@ -152,9 +148,7 @@ export default function UserApp() {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [tab, showCheckout, showVendorInfo, showLocationPicker, orderSuccess])
 
-  // Save tab to localStorage on change
   useEffect(() => {
-    // Don't save vendor-menu tab (no vendor data after reload)
     if (tab !== 'vendor-menu') localStorage.setItem('feedo_tab', tab)
   }, [tab])
 
@@ -162,12 +156,10 @@ export default function UserApp() {
   useEffect(() => { if (!user) return; return getUserOrders(user.uid, setOrders) }, [user])
   useEffect(() => { if (!selectedVendor) return; return getMenuItems(selectedVendor.id, setMenuItems) }, [selectedVendor])
 
-  // Listen for Firestore notifications
   useEffect(() => {
     if (!user) return
     return listenNotifications(user.uid, (notifs) => {
       setNotifications(notifs)
-      // Show toast for new notifications
       notifs.forEach(n => {
         toast(n.body, { icon: '🔔', duration: 4000 })
         markNotificationRead(n.id)
@@ -175,7 +167,6 @@ export default function UserApp() {
     })
   }, [user])
 
-  // Auto-fill delivery details from profile
   useEffect(() => {
     if (userData) {
       setDeliveryName(userData.name || '')
@@ -184,7 +175,7 @@ export default function UserApp() {
     }
   }, [userData])
 
-  // ── REVERSE GEOCODE: lat/lng → area name (OpenStreetMap, free) ───────────
+  // ── REVERSE GEOCODE ───────────────────────────────────────────────────────
   const reverseGeocode = async (lat, lng) => {
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
@@ -194,7 +185,6 @@ export default function UserApp() {
     } catch { return 'Your Location' }
   }
 
-  // ── GET GPS LOCATION ──────────────────────────────────────────────────────
   const handleGetLocation = async () => {
     setLocationLoading(true)
     try {
@@ -212,7 +202,6 @@ export default function UserApp() {
     setLocationLoading(false)
   }
 
-  // ── SEARCH LOCATION (Nominatim autocomplete) ──────────────────────────────
   const handleLocationSearch = async (q) => {
     setLocationSearch(q)
     if (q.length < 3) { setLocationSuggestions([]); return }
@@ -229,7 +218,6 @@ export default function UserApp() {
     setSearchingLocation(false)
   }
 
-  // ── SELECT LOCATION FROM SEARCH ───────────────────────────────────────────
   const handleSelectLocation = async (suggestion) => {
     setUserLat(suggestion.lat)
     setUserLng(suggestion.lng)
@@ -241,17 +229,36 @@ export default function UserApp() {
     setLocationSuggestions([])
   }
 
-  const openVendor = (v) => { setSelectedVendor(v); setTab('vendor-menu'); setShowVendorInfo(false); loadReviews(v.id); setMenuCatFilter('All') }
+  // ── OPEN VENDOR — BLOCKS IF CLOSED ───────────────────────────────────────
+  const openVendor = (v) => {
+    if (!v.isOpen) {
+      toast.error(
+        `${v.storeName} is currently closed${v.openTime ? `. Opens at ${v.openTime}` : ''}`,
+        { icon: '🔒', duration: 3000 }
+      )
+      return // ← block navigation entirely
+    }
+    setSelectedVendor(v)
+    setTab('vendor-menu')
+    setShowVendorInfo(false)
+    loadReviews(v.id)
+    setMenuCatFilter('All')
+  }
 
   const addToCart = (item) => {
+    // Extra safety: block add if vendor is now closed
+    if (!selectedVendor?.isOpen) {
+      toast.error('This store is currently closed. You cannot add items.')
+      return
+    }
     if (cartVendor && cartVendor.id !== selectedVendor.id) {
       toast.error('Clear cart first — items from ' + cartVendor.storeName)
       return
     }
     setCartVendor({
-  ...selectedVendor,
-  deliveryCharge: Number(selectedVendor.deliveryCharge ?? 0)
-})
+      ...selectedVendor,
+      deliveryCharge: Number(selectedVendor.deliveryCharge ?? 0)
+    })
     setCart(prev => {
       const ex = prev.find(c => c.id === item.id)
       if (ex) return prev.map(c => c.id === item.id ? { ...c, qty: c.qty+1 } : c)
@@ -358,27 +365,25 @@ export default function UserApp() {
     if (!deliveryAddress.trim() && !deliveryHostel.trim()) return toast.error('Enter delivery address')
     try {
       const fullAddress = [deliveryHostel.trim(), deliveryAddress.trim(), deliveryNote.trim() ? `Note: ${deliveryNote.trim()}` : ''].filter(Boolean).join(' · ')
-    await placeOrder({
-  userUid: user.uid,
-  userName: deliveryName.trim(),
-  userPhone: deliveryPhone.trim(),
-  userEmail: user.email,
-  vendorUid: cartVendor.id,
-  vendorName: cartVendor.storeName,
-  items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty })),
-  subtotal: cartTotal,
-  deliveryFee: deliveryFee,   // ✅ FIXED
-  total: cartTotal + deliveryFee, // ✅ FIXED
-  address: fullAddress,
-  paymentMode: 'COD'
-})
-      // Get vendor details for success page
+      await placeOrder({
+        userUid: user.uid,
+        userName: deliveryName.trim(),
+        userPhone: deliveryPhone.trim(),
+        userEmail: user.email,
+        vendorUid: cartVendor.id,
+        vendorName: cartVendor.storeName,
+        items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty })),
+        subtotal: cartTotal,
+        deliveryFee: deliveryFee,
+        total: cartTotal + deliveryFee,
+        address: fullAddress,
+        paymentMode: 'COD'
+      })
       const vendorSnap = await import('firebase/firestore').then(({doc, getDoc}) =>
         getDoc(doc(db, 'vendors', cartVendor.id))
       )
       const vendorInfo = vendorSnap.exists() ? vendorSnap.data() : {}
 
-      // Show order success page
       setOrderSuccess({
         orderId: Math.random().toString(36).slice(-6).toUpperCase(),
         vendorName: cartVendor.storeName,
@@ -399,7 +404,6 @@ export default function UserApp() {
     } catch (e) { console.error(e); toast.error('Failed to place order. Try again.') }
   }
 
-  // ── SUBMIT REVIEW ─────────────────────────────────────────────────────────
   const handleSubmitReview = async () => {
     if (!reviewText.trim()) return toast.error('Please write a review!')
     setSubmittingReview(true)
@@ -422,10 +426,9 @@ export default function UserApp() {
     setSubmittingReview(false)
   }
 
-  // ── LOAD REVIEWS FOR VENDOR ────────────────────────────────────────────────
   const loadReviews = async (vendorId) => {
     try {
-      const { collection, query, where, orderBy, getDocs } = await import('firebase/firestore')
+      const { collection, query, where, getDocs } = await import('firebase/firestore')
       const q = query(collection(db, 'reviews'), where('vendorId', '==', vendorId))
       const snap = await getDocs(q)
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -434,7 +437,6 @@ export default function UserApp() {
     } catch { setReviews([]) }
   }
 
-  // ── SORT vendors by distance if location available ─────────────────────
   const filteredVendors = vendors
     .filter(v => {
       const matchCat = catFilter === 'All' || v.category === catFilter || (catFilter !== 'All' && v.customCategories?.includes(catFilter))
@@ -452,7 +454,6 @@ export default function UserApp() {
         : null
     }))
     .sort((a, b) => {
-      // Sort by distance if available, else open first
       if (a.distance !== null && b.distance !== null) return a.distance - b.distance
       if (a.isOpen && !b.isOpen) return -1
       if (!a.isOpen && b.isOpen) return 1
@@ -476,12 +477,10 @@ export default function UserApp() {
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
           <div>
             <div style={{ fontSize:24, fontWeight:700, letterSpacing:-0.5 }}>{t('Feedo','फिडो')}</div>
-            {/* Location display — opens picker modal */}
             <div
               onClick={() => setShowLocationPicker(true)}
               style={{ marginTop:6, cursor:'pointer', display:'flex', alignItems:'center', gap:8, maxWidth:220 }}
             >
-              {/* Lollipop location icon */}
               <div style={{ position:'relative', width:22, height:26, flexShrink:0 }}>
                 <div style={{ width:18, height:18, borderRadius:'50% 50% 50% 0', background:'#fff', transform:'rotate(-45deg)', position:'absolute', top:0, left:2, boxShadow:'0 2px 6px rgba(0,0,0,0.2)' }} />
                 <div style={{ width:8, height:8, borderRadius:'50%', background:'#E24B4A', position:'absolute', top:5, left:7 }} />
@@ -499,7 +498,6 @@ export default function UserApp() {
             </div>
           </div>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-            {/* Notification bell */}
             <div onClick={() => setShowNotifs(!showNotifs)} style={{ position:'relative', cursor:'pointer' }}>
               <span style={{ fontSize:20 }}>🔔</span>
               {unreadCount > 0 && (
@@ -519,13 +517,10 @@ export default function UserApp() {
           <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', flexDirection:'column', justifyContent:'flex-start' }}
             onClick={(e) => { if(e.target===e.currentTarget) setShowLocationPicker(false) }}>
             <div style={{ background:'#fff', borderRadius:'0 0 20px 20px', padding:20, maxWidth:430, width:'100%', margin:'0 auto', maxHeight:'80vh', overflowY:'auto' }}>
-              {/* Modal header */}
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
                 <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>Select Location</div>
                 <button onClick={() => setShowLocationPicker(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:'#6b7280' }}>✕</button>
               </div>
-
-              {/* Search box */}
               <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, marginBottom:14, background:'#f9fafb' }}>
                 <span style={{ fontSize:16 }}>🔍</span>
                 <input
@@ -537,8 +532,6 @@ export default function UserApp() {
                 />
                 {searchingLocation && <span style={{ fontSize:12, color:'#9ca3af' }}>...</span>}
               </div>
-
-              {/* Use current location button */}
               <button
                 onClick={handleGetLocation}
                 disabled={locationLoading}
@@ -550,8 +543,6 @@ export default function UserApp() {
                   <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>Using GPS</div>
                 </div>
               </button>
-
-              {/* Search suggestions */}
               {locationSuggestions.length > 0 && (
                 <div>
                   <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>Search Results</div>
@@ -566,8 +557,6 @@ export default function UserApp() {
                   ))}
                 </div>
               )}
-
-              {/* Popular areas */}
               {!locationSearch && (
                 <div>
                   <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>Popular in Warananagar</div>
@@ -615,26 +604,21 @@ export default function UserApp() {
         {tab==='home' && (
           <div style={{ background:'#fff', minHeight:'100%' }}>
 
-            {/* ── 🎉 RAMNAVAMI LAUNCH OFFER BANNER ── */}
+            {/* ── RAMNAVAMI LAUNCH OFFER BANNER ── */}
             {(() => {
               const now = new Date()
               const offerEnd = new Date('2026-04-03T23:59:59')
               if (now > offerEnd) return null
               return (
                 <div style={{ position:'relative', overflow:'hidden', cursor:'pointer' }} onClick={() => setTab('cart')}>
-
-                  {/* ── MAIN CARD ── */}
                   <div style={{
                     background: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)',
                     position: 'relative',
                     overflow: 'hidden',
                     minHeight: 160,
                   }}>
-                    {/* Animated star burst top-right */}
                     <div style={{ position:'absolute', top:-40, right:-40, width:180, height:180, borderRadius:'50%', background:'radial-gradient(circle, rgba(255,165,0,0.25) 0%, transparent 65%)' }} />
                     <div style={{ position:'absolute', top:-10, right:60, width:80, height:80, borderRadius:'50%', background:'radial-gradient(circle, rgba(255,100,0,0.2) 0%, transparent 65%)' }} />
-
-                    {/* Floating particles */}
                     {[
                       { top:'15%', left:'5%', size:4, opacity:0.6 },
                       { top:'60%', left:'8%', size:3, opacity:0.4 },
@@ -644,11 +628,7 @@ export default function UserApp() {
                     ].map((p, i) => (
                       <div key={i} style={{ position:'absolute', top:p.top, left:p.left, width:p.size, height:p.size, borderRadius:'50%', background:'#ffd700', opacity:p.opacity }} />
                     ))}
-
-                    {/* Left: Text content */}
                     <div style={{ padding:'18px 16px 14px', position:'relative', zIndex:2, paddingRight:120 }}>
-
-                      {/* Top badges */}
                       <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10 }}>
                         <div style={{ background:'linear-gradient(90deg, #ff6b00, #ff9500)', borderRadius:4, padding:'3px 10px', display:'flex', alignItems:'center', gap:4 }}>
                           <span style={{ fontSize:8, fontWeight:900, color:'#fff', letterSpacing:1.5, textTransform:'uppercase' }}>🚀 Grand Launch</span>
@@ -657,47 +637,31 @@ export default function UserApp() {
                           <span style={{ fontSize:8, fontWeight:800, color:'#ffd700', letterSpacing:1 }}>TODAY ONLY</span>
                         </div>
                       </div>
-
-                      {/* Main headline */}
                       <div style={{ marginBottom:6 }}>
-                        <div style={{ fontSize:26, fontWeight:900, color:'#fff', lineHeight:1, letterSpacing:-0.5, textShadow:'0 2px 10px rgba(0,0,0,0.5)' }}>
-                          FREE
-                        </div>
+                        <div style={{ fontSize:26, fontWeight:900, color:'#fff', lineHeight:1, letterSpacing:-0.5, textShadow:'0 2px 10px rgba(0,0,0,0.5)' }}>FREE</div>
                         <div style={{ fontSize:26, fontWeight:900, lineHeight:1, letterSpacing:-0.5 }}>
-                          <span style={{ background:'linear-gradient(90deg, #ffd700, #ff9500, #ff6b00)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>
-                            DELIVERY
-                          </span>
+                          <span style={{ background:'linear-gradient(90deg, #ffd700, #ff9500, #ff6b00)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>DELIVERY</span>
                         </div>
                       </div>
-
-                      {/* Subtext */}
                       <div style={{ fontSize:11, color:'rgba(255,255,255,0.75)', lineHeight:1.5, marginBottom:12 }}>
                         🪔 राम नवमी Special · FeedoZone Grand Launch
                       </div>
-
-                      {/* Coupon code chip */}
                       <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(255,255,255,0.1)', borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,215,0,0.4)', borderRadius:8, padding:'6px 12px', backdropFilter:'blur(10px)' }}>
                         <span style={{ fontSize:10, color:'rgba(255,255,255,0.6)', fontWeight:600 }}>USE CODE</span>
                         <div style={{ width:1, height:12, background:'rgba(255,255,255,0.2)' }} />
                         <span style={{ fontSize:13, fontWeight:900, color:'#ffd700', letterSpacing:2 }}>RAMNAVAMI</span>
                       </div>
                     </div>
-
-                    {/* Right: Diya illustration */}
                     <div style={{ position:'absolute', right:0, top:0, bottom:0, width:115, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4 }}>
-                      {/* Glow behind diya */}
                       <div style={{ position:'absolute', width:100, height:100, borderRadius:'50%', background:'radial-gradient(circle, rgba(255,165,0,0.35) 0%, transparent 65%)', top:'50%', left:'50%', transform:'translate(-50%,-55%)' }} />
                       <div style={{ fontSize:52, lineHeight:1, filter:'drop-shadow(0 0 12px rgba(255,165,0,0.8)) drop-shadow(0 4px 8px rgba(0,0,0,0.5))', position:'relative', zIndex:1 }}>🪔</div>
                       <div style={{ fontSize:8, fontWeight:800, color:'rgba(255,215,0,0.8)', letterSpacing:2, textAlign:'center', textTransform:'uppercase' }}>Ram Navami</div>
-                      {/* Small diyas */}
                       <div style={{ display:'flex', gap:6, marginTop:2 }}>
                         <span style={{ fontSize:14, filter:'drop-shadow(0 0 4px rgba(255,165,0,0.7))' }}>🪔</span>
                         <span style={{ fontSize:14, filter:'drop-shadow(0 0 4px rgba(255,165,0,0.7))' }}>🪔</span>
                       </div>
                     </div>
                   </div>
-
-                  {/* ── BOTTOM ACTION STRIP ── */}
                   <div style={{
                     background: 'linear-gradient(90deg, #ff6b00 0%, #ff9500 50%, #ffb700 100%)',
                     padding: '10px 16px',
@@ -720,7 +684,7 @@ export default function UserApp() {
               )
             })()}
 
-            {/* Location prompt banner — show only if no location yet */}
+            {/* Location prompt banner */}
             {!userLat && !locationLoading && (
               <div
                 onClick={() => setShowLocationPicker(true)}
@@ -782,21 +746,40 @@ export default function UserApp() {
 
             <div style={{ padding:'0 16px' }}>
               {filteredVendors.map(v => (
-                <div key={v.id} onClick={() => openVendor(v)}
-                  style={{ background:'#fff', borderRadius:16, overflow:'hidden', marginBottom:16, cursor:'pointer', boxShadow:'0 2px 12px rgba(0,0,0,0.08)', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', opacity: v.isOpen ? 1 : 0.65 }}>
+                <div
+                  key={v.id}
+                  onClick={() => openVendor(v)}
+                  style={{
+                    background:'#fff',
+                    borderRadius:16,
+                    overflow:'hidden',
+                    marginBottom:16,
+                    // ── KEY CHANGE: closed = not-allowed cursor, reduced opacity ──
+                    cursor: v.isOpen ? 'pointer' : 'not-allowed',
+                    boxShadow:'0 2px 12px rgba(0,0,0,0.08)',
+                    borderWidth:1,
+                    borderStyle:'solid',
+                    borderColor: v.isOpen ? '#f3f4f6' : '#fecaca',
+                    opacity: v.isOpen ? 1 : 0.6,
+                  }}
+                >
                   <div style={{ height:140, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#fee2e2,#fecaca)' }}>
                     {v.photo
-                      ? <img src={v.photo} alt={v.storeName} style={{ width:'100%', height:'100%', objectFit:'cover', filter: v.isOpen ? 'none' : 'grayscale(60%)' }} />
+                      ? <img src={v.photo} alt={v.storeName} style={{ width:'100%', height:'100%', objectFit:'cover', filter: v.isOpen ? 'none' : 'grayscale(70%)' }} />
                       : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:4 }}>
                           <span style={{ fontSize:40 }}>🍽️</span>
                           <span style={{ fontSize:11, color:'#E24B4A', fontWeight:500 }}>No photo yet</span>
                         </div>
                     }
-                    {/* Closed overlay like Zomato */}
+                    {/* Closed overlay — stronger, with lock icon */}
                     {!v.isOpen && (
-                      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.35)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                        <div style={{ background:'rgba(0,0,0,0.75)', borderRadius:20, padding:'6px 16px', backdropFilter:'blur(4px)' }}>
-                          <span style={{ fontSize:12, fontWeight:700, color:'#fff' }}>⏰ Opens later</span>
+                      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        <div style={{ background:'rgba(0,0,0,0.8)', borderRadius:20, padding:'8px 20px', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', gap:8 }}>
+                          <span style={{ fontSize:16 }}>🔒</span>
+                          <div>
+                            <div style={{ fontSize:12, fontWeight:700, color:'#fff' }}>Store Closed</div>
+                            {v.openTime && <div style={{ fontSize:10, color:'rgba(255,255,255,0.7)', marginTop:1 }}>Opens at {v.openTime}</div>}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -818,15 +801,21 @@ export default function UserApp() {
                       <span style={{ fontSize:12, color:'#9ca3af' }}>🕐 {v.prepTime||20}-{(v.prepTime||20)+15} min</span>
                       <span style={{ fontSize:12, color: v.isOpen ? '#6b7280' : '#9ca3af' }}>{Number(v.deliveryCharge) === 0 ? '🎉 Free delivery' : ('₹' + (v.deliveryCharge ?? 0) + ' delivery')}</span>
                     </div>
-                    {!v.isOpen && v.openTime && (
-                      <div style={{ marginTop:6, fontSize:11, color:'#E24B4A', fontWeight:500 }}>🕐 Opens at {v.openTime}</div>
+                    {/* Closed notice with open time */}
+                    {!v.isOpen && (
+                      <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:6, background:'#fee2e2', borderRadius:8, padding:'6px 10px' }}>
+                        <span style={{ fontSize:12 }}>🔒</span>
+                        <span style={{ fontSize:11, color:'#dc2626', fontWeight:600 }}>
+                          Currently closed{v.openTime ? ` · Opens at ${v.openTime}` : ''}
+                        </span>
+                      </div>
                     )}
                     {v.address && <div style={{ fontSize:11, color:'#9ca3af', marginTop:5 }}>📍 {v.address}</div>}
                   </div>
                 </div>
               ))}
 
-              {/* ── COMING SOON BANNER ── */}
+              {/* COMING SOON BANNER */}
               {!searchQuery.trim() && (
                 <div style={{ marginTop:4, marginBottom:24 }}>
                   <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
@@ -870,12 +859,21 @@ export default function UserApp() {
                 <span style={{ fontSize:12, color:'#16a34a' }}>📍 {selectedVendor.distance < 1 ? `${Math.round(selectedVendor.distance*1000)}m away` : `${selectedVendor.distance?.toFixed(1)}km away`}</span>
               )}
             </div>
-            {!selectedVendor.isOpen && (
-              <div style={{ background:'#fee2e2', color:'#991b1b', padding:'10px 16px', fontSize:13 }}>⚠️ Store is currently closed.</div>
-            )}
-            <div style={{ padding:'8px 0' }}>
 
-              {/* ── MENU CATEGORY TABS (like Zomato/Swiggy) ── */}
+            {/* ── CLOSED BANNER on vendor menu page ── */}
+            {!selectedVendor.isOpen && (
+              <div style={{ background:'#fee2e2', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', margin:'12px 16px', borderRadius:12, padding:'14px 16px', display:'flex', alignItems:'center', gap:12 }}>
+                <div style={{ width:42, height:42, borderRadius:12, background:'#dc2626', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>🔒</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#991b1b' }}>This restaurant is currently closed</div>
+                  <div style={{ fontSize:11, color:'#b91c1c', marginTop:2 }}>
+                    {selectedVendor.openTime ? `Opens at ${selectedVendor.openTime} · Come back then!` : 'You cannot order right now'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{ padding:'8px 0' }}>
               {(() => {
                 const availableItems = menuItems.filter(i => i.available !== false)
                 const cats = ['All', ...Array.from(new Set(availableItems.map(i => i.category).filter(Boolean)))]
@@ -883,7 +881,6 @@ export default function UserApp() {
 
                 return (
                   <>
-                    {/* Category pill tabs */}
                     {cats.length > 1 && (
                       <div style={{ overflowX:'auto', paddingBottom:2 }}>
                         <div style={{ display:'flex', gap:8, padding:'8px 16px', width:'max-content' }}>
@@ -906,12 +903,10 @@ export default function UserApp() {
                             )
                           })}
                         </div>
-                        {/* Active category indicator line */}
                         <div style={{ height:1, background:'#f3f4f6', marginTop:4 }} />
                       </div>
                     )}
 
-                    {/* Menu items */}
                     <div style={{ padding:'0 16px' }}>
                       {filteredItems.length === 0 && (
                         <div style={{ textAlign:'center', padding:40, color:'#9ca3af', fontSize:13 }}>
@@ -919,14 +914,12 @@ export default function UserApp() {
                         </div>
                       )}
 
-                      {/* Group items by category when All is selected */}
                       {menuCatFilter === 'All' && cats.length > 2 ? (
                         cats.filter(c => c !== 'All').map(cat => {
                           const catItems = availableItems.filter(i => i.category === cat)
                           if (catItems.length === 0) return null
                           return (
                             <div key={cat}>
-                              {/* Category section header */}
                               <div style={{ display:'flex', alignItems:'center', gap:8, padding:'16px 0 8px' }}>
                                 <div style={{ fontSize:13, fontWeight:800, color:'#1f2937', letterSpacing:0.2 }}>{cat}</div>
                                 <div style={{ flex:1, height:1, background:'#f3f4f6' }} />
@@ -943,24 +936,40 @@ export default function UserApp() {
                   </>
                 )
 
+                // ── MENU ITEM CARD — ADD button disabled when closed ──
                 function MenuItemCard({ item }) {
                   const inCart = cart.find(c => c.id === item.id)
+                  const vendorClosed = !selectedVendor.isOpen
+
                   return (
                     <div style={{ display:'flex', gap:12, padding:'14px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f7f7f7', alignItems:'flex-start' }}>
                       <div style={{ flex:1 }}>
                         <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
                           <VegDot isVeg={item.isVeg !== false} />
-                          <span style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{item.name}</span>
+                          <span style={{ fontSize:13, fontWeight:600, color: vendorClosed ? '#9ca3af' : '#1f2937' }}>{item.name}</span>
                         </div>
                         {item.description && <div style={{ fontSize:11, color:'#9ca3af', marginBottom:4, lineHeight:1.5 }}>{item.description}</div>}
-                        <div style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{item.price}</div>
+                        <div style={{ fontSize:14, fontWeight:700, color: vendorClosed ? '#9ca3af' : '#E24B4A' }}>₹{item.price}</div>
                       </div>
                       <div style={{ position:'relative', flexShrink:0 }}>
-                        <div style={{ width:90, height:90, borderRadius:12, overflow:'hidden', background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        <div style={{ width:90, height:90, borderRadius:12, overflow:'hidden', background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center', filter: vendorClosed ? 'grayscale(60%)' : 'none' }}>
                           {item.photo ? <img src={item.photo} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:28 }}>🍛</span>}
                         </div>
                         <div style={{ position:'absolute', bottom:-10, left:'50%', transform:'translateX(-50%)' }}>
-                          {inCart ? (
+                          {vendorClosed ? (
+                            // ── CLOSED: show disabled lock button ──
+                            <div style={{
+                              display:'flex', alignItems:'center', gap:4,
+                              background:'#f3f4f6',
+                              borderWidth:1, borderStyle:'solid', borderColor:'#d1d5db',
+                              borderRadius:20, padding:'5px 12px',
+                              boxShadow:'0 2px 8px rgba(0,0,0,0.08)',
+                              cursor:'not-allowed',
+                            }}>
+                              <span style={{ fontSize:10 }}>🔒</span>
+                              <span style={{ fontSize:11, fontWeight:700, color:'#9ca3af' }}>Closed</span>
+                            </div>
+                          ) : inCart ? (
                             <div style={{ display:'flex', alignItems:'center', gap:6, background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', borderRadius:20, padding:'4px 10px', boxShadow:'0 2px 8px rgba(0,0,0,0.12)' }}>
                               <button onClick={() => updateQty(item.id,-1)} style={{ background:'none', border:'none', cursor:'pointer', color:'#E24B4A', fontSize:16, fontWeight:700, padding:0, lineHeight:1 }}>−</button>
                               <span style={{ fontSize:12, fontWeight:700, color:'#E24B4A', minWidth:14, textAlign:'center' }}>{inCart.qty}</span>
@@ -977,15 +986,11 @@ export default function UserApp() {
               })()}
             </div>
 
-            {/* ── VENDOR INFO — Zomato/Swiggy Professional Style ── */}
+            {/* VENDOR INFO */}
             <div style={{ margin:'20px 0 100px', background:'#fff' }}>
-
-              {/* Section header */}
               <div style={{ padding:'0 16px 12px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
                 <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', letterSpacing:0.2 }}>Restaurant Info</div>
               </div>
-
-              {/* Stats row */}
               <div style={{ display:'flex', padding:'14px 16px', gap:12, borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
                 <div style={{ flex:1, textAlign:'center', padding:'10px 8px', background:'#f9fafb', borderRadius:10 }}>
                   <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>⭐ {selectedVendor.rating || 4.5}</div>
@@ -1008,8 +1013,6 @@ export default function UserApp() {
                   <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>Status</div>
                 </div>
               </div>
-
-              {/* Address */}
               {selectedVendor.address && (
                 <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'flex-start' }}>
                   <div style={{ width:38, height:38, borderRadius:10, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -1021,8 +1024,6 @@ export default function UserApp() {
                   </div>
                 </div>
               )}
-
-              {/* Hours */}
               {selectedVendor.openTime && selectedVendor.closeTime && (
                 <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'center' }}>
                   <div style={{ width:38, height:38, borderRadius:10, background:'#eff6ff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -1039,8 +1040,6 @@ export default function UserApp() {
                   </div>
                 </div>
               )}
-
-              {/* FSSAI */}
               {selectedVendor.fssai && (
                 <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'center' }}>
                   <div style={{ width:38, height:38, borderRadius:10, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -1055,8 +1054,6 @@ export default function UserApp() {
                   </div>
                 </div>
               )}
-
-              {/* Phone + Call */}
               {selectedVendor.phone && (
                 <div style={{ display:'flex', gap:14, padding:'14px 16px', alignItems:'center' }}>
                   <div style={{ width:38, height:38, borderRadius:10, background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -1076,7 +1073,7 @@ export default function UserApp() {
               )}
             </div>
 
-            {/* ── REVIEWS SECTION ── */}
+            {/* REVIEWS SECTION */}
             <div style={{ background:'#fff', borderTopWidth:8, borderTopStyle:'solid', borderTopColor:'#f7f7f7', marginTop:8 }}>
               <div style={{ padding:'16px 16px 10px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                 <div>
@@ -1102,7 +1099,6 @@ export default function UserApp() {
                   ✍️ Rate Us
                 </button>
               </div>
-
               {reviews.length === 0 && (
                 <div style={{ textAlign:'center', padding:'24px 16px 32px' }}>
                   <div style={{ fontSize:36, marginBottom:8 }}>⭐</div>
@@ -1110,7 +1106,6 @@ export default function UserApp() {
                   <div style={{ fontSize:12, color:'#d1d5db', marginTop:4 }}>Be the first to review this restaurant!</div>
                 </div>
               )}
-
               {reviews.map(r => (
                 <div key={r.id} style={{ padding:'14px 16px', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#f7f7f7' }}>
                   <div style={{ display:'flex', alignItems:'flex-start', gap:10, marginBottom:8 }}>
@@ -1139,7 +1134,6 @@ export default function UserApp() {
               ))}
               <div style={{ height:100 }} />
             </div>
-
           </div>
         )}
 
@@ -1164,7 +1158,6 @@ export default function UserApp() {
             ))}
             {cart.length > 0 && !showCheckout && (
               <>
-                {/* ── COUPON CODE BOX ── */}
                 {isRamnavamiOffer && (
                   <div style={{ marginBottom:12 }}>
                     {!couponApplied ? (
@@ -1211,7 +1204,6 @@ export default function UserApp() {
                     )}
                   </div>
                 )}
-
                 <div style={{ background:'#f9fafb', borderRadius:10, padding:12, margin:'12px 0' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
                   {couponApplied && (
@@ -1292,7 +1284,7 @@ export default function UserApp() {
                       <span style={{ fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:20,
                         background: o.status==='delivered'?'#d1fae5':o.status==='cancelled'?'#fee2e2':o.status==='out_for_delivery'?'#dbeafe':o.status==='preparing'?'#fef3c7':'#fff7ed',
                         color: o.status==='delivered'?'#065f46':o.status==='cancelled'?'#991b1b':o.status==='out_for_delivery'?'#1e40af':o.status==='preparing'?'#92400e':'#c2410c'
-                      }}>{o.status==='out_for_delivery'?'Out for Delivery':o.status?.replace('_',' ').replace(/\w/g,c=>c.toUpperCase())}</span>
+                      }}>{o.status==='out_for_delivery'?'Out for Delivery':o.status?.replace('_',' ').replace(/\w/g,c=>c.toUpperCase())}</span>
                     </div>
                     <div style={{ fontSize:12, color:'#6b7280', marginBottom:8 }}>{o.items?.slice(0,2).map(i=>i.qty+'x '+i.name).join(', ')}{o.items?.length>2?` +${o.items.length-2} more`:''}</div>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -1302,12 +1294,9 @@ export default function UserApp() {
                             <span style={{ width:6, height:6, borderRadius:'50%', background:'#E24B4A', display:'inline-block' }} />
                             Track Order →
                           </span>
-                        : o.status === 'delivered'
-                          ? <span style={{ fontSize:11, color:'#9ca3af' }}>Tap for details →</span>
-                          : <span style={{ fontSize:11, color:'#9ca3af' }}>Tap for details →</span>
+                        : <span style={{ fontSize:11, color:'#9ca3af' }}>Tap for details →</span>
                       }
                     </div>
-                    {/* Review nudge for delivered orders */}
                     {o.status === 'delivered' && (
                       <div
                         onClick={e => { e.stopPropagation(); const v = vendors.find(x => x.id === o.vendorUid); if(v) { setReviewVendor(v); setReviewRating(5); setShowReview(true) } }}
@@ -1344,8 +1333,6 @@ export default function UserApp() {
 
           return (
             <div style={{ background:'#f7f7f7', minHeight:'100%' }}>
-
-              {/* Header */}
               <div style={{
                 background: isCancelled ? 'linear-gradient(135deg,#dc2626,#b91c1c)' : o.status==='delivered' ? 'linear-gradient(135deg,#16a34a,#15803d)' : 'linear-gradient(135deg,#E24B4A,#c73232)',
                 padding:'20px 16px 32px', color:'#fff'
@@ -1366,7 +1353,6 @@ export default function UserApp() {
                     </div>
                   </div>
                 </div>
-                {/* Status badge */}
                 <div style={{ marginTop:14, background:'rgba(255,255,255,0.2)', borderRadius:20, display:'inline-block', padding:'5px 16px' }}>
                   <span style={{ fontSize:12, fontWeight:700 }}>
                     {isCancelled ? '❌ Cancelled' : o.status==='delivered' ? '✅ Delivered!' : o.status==='out_for_delivery' ? '🚴 On the way!' : o.status==='preparing' ? '👨‍🍳 Preparing...' : o.status==='accepted' ? '✅ Accepted!' : '⏳ Order Placed'}
@@ -1375,8 +1361,6 @@ export default function UserApp() {
               </div>
 
               <div style={{ padding:'0 16px 100px', marginTop:-8 }}>
-
-                {/* Status card */}
                 {!isCancelled ? (
                   <div style={{ background:'#fff', borderRadius:16, padding:20, marginBottom:14, boxShadow:'0 4px 16px rgba(0,0,0,0.08)' }}>
                     <div style={{ textAlign:'center', marginBottom:20 }}>
@@ -1384,16 +1368,12 @@ export default function UserApp() {
                       <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>{STEPS[currentIdx]?.label}</div>
                       <div style={{ fontSize:12, color:'#6b7280', marginTop:4 }}>{STEPS[currentIdx]?.sub}</div>
                     </div>
-
-                    {/* Progress steps */}
                     <div style={{ position:'relative' }}>
-                      {/* Vertical line */}
                       <div style={{ position:'absolute', left:19, top:20, bottom:20, width:2, background:'#f3f4f6', zIndex:0 }} />
                       <div style={{ position:'absolute', left:19, top:20, width:2, background:'#E24B4A', zIndex:1,
                         height: currentIdx === 0 ? '0%' : (currentIdx / (stepOrder.length-1) * 100) + '%',
                         transition:'height 0.5s ease'
                       }} />
-
                       {STEPS.map((step, i) => {
                         const done = i <= currentIdx
                         const active = i === currentIdx
@@ -1420,14 +1400,34 @@ export default function UserApp() {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ background:'#fee2e2', borderRadius:16, padding:20, marginBottom:14, textAlign:'center' }}>
+                  <div style={{ background:'#fee2e2', borderRadius:16, padding:20, marginBottom:14, textAlign:'center', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5' }}>
                     <div style={{ fontSize:40, marginBottom:8 }}>❌</div>
                     <div style={{ fontSize:16, fontWeight:700, color:'#dc2626' }}>Order Cancelled</div>
-                    <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>This order has been cancelled</div>
+                    {o.cancelledBy === 'vendor' ? (
+                      <>
+                        <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>This order was cancelled by the restaurant</div>
+                        {o.cancellationReason && (
+                          <div style={{ marginTop:12, background:'rgba(255,255,255,0.65)', borderRadius:10, padding:'10px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', textAlign:'left' }}>
+                            <div style={{ fontSize:10, fontWeight:700, color:'#dc2626', marginBottom:4, letterSpacing:0.5 }}>REASON FROM RESTAURANT</div>
+                            <div style={{ fontSize:13, color:'#7f1d1d', fontWeight:500, lineHeight:1.5 }}>{o.cancellationReason}</div>
+                          </div>
+                        )}
+                        <div style={{ marginTop:14, background:'#fff7ed', borderRadius:10, padding:'10px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#fed7aa', textAlign:'left' }}>
+                          <div style={{ fontSize:12, color:'#92400e', lineHeight:1.6 }}>💡 You can reorder from this restaurant or try another one nearby.</div>
+                        </div>
+                        <button
+                          onClick={() => { const v = vendors.find(x=>x.id===o.vendorUid); if(v) openVendor(v); setSelectedOrder(null) }}
+                          style={{ marginTop:14, background:'#E24B4A', color:'#fff', border:'none', padding:'11px 24px', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', display:'inline-flex', alignItems:'center', gap:6 }}
+                        >
+                          🔄 Reorder from Same Restaurant
+                        </button>
+                      </>
+                    ) : (
+                      <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>This order has been cancelled</div>
+                    )}
                   </div>
                 )}
 
-                {/* Order details */}
                 <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12 }}>
                   <div style={{ fontSize:12, fontWeight:700, color:'#9ca3af', marginBottom:12, textTransform:'uppercase', letterSpacing:0.5 }}>Order Details</div>
                   {o.items?.map((item, i) => (
@@ -1446,7 +1446,6 @@ export default function UserApp() {
                   </div>
                 </div>
 
-                {/* Delivery address */}
                 {o.address && (
                   <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, display:'flex', gap:12, alignItems:'flex-start' }}>
                     <div style={{ width:38, height:38, borderRadius:10, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -1459,7 +1458,6 @@ export default function UserApp() {
                   </div>
                 )}
 
-                {/* Contact vendor */}
                 {o.vendorPhone && !isCancelled && (
                   <div style={{ background:'#fff', borderRadius:14, padding:14, marginBottom:12 }}>
                     <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:10 }}>NEED HELP?</div>
@@ -1478,45 +1476,26 @@ export default function UserApp() {
                   </div>
                 )}
 
-                {/* ── REVIEW PROMPT for delivered orders ── */}
                 {o.status === 'delivered' && (
                   <div style={{ background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:16, padding:18, marginBottom:12, borderWidth:1.5, borderStyle:'solid', borderColor:'#fde68a' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:14 }}>
-                      <div style={{ width:46, height:46, borderRadius:12, background:'linear-gradient(135deg,#f59e0b,#d97706)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, flexShrink:0 }}>
-                        ⭐
-                      </div>
+                      <div style={{ width:46, height:46, borderRadius:12, background:'linear-gradient(135deg,#f59e0b,#d97706)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, flexShrink:0 }}>⭐</div>
                       <div>
                         <div style={{ fontSize:14, fontWeight:700, color:'#1f2937' }}>How was your experience?</div>
                         <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>Your review helps others choose better!</div>
                       </div>
                     </div>
-
-                    {/* Star quick-select */}
                     <div style={{ display:'flex', justifyContent:'center', gap:8, marginBottom:14 }}>
                       {[1,2,3,4,5].map(star => (
-                        <button
-                          key={star}
-                          onClick={() => {
-                            const vendor = vendors.find(x => x.id === o.vendorUid)
-                            if (vendor) {
-                              setReviewVendor(vendor)
-                              setReviewRating(star)
-                              setShowReview(true)
-                            }
-                          }}
-                          style={{ width:44, height:44, borderRadius:12, border:'none', cursor:'pointer', fontSize:22, background:'rgba(255,255,255,0.7)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 6px rgba(0,0,0,0.08)', transition:'all 0.15s' }}
-                        >
+                        <button key={star} onClick={() => { const vendor = vendors.find(x => x.id === o.vendorUid); if (vendor) { setReviewVendor(vendor); setReviewRating(star); setShowReview(true) } }}
+                          style={{ width:44, height:44, borderRadius:12, border:'none', cursor:'pointer', fontSize:22, background:'rgba(255,255,255,0.7)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 6px rgba(0,0,0,0.08)', transition:'all 0.15s' }}>
                           ⭐
                         </button>
                       ))}
                     </div>
-
                     <div style={{ display:'flex', gap:8 }}>
                       <button
-                        onClick={() => {
-                          const vendor = vendors.find(x => x.id === o.vendorUid)
-                          if (vendor) { setReviewVendor(vendor); setReviewRating(5); setShowReview(true) }
-                        }}
+                        onClick={() => { const vendor = vendors.find(x => x.id === o.vendorUid); if (vendor) { setReviewVendor(vendor); setReviewRating(5); setShowReview(true) } }}
                         style={{ flex:1, background:'linear-gradient(135deg,#f59e0b,#d97706)', color:'#fff', border:'none', padding:'11px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}
                       >
                         ✍️ Write a Review
@@ -1531,7 +1510,6 @@ export default function UserApp() {
                   </div>
                 )}
 
-                {/* ── FEEDBACK BUTTON for delivered orders ── */}
                 {o.status === 'delivered' && (
                   <div style={{ marginBottom:12 }}>
                     <button
@@ -1547,8 +1525,6 @@ export default function UserApp() {
                     </button>
                   </div>
                 )}
-
-                {/* Reorder button for delivered — removed, now inside review card above */}
               </div>
             </div>
           )
@@ -1592,7 +1568,6 @@ export default function UserApp() {
             </div>
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>Logout</button>
 
-            {/* ── HELP & LEGAL ── */}
             <div style={{ marginTop:20, marginBottom:4, fontSize:11, color:'#9ca3af', fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>Help & Legal</div>
             <div style={{ background:'#fafafa', borderRadius:12, overflow:'hidden', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', marginBottom:80 }}>
               {[
@@ -1619,16 +1594,11 @@ export default function UserApp() {
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:998, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}
           onClick={e => { if(e.target===e.currentTarget) setShowReview(false) }}>
           <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', padding:20, maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
-
-            {/* Handle */}
             <div style={{ display:'flex', justifyContent:'center', marginBottom:16 }}>
               <div style={{ width:40, height:4, borderRadius:2, background:'#e5e7eb' }} />
             </div>
-
             <div style={{ fontSize:16, fontWeight:700, color:'#1f2937', marginBottom:4 }}>Rate your experience</div>
             <div style={{ fontSize:12, color:'#9ca3af', marginBottom:16 }}>{reviewVendor.storeName}</div>
-
-            {/* Star Rating */}
             <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:18 }}>
               {[1,2,3,4,5].map(s => (
                 <button key={s} onClick={() => setReviewRating(s)}
@@ -1637,13 +1607,9 @@ export default function UserApp() {
                 </button>
               ))}
             </div>
-
-            {/* Rating label */}
             <div style={{ textAlign:'center', fontSize:13, fontWeight:600, color:'#E24B4A', marginBottom:14 }}>
               {['','😞 Poor','😐 Fair','🙂 Good','😊 Great','🤩 Excellent!'][reviewRating]}
             </div>
-
-            {/* Review text */}
             <textarea
               placeholder="Share your experience with other users..."
               value={reviewText}
@@ -1651,7 +1617,6 @@ export default function UserApp() {
               rows={3}
               style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', resize:'none', boxSizing:'border-box', marginBottom:14, lineHeight:1.5 }}
             />
-
             <button
               onClick={handleSubmitReview}
               disabled={submittingReview}
@@ -1666,7 +1631,6 @@ export default function UserApp() {
       {/* ── ORDER SUCCESS PAGE ── */}
       {orderSuccess && (
         <div style={{ position:'fixed', inset:0, background:'#fff', zIndex:999, overflowY:'auto', fontFamily:'Poppins,sans-serif', maxWidth:430, margin:'0 auto' }}>
-          {/* Green header */}
           <div style={{ background:'linear-gradient(135deg, #16a34a, #15803d)', padding:'48px 24px 32px', textAlign:'center', color:'#fff' }}>
             <div style={{ width:80, height:80, borderRadius:'50%', background:'rgba(255,255,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:40, margin:'0 auto 16px', border:'3px solid rgba(255,255,255,0.4)' }}>✅</div>
             <div style={{ fontSize:22, fontWeight:700, marginBottom:6 }}>Order Placed!</div>
@@ -1675,10 +1639,7 @@ export default function UserApp() {
               <span style={{ fontSize:12, fontWeight:600 }}>Order #{orderSuccess.orderId}</span>
             </div>
           </div>
-
           <div style={{ padding:20 }}>
-
-            {/* Estimated time */}
             <div style={{ background:'#f0fdf4', borderRadius:14, padding:16, marginBottom:16, display:'flex', alignItems:'center', gap:12, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
               <span style={{ fontSize:28 }}>🕐</span>
               <div>
@@ -1686,8 +1647,6 @@ export default function UserApp() {
                 <div style={{ fontSize:16, fontWeight:700, color:'#16a34a' }}>🚴 Your delivery is coming shortly!</div>
               </div>
             </div>
-
-            {/* Vendor info + contact */}
             <div style={{ background:'#fafafa', borderRadius:14, padding:16, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
               <div style={{ fontSize:12, color:'#9ca3af', marginBottom:10, textTransform:'uppercase', letterSpacing:0.5 }}>Vendor</div>
               <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:14 }}>
@@ -1702,15 +1661,13 @@ export default function UserApp() {
                   <div style={{ fontSize:12, color:'#6b7280' }}>Preparing your order...</div>
                 </div>
               </div>
-
-              {/* Contact buttons */}
               {orderSuccess.vendorPhone && (
                 <div style={{ display:'flex', gap:10 }}>
                   <button
                     onClick={() => notifyVendorWhatsApp(orderSuccess.vendorPhone, { userName: orderSuccess.userName, userPhone: orderSuccess.userPhone || '', address: orderSuccess.address, items: orderSuccess.items, subtotal: orderSuccess.subtotal, deliveryFee: orderSuccess.deliveryFee, total: orderSuccess.total })}
                     style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'11px 0', background:'#25D366', border:'none', borderRadius:10, cursor:'pointer', fontFamily:'Poppins' }}
                   >
-                    <span stychrmle={{ fontSize:18 }}>💬</span>
+                    <span style={{ fontSize:18 }}>💬</span>
                     <span style={{ fontSize:13, fontWeight:600, color:'#fff' }}>WhatsApp</span>
                   </button>
                   <button
@@ -1723,8 +1680,6 @@ export default function UserApp() {
                 </div>
               )}
             </div>
-
-            {/* Order items */}
             <div style={{ background:'#fafafa', borderRadius:14, padding:16, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
               <div style={{ fontSize:12, color:'#9ca3af', marginBottom:10, textTransform:'uppercase', letterSpacing:0.5 }}>Order Summary</div>
               {orderSuccess.items.map((item, i) => (
@@ -1739,8 +1694,6 @@ export default function UserApp() {
               </div>
               <div style={{ marginTop:6, fontSize:11, color:'#9ca3af' }}>💵 Cash on Delivery · 📍 {orderSuccess.address}</div>
             </div>
-
-            {/* Track order button */}
             <button
               onClick={() => { const latestOrder = orders[0]; setOrderSuccess(null); setTab('orders'); if(latestOrder) setTimeout(()=>setSelectedOrder(latestOrder), 100) }}
               style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10 }}
@@ -1770,7 +1723,6 @@ export default function UserApp() {
               <button onClick={() => setShowSupport(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
             </div>
             <div style={{ padding:20 }}>
-              {/* New ticket form */}
               {!supportSent ? (
                 <>
                   <div style={{ marginBottom:12 }}>
@@ -1808,8 +1760,6 @@ export default function UserApp() {
                   <button onClick={() => setSupportSent(false)} style={{ background:'#f3f4f6', border:'none', padding:'10px 20px', borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', color:'#374151' }}>Send Another</button>
                 </div>
               )}
-
-              {/* Past tickets */}
               {myTickets.length > 0 && (
                 <div>
                   <div style={{ fontSize:12, fontWeight:600, color:'#6b7280', marginBottom:10, textTransform:'uppercase', letterSpacing:0.5 }}>Your Previous Requests</div>
@@ -1855,7 +1805,7 @@ export default function UserApp() {
                 { title:'2. Service Description', body:'FeedoZone is a food ordering platform connecting users with local food vendors in Warananagar and surrounding areas.' },
                 { title:'3. User Accounts', body:'You must provide accurate information when creating an account. You are responsible for maintaining the security of your account credentials.' },
                 { title:'4. Orders & Payment', body:'All orders are subject to vendor acceptance. Payments are currently Cash on Delivery (COD). Prices displayed include all applicable charges.' },
-                { title:'5. Cancellation Policy', body:'Orders can be cancelled before the vendor accepts them. Once accepted, cancellations are at the vendor\'s discretion.' },
+                { title:'5. Cancellation Policy', body:"Orders can be cancelled before the vendor accepts them. Once accepted, cancellations are at the vendor's discretion." },
                 { title:'6. User Conduct', body:'You agree not to misuse the platform, place fake orders, or engage in any fraudulent activity. Violations may result in account suspension.' },
                 { title:'7. Intellectual Property', body:'All content on FeedoZone including logos, designs, and text is owned by FeedoZone and may not be reproduced without permission.' },
                 { title:'8. Limitation of Liability', body:'FeedoZone is not liable for any indirect or consequential damages arising from the use of our service.' },
@@ -1890,7 +1840,7 @@ export default function UserApp() {
                 { title:'4. Data Storage', body:'Your data is securely stored on Firebase (Google Cloud). We use industry-standard security measures to protect your information.' },
                 { title:'5. Cookies', body:'We use local storage to remember your preferences such as language and location. No third-party tracking cookies are used.' },
                 { title:'6. Your Rights', body:'You can request to view, update, or delete your personal data at any time by contacting our support team.' },
-                { title:'7. Children\'s Privacy', body:'FeedoZone is not intended for children under 13. We do not knowingly collect data from children.' },
+                { title:"7. Children's Privacy", body:'FeedoZone is not intended for children under 13. We do not knowingly collect data from children.' },
                 { title:'8. Changes to Policy', body:'We may update this privacy policy from time to time. We will notify you of significant changes through the app.' },
                 { title:'9. Contact Us', body:'For privacy-related concerns, reach us through the Contact Support section in the app.' },
               ].map(s => (
@@ -1909,7 +1859,6 @@ export default function UserApp() {
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}
           onClick={e => { if(e.target===e.currentTarget) setShowFeedback(false) }}>
           <div style={{ background:'#fff', borderRadius:'24px 24px 0 0', maxHeight:'90vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
-            {/* Handle bar */}
             <div style={{ display:'flex', justifyContent:'center', padding:'12px 0 0' }}>
               <div style={{ width:40, height:4, borderRadius:2, background:'#e5e7eb' }} />
             </div>
@@ -1920,11 +1869,9 @@ export default function UserApp() {
               </div>
               <button onClick={() => setShowFeedback(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
             </div>
-
             <div style={{ padding:'0 20px 40px' }}>
               {!feedbackSent ? (
                 <>
-                  {/* App rating */}
                   <div style={{ marginBottom:16 }}>
                     <div style={{ fontSize:12, color:'#6b7280', fontWeight:600, marginBottom:8 }}>Rate your overall experience</div>
                     <div style={{ display:'flex', gap:8 }}>
@@ -1936,8 +1883,6 @@ export default function UserApp() {
                       ))}
                     </div>
                   </div>
-
-                  {/* Type selector */}
                   <div style={{ marginBottom:14 }}>
                     <div style={{ fontSize:12, color:'#6b7280', fontWeight:600, marginBottom:8 }}>Type of feedback</div>
                     <div style={{ display:'flex', gap:8 }}>
@@ -1945,21 +1890,19 @@ export default function UserApp() {
                         { id:'suggestion', label:'💡 Suggestion', color:'#6366f1' },
                         { id:'bug', label:'🐛 Bug Report', color:'#ef4444' },
                         { id:'compliment', label:'❤️ Compliment', color:'#ec4899' },
-                      ].map(t => (
-                        <button key={t.id} onClick={() => setFeedbackType(t.id)}
+                      ].map(tp => (
+                        <button key={tp.id} onClick={() => setFeedbackType(tp.id)}
                           style={{ flex:1, padding:'8px 4px', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', fontSize:10, fontWeight:700,
                             borderWidth:2, borderStyle:'solid',
-                            borderColor: feedbackType===t.id ? t.color : '#e5e7eb',
-                            background: feedbackType===t.id ? t.color + '15' : '#fff',
-                            color: feedbackType===t.id ? t.color : '#9ca3af',
+                            borderColor: feedbackType===tp.id ? tp.color : '#e5e7eb',
+                            background: feedbackType===tp.id ? tp.color + '15' : '#fff',
+                            color: feedbackType===tp.id ? tp.color : '#9ca3af',
                           }}>
-                          {t.label}
+                          {tp.label}
                         </button>
                       ))}
                     </div>
                   </div>
-
-                  {/* Message */}
                   <div style={{ marginBottom:16 }}>
                     <div style={{ fontSize:12, color:'#6b7280', fontWeight:600, marginBottom:8 }}>Your message *</div>
                     <textarea
@@ -1974,7 +1917,6 @@ export default function UserApp() {
                       style={{ width:'100%', padding:'12px 14px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', lineHeight:1.6, color:'#1f2937' }}
                     />
                   </div>
-
                   <button onClick={handleSendFeedback} disabled={sendingFeedback}
                     style={{ width:'100%', background: sendingFeedback ? '#c4b5fd' : 'linear-gradient(135deg,#6366f1,#8b5cf6)', color:'#fff', border:'none', padding:14, borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
                     {sendingFeedback ? 'Sending...' : '📩 Send Feedback'}
@@ -2021,5 +1963,3 @@ export default function UserApp() {
     </div>
   )
 }
-
-//TEst Deployment
