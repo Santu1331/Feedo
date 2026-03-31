@@ -84,8 +84,6 @@ export default function UserApp() {
   const [sendingFeedback, setSendingFeedback] = useState(false)
   const [feedbackSent, setFeedbackSent] = useState(false)
 
-  // ── REMOVED: coupon / Ramnavami state removed ──
-
   const [menuCatFilter, setMenuCatFilter] = useState('All')
 
   const [userLat, setUserLat] = useState(null)
@@ -109,7 +107,7 @@ export default function UserApp() {
 
   useEffect(() => {
     window.history.pushState({ tab }, '', window.location.href)
-    const handlePopState = (e) => {
+    const handlePopState = () => {
       if (tab === 'vendor-menu') { setTab('home'); setSearchQuery('') }
       else if (selectedOrder) { setSelectedOrder(null) }
       else if (tab === 'cart') { setTab('home') }
@@ -126,21 +124,15 @@ export default function UserApp() {
   }, [tab, showCheckout, showVendorInfo, showLocationPicker, orderSuccess])
 
   useEffect(() => { if (tab !== 'vendor-menu') localStorage.setItem('feedo_tab', tab) }, [tab])
-
   useEffect(() => { return getAllVendors(setVendors) }, [])
   useEffect(() => { if (!user) return; return getUserOrders(user.uid, setOrders) }, [user])
 
-  // ── Load menu items AND combos when vendor is selected ──
   useEffect(() => {
     if (!selectedVendor) return
-    setMenuItems([])
-    setVendorCombos([])
+    setMenuItems([]); setVendorCombos([])
     const u1 = getMenuItems(selectedVendor.id, setMenuItems)
     const u2 = getCombos(selectedVendor.id, (combos) => {
-      console.log('[FeedoZone] Combos received for', selectedVendor.id, ':', combos)
-      const filtered = combos.filter(c => c.available !== false && c.items?.length >= 2)
-      console.log('[FeedoZone] Filtered combos:', filtered)
-      setVendorCombos(filtered)
+      setVendorCombos(combos.filter(c => c.available !== false && c.items?.length >= 2))
     })
     return () => { u1(); u2() }
   }, [selectedVendor])
@@ -149,10 +141,7 @@ export default function UserApp() {
     if (!user) return
     return listenNotifications(user.uid, (notifs) => {
       setNotifications(notifs)
-      notifs.forEach(n => {
-        toast(n.body, { icon: '🔔', duration: 4000 })
-        markNotificationRead(n.id)
-      })
+      notifs.forEach(n => { toast(n.body, { icon: '🔔', duration: 4000 }); markNotificationRead(n.id) })
     })
   }, [user])
 
@@ -183,7 +172,7 @@ export default function UserApp() {
       await saveUserLocation(user.uid, lat, lng)
       toast.success(`📍 ${name}`)
       setShowLocationPicker(false)
-    } catch (err) { toast.error('Could not get location. Enable GPS.') }
+    } catch { toast.error('Could not get location. Enable GPS.') }
     setLocationLoading(false)
   }
 
@@ -212,20 +201,13 @@ export default function UserApp() {
       toast.error(`${v.storeName} is currently closed${v.openTime ? `. Opens at ${v.openTime}` : ''}`, { icon: '🔒', duration: 3000 })
       return
     }
-    setSelectedVendor(v)
-    setTab('vendor-menu')
-    setShowVendorInfo(false)
-    loadReviews(v.id)
-    setMenuCatFilter('All')
-    setVendorCombos([])
+    setSelectedVendor(v); setTab('vendor-menu'); setShowVendorInfo(false)
+    loadReviews(v.id); setMenuCatFilter('All'); setVendorCombos([])
   }
 
   const addToCart = (item) => {
     if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
-    if (cartVendor && cartVendor.id !== selectedVendor.id) {
-      toast.error('Clear cart first — items from ' + cartVendor.storeName)
-      return
-    }
+    if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
     setCartVendor({ ...selectedVendor, deliveryCharge: Number(selectedVendor.deliveryCharge ?? 0) })
     setCart(prev => {
       const ex = prev.find(c => c.id === item.id)
@@ -237,23 +219,13 @@ export default function UserApp() {
 
   const addComboToCart = (combo) => {
     if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
-    if (cartVendor && cartVendor.id !== selectedVendor.id) {
-      toast.error('Clear cart first — items from ' + cartVendor.storeName)
-      return
-    }
+    if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
     setCartVendor({ ...selectedVendor, deliveryCharge: Number(selectedVendor.deliveryCharge ?? 0) })
     const comboCartId = 'combo_' + combo.id
     setCart(prev => {
       const ex = prev.find(c => c.id === comboCartId)
       if (ex) return prev.map(c => c.id === comboCartId ? { ...c, qty: c.qty+1 } : c)
-      return [...prev, {
-        id: comboCartId,
-        name: '🍱 ' + combo.name,
-        price: combo.comboPrice,
-        qty: 1,
-        isCombo: true,
-        comboItems: combo.items,
-      }]
+      return [...prev, { id: comboCartId, name: '🍱 ' + combo.name, price: combo.comboPrice, qty: 1, isCombo: true, comboItems: combo.items }]
     })
     toast.success(`🍱 ${combo.name} added!`)
   }
@@ -268,8 +240,12 @@ export default function UserApp() {
 
   const cartTotal = cart.reduce((s,c) => s + c.price*c.qty, 0)
   const cartCount = cart.reduce((s,c) => s + c.qty, 0)
-  // ── REMOVED: Ramnavami offer, coupon, free delivery logic removed ──
   const deliveryFee = Number(cartVendor?.deliveryCharge ?? 0)
+
+  // ── MIN ORDER AMOUNT helpers ──────────────────────────────────────────────
+  const minOrder = Number(cartVendor?.minOrderAmount ?? 0)
+  const minOrderShortfall = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
+  const meetsMinOrder = minOrderShortfall === 0
 
   useEffect(() => {
     if (!user) return
@@ -296,7 +272,7 @@ export default function UserApp() {
         message: supportMsg.trim(), status: 'open', founderReply: '', createdAt: serverTimestamp()
       })
       setSupportSent(true); setSupportMsg(''); toast.success('Support request sent! ✅')
-    } catch (e) { toast.error('Failed to send. Try again.') }
+    } catch { toast.error('Failed to send. Try again.') }
     setSendingSupport(false)
   }
 
@@ -321,6 +297,10 @@ export default function UserApp() {
     if (!deliveryName.trim()) return toast.error('Enter your name')
     if (!deliveryPhone.trim()) return toast.error('Enter phone number')
     if (!deliveryAddress.trim() && !deliveryHostel.trim()) return toast.error('Enter delivery address')
+    // ── MIN ORDER CHECK ───────────────────────────────────────────────────
+    if (minOrder > 0 && cartTotal < minOrder) {
+      return toast.error(`Minimum order is ₹${minOrder}. Add ₹${minOrderShortfall} more to checkout.`, { duration: 4000, icon: '🛒' })
+    }
     try {
       const fullAddress = [deliveryHostel.trim(), deliveryAddress.trim(), deliveryNote.trim() ? `Note: ${deliveryNote.trim()}` : ''].filter(Boolean).join(' · ')
       await placeOrder({
@@ -330,9 +310,7 @@ export default function UserApp() {
         subtotal: cartTotal, deliveryFee: deliveryFee, total: cartTotal + deliveryFee,
         address: fullAddress, paymentMode: 'COD'
       })
-      const vendorSnap = await import('firebase/firestore').then(({doc, getDoc}) =>
-        getDoc(doc(db, 'vendors', cartVendor.id))
-      )
+      const vendorSnap = await import('firebase/firestore').then(({doc, getDoc}) => getDoc(doc(db, 'vendors', cartVendor.id)))
       const vendorInfo = vendorSnap.exists() ? vendorSnap.data() : {}
       setOrderSuccess({
         orderId: Math.random().toString(36).slice(-6).toUpperCase(),
@@ -358,7 +336,7 @@ export default function UserApp() {
         rating: reviewRating, text: reviewText.trim(), createdAt: serverTimestamp()
       })
       toast.success('Review submitted! ⭐'); setShowReview(false); setReviewText(''); setReviewRating(5)
-    } catch (err) { toast.error('Failed to submit review') }
+    } catch { toast.error('Failed to submit review') }
     setSubmittingReview(false)
   }
 
@@ -382,8 +360,7 @@ export default function UserApp() {
     })
     .map(v => ({
       ...v,
-      distance: (userLat && userLng && v.location?.lat && v.location?.lng)
-        ? getDistance(userLat, userLng, v.location.lat, v.location.lng) : null
+      distance: (userLat && userLng && v.location?.lat && v.location?.lng) ? getDistance(userLat, userLng, v.location.lat, v.location.lng) : null
     }))
     .sort((a, b) => {
       if (a.distance !== null && b.distance !== null) return a.distance - b.distance
@@ -399,86 +376,59 @@ export default function UserApp() {
 
   const unreadCount = notifications.length
 
-  // ── COMBO CARD COMPONENT ──────────────────────────────────────────────────
+  // ── COMBO CARD ────────────────────────────────────────────────────────────
   const ComboCard = ({ combo }) => {
     const inCart = cart.find(c => c.id === 'combo_' + combo.id)
     const vendorClosed = !selectedVendor?.isOpen
     const savings = (combo.originalPrice || 0) - combo.comboPrice
     const savingsPct = combo.originalPrice > 0 ? Math.round(savings / combo.originalPrice * 100) : 0
-
     return (
-      <div style={{
-        background: 'linear-gradient(135deg,#1a1a1a,#2d1f00)',
-        borderRadius: 14, marginBottom: 12, overflow: 'hidden',
-        boxShadow: '0 4px 14px rgba(0,0,0,0.15)',
-        opacity: vendorClosed ? 0.6 : 1,
-      }}>
-        <div style={{ padding: '12px 14px 10px', position: 'relative' }}>
+      <div style={{ background:'linear-gradient(135deg,#1a1a1a,#2d1f00)', borderRadius:14, marginBottom:12, overflow:'hidden', boxShadow:'0 4px 14px rgba(0,0,0,0.15)', opacity:vendorClosed?0.6:1 }}>
+        <div style={{ padding:'12px 14px 10px', position:'relative' }}>
           <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8, flexWrap:'wrap' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-              <div style={{ width:12, height:12, borderRadius:2, flexShrink:0, borderWidth:1.5, borderStyle:'solid', borderColor: combo.isVeg===false?'#dc2626':'#16a34a', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <div style={{ width:6, height:6, borderRadius:'50%', background: combo.isVeg===false?'#dc2626':'#16a34a' }} />
-              </div>
+            <div style={{ width:12, height:12, borderRadius:2, flexShrink:0, borderWidth:1.5, borderStyle:'solid', borderColor:combo.isVeg===false?'#dc2626':'#16a34a', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <div style={{ width:6, height:6, borderRadius:'50%', background:combo.isVeg===false?'#dc2626':'#16a34a' }} />
             </div>
-            {combo.tag && (
-              <span style={{ fontSize:9, fontWeight:800, background:'#fbbf24', color:'#78350f', borderRadius:10, padding:'2px 8px', letterSpacing:0.3 }}>
-                {combo.tag}
-              </span>
-            )}
-            {savingsPct > 0 && (
-              <span style={{ fontSize:9, fontWeight:800, background:'#16a34a', color:'#fff', borderRadius:10, padding:'2px 8px' }}>
-                {savingsPct}% OFF
-              </span>
-            )}
+            {combo.tag && <span style={{ fontSize:9, fontWeight:800, background:'#fbbf24', color:'#78350f', borderRadius:10, padding:'2px 8px', letterSpacing:0.3 }}>{combo.tag}</span>}
+            {savingsPct > 0 && <span style={{ fontSize:9, fontWeight:800, background:'#16a34a', color:'#fff', borderRadius:10, padding:'2px 8px' }}>{savingsPct}% OFF</span>}
           </div>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:15, fontWeight:800, color:'#fff', lineHeight:1.2, marginBottom:4 }}>{combo.name}</div>
-              {combo.description && (
-                <div style={{ fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>{combo.description}</div>
-              )}
+              {combo.description && <div style={{ fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>{combo.description}</div>}
             </div>
             <div style={{ textAlign:'right', flexShrink:0 }}>
               <div style={{ fontSize:20, fontWeight:900, color:'#fbbf24' }}>₹{combo.comboPrice}</div>
-              {combo.originalPrice > combo.comboPrice && (
-                <>
-                  <div style={{ fontSize:10, color:'#6b7280', textDecoration:'line-through' }}>₹{combo.originalPrice}</div>
-                  <div style={{ fontSize:10, color:'#4ade80', fontWeight:700 }}>Save ₹{savings}</div>
-                </>
-              )}
+              {combo.originalPrice > combo.comboPrice && <>
+                <div style={{ fontSize:10, color:'#6b7280', textDecoration:'line-through' }}>₹{combo.originalPrice}</div>
+                <div style={{ fontSize:10, color:'#4ade80', fontWeight:700 }}>Save ₹{savings}</div>
+              </>}
             </div>
           </div>
         </div>
-
         <div style={{ padding:'0 14px 12px' }}>
           <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:12 }}>
             {combo.items?.map((item, i) => (
               <div key={i} style={{ background:'rgba(255,255,255,0.1)', borderRadius:6, padding:'4px 9px', fontSize:11, color:'rgba(255,255,255,0.85)', fontWeight:500 }}>
-                {item.qty > 1 && <span style={{ color:'#fbbf24', fontWeight:800, marginRight:2 }}>{item.qty}×</span>}
-                {item.name}
+                {item.qty > 1 && <span style={{ color:'#fbbf24', fontWeight:800, marginRight:2 }}>{item.qty}×</span>}{item.name}
               </div>
             ))}
           </div>
-
           {vendorClosed ? (
             <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, background:'rgba(255,255,255,0.08)', borderRadius:10, padding:'10px 0' }}>
-              <span style={{ fontSize:12 }}>🔒</span>
-              <span style={{ fontSize:12, color:'rgba(255,255,255,0.4)', fontWeight:600 }}>Store Closed</span>
+              <span style={{ fontSize:12 }}>🔒</span><span style={{ fontSize:12, color:'rgba(255,255,255,0.4)', fontWeight:600 }}>Store Closed</span>
             </div>
           ) : inCart ? (
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(255,187,0,0.15)', borderRadius:10, padding:'8px 14px', borderWidth:1, borderStyle:'solid', borderColor:'rgba(251,191,36,0.3)' }}>
               <span style={{ fontSize:12, color:'#fbbf24', fontWeight:600 }}>🍱 In Cart</span>
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <button onClick={() => updateQty('combo_' + combo.id, -1)} style={{ width:28, height:28, borderRadius:8, border:'none', background:'rgba(255,255,255,0.15)', color:'#fbbf24', cursor:'pointer', fontSize:16, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
+                <button onClick={() => updateQty('combo_'+combo.id,-1)} style={{ width:28, height:28, borderRadius:8, border:'none', background:'rgba(255,255,255,0.15)', color:'#fbbf24', cursor:'pointer', fontSize:16, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
                 <span style={{ fontSize:13, fontWeight:800, color:'#fff', minWidth:16, textAlign:'center' }}>{inCart.qty}</span>
                 <button onClick={() => addComboToCart(combo)} style={{ width:28, height:28, borderRadius:8, border:'none', background:'rgba(255,255,255,0.15)', color:'#fbbf24', cursor:'pointer', fontSize:16, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
               </div>
             </div>
           ) : (
-            <button
-              onClick={() => addComboToCart(combo)}
-              style={{ width:'100%', background:'linear-gradient(135deg,#fbbf24,#f59e0b)', color:'#1a1a1a', border:'none', padding:'11px 0', borderRadius:10, fontSize:13, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}
-            >
+            <button onClick={() => addComboToCart(combo)} style={{ width:'100%', background:'linear-gradient(135deg,#fbbf24,#f59e0b)', color:'#1a1a1a', border:'none', padding:'11px 0', borderRadius:10, fontSize:13, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
               <span>🍱</span> Add Combo · ₹{combo.comboPrice}
             </button>
           )}
@@ -515,9 +465,7 @@ export default function UserApp() {
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
             <div onClick={() => setShowNotifs(!showNotifs)} style={{ position:'relative', cursor:'pointer' }}>
               <span style={{ fontSize:20 }}>🔔</span>
-              {unreadCount > 0 && (
-                <div style={{ position:'absolute', top:-4, right:-4, background:'#fbbf24', color:'#000', borderRadius:'50%', width:16, height:16, fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{unreadCount}</div>
-              )}
+              {unreadCount > 0 && <div style={{ position:'absolute', top:-4, right:-4, background:'#fbbf24', color:'#000', borderRadius:'50%', width:16, height:16, fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{unreadCount}</div>}
             </div>
             <button onClick={() => setLang(l => l==='en'?'mr':'en')} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', padding:'5px 10px', borderRadius:8, fontSize:11, cursor:'pointer', fontFamily:'Poppins' }}>
               {lang==='en'?'मराठी':'English'}
@@ -525,6 +473,7 @@ export default function UserApp() {
           </div>
         </div>
 
+        {/* Location picker */}
         {showLocationPicker && (
           <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', flexDirection:'column', justifyContent:'flex-start' }}
             onClick={(e) => { if(e.target===e.currentTarget) setShowLocationPicker(false) }}>
@@ -564,8 +513,7 @@ export default function UserApp() {
                   <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>Popular in Warananagar</div>
                   {['Warananagar', 'Kolhapur', 'Sangli', 'Ichalkaranji', 'Miraj'].map(area => (
                     <button key={area} onClick={() => handleLocationSearch(area)} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'10px 14px', background:'#fafafa', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', borderRadius:10, cursor:'pointer', marginBottom:6, fontFamily:'Poppins' }}>
-                      <span style={{ fontSize:14 }}>🏘️</span>
-                      <span style={{ fontSize:13, color:'#374151' }}>{area}</span>
+                      <span style={{ fontSize:14 }}>🏘️</span><span style={{ fontSize:13, color:'#374151' }}>{area}</span>
                     </button>
                   ))}
                 </div>
@@ -586,7 +534,7 @@ export default function UserApp() {
           <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:10 }}>
             <button onClick={() => { setTab('home'); setSearchQuery('') }} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', padding:'5px 10px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>← Back</button>
             <span style={{ fontSize:14, fontWeight:600 }}>{selectedVendor.storeName}</span>
-            <span style={{ fontSize:11, background: selectedVendor.isOpen?'#16a34a':'#dc2626', color:'#fff', padding:'2px 8px', borderRadius:10 }}>{selectedVendor.isOpen ? 'Open' : 'Closed'}</span>
+            <span style={{ fontSize:11, background:selectedVendor.isOpen?'#16a34a':'#dc2626', color:'#fff', padding:'2px 8px', borderRadius:10 }}>{selectedVendor.isOpen ? 'Open' : 'Closed'}</span>
           </div>
         )}
       </div>
@@ -594,11 +542,9 @@ export default function UserApp() {
       {/* ── PAGE CONTENT ── */}
       <div style={S.pageContent}>
 
-        {/* HOME */}
+        {/* ── HOME ── */}
         {tab==='home' && (
           <div style={{ background:'#fff', minHeight:'100%' }}>
-            {/* ── RAMNAVAMI BANNER REMOVED ── */}
-
             {!userLat && !locationLoading && (
               <div onClick={() => setShowLocationPicker(true)} style={{ background:'#fffbeb', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#fde68a', padding:'10px 16px', display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
                 <span style={{ fontSize:20 }}>📍</span>
@@ -644,40 +590,61 @@ export default function UserApp() {
             {filteredVendors.length===0 && !searchQuery && <div style={{ textAlign:'center', padding:40, color:'#9ca3af', fontSize:13 }}>No restaurants available yet</div>}
 
             <div style={{ padding:'0 16px' }}>
-              {filteredVendors.map(v => (
-                <div key={v.id} onClick={() => openVendor(v)} style={{ background:'#fff', borderRadius:16, overflow:'hidden', marginBottom:16, cursor:v.isOpen?'pointer':'not-allowed', boxShadow:'0 2px 12px rgba(0,0,0,0.08)', borderWidth:1, borderStyle:'solid', borderColor:v.isOpen?'#f3f4f6':'#fecaca', opacity:v.isOpen?1:0.6 }}>
-                  <div style={{ height:140, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#fee2e2,#fecaca)' }}>
-                    {v.photo ? <img src={v.photo} alt={v.storeName} style={{ width:'100%', height:'100%', objectFit:'cover', filter:v.isOpen?'none':'grayscale(70%)' }} /> : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:4 }}><span style={{ fontSize:40 }}>🍽️</span></div>}
-                    {!v.isOpen && (
-                      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                        <div style={{ background:'rgba(0,0,0,0.8)', borderRadius:20, padding:'8px 20px', display:'flex', alignItems:'center', gap:8 }}>
-                          <span style={{ fontSize:16 }}>🔒</span>
-                          <div>
-                            <div style={{ fontSize:12, fontWeight:700, color:'#fff' }}>Store Closed</div>
-                            {v.openTime && <div style={{ fontSize:10, color:'rgba(255,255,255,0.7)', marginTop:1 }}>Opens at {v.openTime}</div>}
+              {filteredVendors.map(v => {
+                const vMinOrder = Number(v.minOrderAmount ?? 0)
+                return (
+                  <div key={v.id} onClick={() => openVendor(v)}
+                    style={{ background:'#fff', borderRadius:16, overflow:'hidden', marginBottom:16, cursor:v.isOpen?'pointer':'not-allowed', boxShadow:'0 2px 12px rgba(0,0,0,0.08)', borderWidth:1, borderStyle:'solid', borderColor:v.isOpen?'#f3f4f6':'#fecaca', opacity:v.isOpen?1:0.6 }}>
+                    <div style={{ height:140, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#fee2e2,#fecaca)' }}>
+                      {v.photo ? <img src={v.photo} alt={v.storeName} style={{ width:'100%', height:'100%', objectFit:'cover', filter:v.isOpen?'none':'grayscale(70%)' }} /> : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:4 }}><span style={{ fontSize:40 }}>🍽️</span></div>}
+                      {!v.isOpen && (
+                        <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          <div style={{ background:'rgba(0,0,0,0.8)', borderRadius:20, padding:'8px 20px', display:'flex', alignItems:'center', gap:8 }}>
+                            <span style={{ fontSize:16 }}>🔒</span>
+                            <div>
+                              <div style={{ fontSize:12, fontWeight:700, color:'#fff' }}>Store Closed</div>
+                              {v.openTime && <div style={{ fontSize:10, color:'rgba(255,255,255,0.7)', marginTop:1 }}>Opens at {v.openTime}</div>}
+                            </div>
                           </div>
                         </div>
+                      )}
+                      <div style={{ position:'absolute', top:10, left:10, background:'#E24B4A', color:'#fff', fontSize:10, padding:'3px 10px', borderRadius:20, fontWeight:600 }}>{v.category||'Food'}</div>
+                      <div style={{ position:'absolute', top:10, right:10, background:v.isOpen?'#16a34a':'#6b7280', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:600 }}>{v.isOpen?'● Open':'● Closed'}</div>
+                      {v.distance !== null && <div style={{ position:'absolute', bottom:10, left:10, background:'rgba(0,0,0,0.6)', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:500 }}>📍 {v.distance < 1 ? `${Math.round(v.distance*1000)}m` : `${v.distance.toFixed(1)}km`}</div>}
+                    </div>
+                    <div style={{ padding:'12px 14px' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                        <div style={{ fontSize:15, fontWeight:700, color:v.isOpen?'#1f2937':'#6b7280' }}>{v.storeName}</div>
+                        <div style={{ background:'#f0fdf4', color:'#16a34a', fontSize:12, fontWeight:700, padding:'2px 8px', borderRadius:8 }}>⭐ {v.rating||4.5}</div>
                       </div>
-                    )}
-                    <div style={{ position:'absolute', top:10, left:10, background:'#E24B4A', color:'#fff', fontSize:10, padding:'3px 10px', borderRadius:20, fontWeight:600 }}>{v.category||'Food'}</div>
-                    <div style={{ position:'absolute', top:10, right:10, background:v.isOpen?'#16a34a':'#6b7280', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:600 }}>{v.isOpen?'● Open':'● Closed'}</div>
-                    {v.distance !== null && <div style={{ position:'absolute', bottom:10, left:10, background:'rgba(0,0,0,0.6)', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:500 }}>📍 {v.distance < 1 ? `${Math.round(v.distance*1000)}m` : `${v.distance.toFixed(1)}km`}</div>}
-                  </div>
-                  <div style={{ padding:'12px 14px' }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                      <div style={{ fontSize:15, fontWeight:700, color:v.isOpen?'#1f2937':'#6b7280' }}>{v.storeName}</div>
-                      <div style={{ background:'#f0fdf4', color:'#16a34a', fontSize:12, fontWeight:700, padding:'2px 8px', borderRadius:8 }}>⭐ {v.rating||4.5}</div>
+                      <div style={{ fontSize:12, color:'#9ca3af', marginTop:3 }}>{v.category}</div>
+
+                      {/* ── INFO ROW: delivery time + delivery fee + min order ── */}
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:10, marginTop:8, alignItems:'center' }}>
+                        <span style={{ fontSize:12, color:'#9ca3af' }}>🕐 {v.prepTime||20}-{(v.prepTime||20)+15} min</span>
+                        <span style={{ fontSize:12, color:v.isOpen?'#6b7280':'#9ca3af' }}>
+                          {Number(v.deliveryCharge)===0 ? '🎉 Free delivery' : ('₹'+(v.deliveryCharge??0)+' delivery')}
+                        </span>
+                        {/* ── MIN ORDER BADGE on card ── */}
+                        {vMinOrder > 0 && (
+                          <span style={{ fontSize:11, fontWeight:700, background:'#dbeafe', color:'#1e40af', borderRadius:6, padding:'2px 7px', display:'inline-flex', alignItems:'center', gap:3 }}>
+                            🛒 Min. ₹{vMinOrder}
+                          </span>
+                        )}
+                      </div>
+
+                      {!v.isOpen && (
+                        <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:6, background:'#fee2e2', borderRadius:8, padding:'6px 10px' }}>
+                          <span style={{ fontSize:12 }}>🔒</span>
+                          <span style={{ fontSize:11, color:'#dc2626', fontWeight:600 }}>Currently closed{v.openTime?` · Opens at ${v.openTime}`:''}</span>
+                        </div>
+                      )}
+                      {v.address && <div style={{ fontSize:11, color:'#9ca3af', marginTop:5 }}>📍 {v.address}</div>}
                     </div>
-                    <div style={{ fontSize:12, color:'#9ca3af', marginTop:3 }}>{v.category}</div>
-                    <div style={{ display:'flex', gap:12, marginTop:8 }}>
-                      <span style={{ fontSize:12, color:'#9ca3af' }}>🕐 {v.prepTime||20}-{(v.prepTime||20)+15} min</span>
-                      <span style={{ fontSize:12, color:v.isOpen?'#6b7280':'#9ca3af' }}>{Number(v.deliveryCharge)===0?'🎉 Free delivery':('₹'+(v.deliveryCharge??0)+' delivery')}</span>
-                    </div>
-                    {!v.isOpen && <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:6, background:'#fee2e2', borderRadius:8, padding:'6px 10px' }}><span style={{ fontSize:12 }}>🔒</span><span style={{ fontSize:11, color:'#dc2626', fontWeight:600 }}>Currently closed{v.openTime?` · Opens at ${v.openTime}`:''}</span></div>}
-                    {v.address && <div style={{ fontSize:11, color:'#9ca3af', marginTop:5 }}>📍 {v.address}</div>}
                   </div>
-                </div>
-              ))}
+                )
+              })}
+
               {!searchQuery.trim() && (
                 <div style={{ marginTop:4, marginBottom:24 }}>
                   <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
@@ -695,7 +662,7 @@ export default function UserApp() {
           </div>
         )}
 
-        {/* VENDOR MENU */}
+        {/* ── VENDOR MENU ── */}
         {tab==='vendor-menu' && selectedVendor && (
           <div style={{ background:'#fff', minHeight:'100%' }}>
             <div style={{ height:160, position:'relative', background:'linear-gradient(135deg,#fee2e2,#fecaca)' }}>
@@ -706,12 +673,21 @@ export default function UserApp() {
                 <div style={{ fontSize:11, opacity:0.9 }}>{selectedVendor.category} · ⭐ {selectedVendor.rating||4.5}</div>
               </div>
             </div>
-            <div style={{ padding:'10px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', gap:16 }}>
+
+            {/* ── VENDOR MENU HEADER STATS ROW ── */}
+            <div style={{ padding:'10px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
               <span style={{ fontSize:12, color:'#6b7280' }}>🕐 {selectedVendor.prepTime||20}-{(selectedVendor.prepTime||20)+15} min</span>
               <span style={{ fontSize:12, color:'#6b7280' }}>{!selectedVendor.deliveryCharge?'🎉 Free delivery':('₹'+selectedVendor.deliveryCharge+' delivery')}</span>
               {selectedVendor.distance !== null && userLat && <span style={{ fontSize:12, color:'#16a34a' }}>📍 {selectedVendor.distance < 1 ? `${Math.round(selectedVendor.distance*1000)}m away` : `${selectedVendor.distance?.toFixed(1)}km away`}</span>}
+              {/* ── MIN ORDER shown in vendor menu header ── */}
+              {Number(selectedVendor.minOrderAmount) > 0 && (
+                <span style={{ fontSize:11, fontWeight:700, background:'#dbeafe', color:'#1e40af', borderRadius:6, padding:'3px 8px', display:'inline-flex', alignItems:'center', gap:3 }}>
+                  🛒 Min. order ₹{selectedVendor.minOrderAmount}
+                </span>
+              )}
             </div>
 
+            {/* ── CLOSED WARNING IN MENU ── */}
             {!selectedVendor.isOpen && (
               <div style={{ background:'#fee2e2', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', margin:'12px 16px', borderRadius:12, padding:'14px 16px', display:'flex', alignItems:'center', gap:12 }}>
                 <div style={{ width:42, height:42, borderRadius:12, background:'#dc2626', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>🔒</div>
@@ -730,7 +706,6 @@ export default function UserApp() {
 
                 return (
                   <>
-                    {/* ── COMBOS SECTION — shown when "All" filter active ── */}
                     {vendorCombos.length > 0 && menuCatFilter === 'All' && (
                       <div style={{ padding:'0 16px', marginBottom:4 }}>
                         <div style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 0 10px' }}>
@@ -745,7 +720,6 @@ export default function UserApp() {
                       </div>
                     )}
 
-                    {/* ── MENU CATEGORY PILLS ── */}
                     {cats.length > 1 && (
                       <div style={{ overflowX:'auto', paddingBottom:2 }}>
                         <div style={{ display:'flex', gap:8, padding:'8px 16px', width:'max-content' }}>
@@ -768,7 +742,6 @@ export default function UserApp() {
                       </div>
                     )}
 
-                    {/* ── COMBOS ONLY VIEW ── */}
                     {menuCatFilter === '__combos__' && (
                       <div style={{ padding:'0 16px' }}>
                         <div style={{ padding:'14px 0 10px', fontSize:13, fontWeight:700, color:'#1f2937' }}>🍱 All Combo Offers</div>
@@ -776,15 +749,9 @@ export default function UserApp() {
                       </div>
                     )}
 
-                    {/* ── REGULAR MENU ITEMS ── */}
                     {menuCatFilter !== '__combos__' && (
                       <div style={{ padding:'0 16px' }}>
-                        {filteredItems.length === 0 && (
-                          <div style={{ textAlign:'center', padding:40, color:'#9ca3af', fontSize:13 }}>
-                            {menuItems.length === 0 ? 'No menu items yet' : `No items in ${menuCatFilter}`}
-                          </div>
-                        )}
-
+                        {filteredItems.length === 0 && <div style={{ textAlign:'center', padding:40, color:'#9ca3af', fontSize:13 }}>{menuItems.length === 0 ? 'No menu items yet' : `No items in ${menuCatFilter}`}</div>}
                         {menuCatFilter === 'All' && cats.length > 2 ? (
                           cats.filter(c => c !== 'All').map(cat => {
                             const catItems = availableItems.filter(i => i.category === cat)
@@ -828,8 +795,7 @@ export default function UserApp() {
                         <div style={{ position:'absolute', bottom:-10, left:'50%', transform:'translateX(-50%)' }}>
                           {vendorClosed ? (
                             <div style={{ display:'flex', alignItems:'center', gap:4, background:'#f3f4f6', borderWidth:1, borderStyle:'solid', borderColor:'#d1d5db', borderRadius:20, padding:'5px 12px', boxShadow:'0 2px 8px rgba(0,0,0,0.08)', cursor:'not-allowed' }}>
-                              <span style={{ fontSize:10 }}>🔒</span>
-                              <span style={{ fontSize:11, fontWeight:700, color:'#9ca3af' }}>Closed</span>
+                              <span style={{ fontSize:10 }}>🔒</span><span style={{ fontSize:11, fontWeight:700, color:'#9ca3af' }}>Closed</span>
                             </div>
                           ) : inCart ? (
                             <div style={{ display:'flex', alignItems:'center', gap:6, background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', borderRadius:20, padding:'4px 10px', boxShadow:'0 2px 8px rgba(0,0,0,0.12)' }}>
@@ -848,24 +814,32 @@ export default function UserApp() {
               })()}
             </div>
 
-            {/* VENDOR INFO & REVIEWS */}
+            {/* VENDOR INFO */}
             <div style={{ margin:'20px 0 100px', background:'#fff' }}>
               <div style={{ padding:'0 16px 12px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
                 <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', letterSpacing:0.2 }}>Restaurant Info</div>
               </div>
-              <div style={{ display:'flex', padding:'14px 16px', gap:12, borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+              <div style={{ display:'flex', padding:'14px 16px', gap:12, borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', flexWrap:'wrap' }}>
                 {[
                   { val:`⭐ ${selectedVendor.rating||4.5}`, sub:'Rating' },
                   { val:`${selectedVendor.prepTime||20}–${(selectedVendor.prepTime||20)+15}`, sub:'Min delivery' },
-                  { val:!selectedVendor.deliveryCharge?'FREE':('₹'+selectedVendor.deliveryCharge), sub:'Delivery', color:!selectedVendor.deliveryCharge?'#16a34a':'#1f2937' },
+                  { val:!selectedVendor.deliveryCharge?'FREE':('₹'+selectedVendor.deliveryCharge), sub:'Delivery fee', color:!selectedVendor.deliveryCharge?'#16a34a':'#1f2937' },
                   { val:selectedVendor.isOpen?'Open':'Closed', sub:'Status', color:selectedVendor.isOpen?'#16a34a':'#dc2626' },
                 ].map(s => (
-                  <div key={s.sub} style={{ flex:1, textAlign:'center', padding:'10px 8px', background:'#f9fafb', borderRadius:10 }}>
-                    <div style={{ fontSize:16, fontWeight:700, color:s.color||'#1f2937' }}>{s.val}</div>
+                  <div key={s.sub} style={{ flex:1, minWidth:70, textAlign:'center', padding:'10px 8px', background:'#f9fafb', borderRadius:10 }}>
+                    <div style={{ fontSize:15, fontWeight:700, color:s.color||'#1f2937' }}>{s.val}</div>
                     <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>{s.sub}</div>
                   </div>
                 ))}
+                {/* ── MIN ORDER stat box ── */}
+                {Number(selectedVendor.minOrderAmount) > 0 && (
+                  <div style={{ flex:1, minWidth:70, textAlign:'center', padding:'10px 8px', background:'#eff6ff', borderRadius:10, borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
+                    <div style={{ fontSize:15, fontWeight:700, color:'#1e40af' }}>₹{selectedVendor.minOrderAmount}</div>
+                    <div style={{ fontSize:10, color:'#3b82f6', marginTop:3 }}>Min. order</div>
+                  </div>
+                )}
               </div>
+
               {selectedVendor.address && (
                 <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'flex-start' }}>
                   <div style={{ width:38, height:38, borderRadius:10, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>📍</span></div>
@@ -931,20 +905,19 @@ export default function UserApp() {
           </div>
         )}
 
-        {/* CART */}
+        {/* ── CART ── */}
         {tab==='cart' && (
           <div style={{ padding:16, background:'#fff', minHeight:'100%' }}>
             <div style={{ fontSize:15, fontWeight:600, marginBottom:12 }}>{t('Your Cart','तुमची कार्ट')} {cartVendor && `· ${cartVendor.storeName}`}</div>
             {cart.length===0 && <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>Cart is empty. Browse vendors!</div>}
+
             {cart.map(item => (
               <div key={item.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:13, fontWeight:500 }}>{item.name}</div>
                   <div style={{ fontSize:12, color:'#6b7280' }}>₹{item.price} each</div>
                   {item.isCombo && item.comboItems && (
-                    <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>
-                      {item.comboItems.map(ci => `${ci.qty > 1 ? ci.qty+'× ' : ''}${ci.name}`).join(' · ')}
-                    </div>
+                    <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>{item.comboItems.map(ci => `${ci.qty > 1 ? ci.qty+'× ' : ''}${ci.name}`).join(' · ')}</div>
                   )}
                 </div>
                 <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -955,19 +928,64 @@ export default function UserApp() {
                 <div style={{ fontSize:13, fontWeight:600, minWidth:48, textAlign:'right' }}>₹{item.price*item.qty}</div>
               </div>
             ))}
+
             {cart.length > 0 && !showCheckout && (
               <>
-                {/* ── RAMNAVAMI COUPON REMOVED ── */}
+                {/* ── MIN ORDER PROGRESS BAR ── */}
+                {minOrder > 0 && (
+                  <div style={{ margin:'14px 0 10px', background: meetsMinOrder ? '#f0fdf4' : '#eff6ff', borderRadius:12, padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor: meetsMinOrder ? '#86efac' : '#bfdbfe' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <span style={{ fontSize:14 }}>{meetsMinOrder ? '✅' : '🛒'}</span>
+                        <span style={{ fontSize:12, fontWeight:700, color: meetsMinOrder ? '#16a34a' : '#1e40af' }}>
+                          {meetsMinOrder ? 'Minimum order met!' : `Add ₹${minOrderShortfall} more to checkout`}
+                        </span>
+                      </div>
+                      <span style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>₹{cartTotal} / ₹{minOrder}</span>
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{ height:6, background: meetsMinOrder ? '#bbf7d0' : '#dbeafe', borderRadius:99, overflow:'hidden' }}>
+                      <div style={{
+                        height:'100%',
+                        width: `${Math.min(100, Math.round(cartTotal / minOrder * 100))}%`,
+                        background: meetsMinOrder ? '#16a34a' : '#3b82f6',
+                        borderRadius:99,
+                        transition:'width 0.4s ease'
+                      }} />
+                    </div>
+                    {!meetsMinOrder && (
+                      <div style={{ fontSize:11, color:'#6b7280', marginTop:6 }}>
+                        This restaurant requires a minimum order of <strong>₹{minOrder}</strong>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div style={{ background:'#f9fafb', borderRadius:10, padding:12, margin:'12px 0' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee</span><span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span></div>
                   <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:600 }}>Total</span><span style={{ fontSize:14, fontWeight:600 }}>₹{cartTotal+deliveryFee}</span></div>
                 </div>
-                <button onClick={() => setShowCheckout(true)} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
-                  Proceed to Checkout · ₹{cartTotal+deliveryFee}
+
+                {/* ── CHECKOUT BUTTON — disabled + tooltip if min order not met ── */}
+                <button
+                  onClick={() => {
+                    if (!meetsMinOrder) {
+                      toast.error(`Add ₹${minOrderShortfall} more to meet the ₹${minOrder} minimum order`, { icon: '🛒', duration: 3000 })
+                      return
+                    }
+                    setShowCheckout(true)
+                  }}
+                  style={{ width:'100%', background: meetsMinOrder ? '#E24B4A' : '#9ca3af', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor: meetsMinOrder ? 'pointer' : 'not-allowed', fontFamily:'Poppins', opacity: meetsMinOrder ? 1 : 0.75 }}
+                >
+                  {meetsMinOrder
+                    ? `Proceed to Checkout · ₹${cartTotal+deliveryFee}`
+                    : `Add ₹${minOrderShortfall} more to checkout`
+                  }
                 </button>
               </>
             )}
+
             {cart.length > 0 && showCheckout && (
               <div style={{ marginTop:12 }}>
                 <div style={{ fontSize:15, fontWeight:600, marginBottom:14, color:'#1f2937' }}>🚚 Delivery Details</div>
@@ -995,7 +1013,7 @@ export default function UserApp() {
           </div>
         )}
 
-        {/* ORDERS */}
+        {/* ── ORDERS ── */}
         {tab==='orders' && !selectedOrder && (
           <div style={{ background:'#f7f7f7', minHeight:'100%' }}>
             <div style={{ padding:'16px 16px 8px', fontSize:15, fontWeight:700, color:'#1f2937' }}>{t('My Orders','माझे ऑर्डर')}</div>
@@ -1010,7 +1028,9 @@ export default function UserApp() {
                         <div style={{ fontSize:14, fontWeight:700, color:'#1f2937' }}>{o.vendorName}</div>
                         <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>{o.createdAt?.toDate?.()?.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})||''}</div>
                       </div>
-                      <span style={{ fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:20, background:o.status==='delivered'?'#d1fae5':o.status==='cancelled'?'#fee2e2':o.status==='out_for_delivery'?'#dbeafe':o.status==='preparing'?'#fef3c7':'#fff7ed', color:o.status==='delivered'?'#065f46':o.status==='cancelled'?'#991b1b':o.status==='out_for_delivery'?'#1e40af':o.status==='preparing'?'#92400e':'#c2410c' }}>{o.status==='out_for_delivery'?'Out for Delivery':o.status?.replace('_',' ').replace(/\w/g,c=>c.toUpperCase())}</span>
+                      <span style={{ fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:20, background:o.status==='delivered'?'#d1fae5':o.status==='cancelled'?'#fee2e2':o.status==='out_for_delivery'?'#dbeafe':o.status==='preparing'?'#fef3c7':'#fff7ed', color:o.status==='delivered'?'#065f46':o.status==='cancelled'?'#991b1b':o.status==='out_for_delivery'?'#1e40af':o.status==='preparing'?'#92400e':'#c2410c' }}>
+                        {o.status==='out_for_delivery'?'Out for Delivery':o.status?.replace('_',' ').replace(/\w/g,c=>c.toUpperCase())}
+                      </span>
                     </div>
                     <div style={{ fontSize:12, color:'#6b7280', marginBottom:8 }}>{o.items?.slice(0,2).map(i=>i.qty+'x '+i.name).join(', ')}{o.items?.length>2?` +${o.items.length-2} more`:''}</div>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -1030,7 +1050,7 @@ export default function UserApp() {
           </div>
         )}
 
-        {/* ORDER TRACKING */}
+        {/* ── ORDER TRACKING ── */}
         {tab==='orders' && selectedOrder && (() => {
           const o = selectedOrder
           const STEPS = [
@@ -1094,7 +1114,19 @@ export default function UserApp() {
                   <div style={{ background:'#fee2e2', borderRadius:16, padding:20, marginBottom:14, textAlign:'center', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5' }}>
                     <div style={{ fontSize:40, marginBottom:8 }}>❌</div>
                     <div style={{ fontSize:16, fontWeight:700, color:'#dc2626' }}>Order Cancelled</div>
-                    {o.cancelledBy==='vendor'&&<><div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>This order was cancelled by the restaurant</div>{o.cancellationReason&&<div style={{ marginTop:12, background:'rgba(255,255,255,0.65)', borderRadius:10, padding:'10px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', textAlign:'left' }}><div style={{ fontSize:10, fontWeight:700, color:'#dc2626', marginBottom:4, letterSpacing:0.5 }}>REASON FROM RESTAURANT</div><div style={{ fontSize:13, color:'#7f1d1d', fontWeight:500, lineHeight:1.5 }}>{o.cancellationReason}</div></div>}<button onClick={()=>{const v=vendors.find(x=>x.id===o.vendorUid);if(v)openVendor(v);setSelectedOrder(null)}} style={{ marginTop:14, background:'#E24B4A', color:'#fff', border:'none', padding:'11px 24px', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>🔄 Reorder from Same Restaurant</button></>}
+                    {o.cancelledBy==='vendor' && (
+                      <>
+                        <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>This order was cancelled by the restaurant</div>
+                        {o.cancellationReason && (
+                          <div style={{ marginTop:12, background:'rgba(255,255,255,0.65)', borderRadius:10, padding:'10px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', textAlign:'left' }}>
+                            <div style={{ fontSize:10, fontWeight:700, color:'#dc2626', marginBottom:4, letterSpacing:0.5 }}>REASON FROM RESTAURANT</div>
+                            <div style={{ fontSize:13, color:'#7f1d1d', fontWeight:500, lineHeight:1.5 }}>{o.cancellationReason}</div>
+                          </div>
+                        )}
+                        <button onClick={() => { const v=vendors.find(x=>x.id===o.vendorUid); if(v) openVendor(v); setSelectedOrder(null) }} style={{ marginTop:14, background:'#E24B4A', color:'#fff', border:'none', padding:'11px 24px', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>🔄 Reorder from Same Restaurant</button>
+                      </>
+                    )}
+                    {o.cancelledBy !== 'vendor' && <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>This order has been cancelled</div>}
                   </div>
                 )}
                 <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12 }}>
@@ -1124,7 +1156,7 @@ export default function UserApp() {
           )
         })()}
 
-        {/* PROFILE */}
+        {/* ── PROFILE ── */}
         {tab==='profile' && (
           <div style={{ padding:16, background:'#fff', minHeight:'100%' }}>
             <div style={{ background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', borderRadius:16, padding:'24px 20px', marginBottom:16, textAlign:'center', color:'#fff' }}>

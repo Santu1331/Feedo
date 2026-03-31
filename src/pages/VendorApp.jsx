@@ -4,7 +4,6 @@ import {
   logoutUser, getVendorOrders, getMenuItems, updateOrderStatus,
   updateVendorStore, addMenuItem, updateMenuItem, deleteMenuItem,
   uploadVendorPhoto, uploadMenuItemPhoto,
-  // ✅ FIX 1: Import combo functions from services
   getCombos, addCombo, updateCombo, deleteCombo
 } from '../firebase/services'
 import { useNotifications } from '../hooks/useNotifications'
@@ -91,6 +90,8 @@ export default function VendorApp() {
   }, [])
 
   const [deliveryCharge, setDeliveryCharge] = useState('')
+  // ── MIN ORDER AMOUNT STATE ────────────────────────────────────────────────
+  const [minOrderAmount, setMinOrderAmount] = useState('')
   const [fssai, setFssai] = useState('')
   const [openTime, setOpenTime] = useState('')
   const [closeTime, setCloseTime] = useState('')
@@ -146,6 +147,8 @@ export default function VendorApp() {
     setIsOpen(userData?.isOpen || false)
     if (userData?.customCategories) setCustomCategories(userData.customCategories)
     if (userData?.deliveryCharge !== undefined) setDeliveryCharge(String(userData.deliveryCharge ?? ''))
+    // ── LOAD MIN ORDER AMOUNT FROM FIRESTORE ──────────────────────────────
+    if (userData?.minOrderAmount !== undefined) setMinOrderAmount(String(userData.minOrderAmount ?? ''))
     if (userData?.fssai) setFssai(userData.fssai)
     if (userData?.openTime) setOpenTime(userData.openTime)
     if (userData?.closeTime) setCloseTime(userData.closeTime)
@@ -153,9 +156,7 @@ export default function VendorApp() {
 
     const u1 = getVendorOrders(user.uid, setOrders)
     const u2 = getMenuItems(user.uid, setMenuItems)
-    // ✅ FIX 2: Wire up real Firestore getCombos listener
     const u3 = getCombos(user.uid, (fetchedCombos) => {
-      console.log('[FeedoZone Vendor] Combos loaded:', fetchedCombos.length)
       setCombos(fetchedCombos)
     })
     return () => { u1(); u2(); u3() }
@@ -203,10 +204,18 @@ export default function VendorApp() {
     setLocationSearch(""); setLocationSuggestions([])
   }
 
+  // ── SAVE STORE DETAILS — now includes minOrderAmount ────────────────────
   const handleSaveDetails = async () => {
     setSavingDetails(true)
     try {
-      await updateVendorStore(user.uid, { deliveryCharge: deliveryCharge === '' ? 0 : Number(deliveryCharge), fssai: fssai.trim(), openTime: openTime.trim(), closeTime: closeTime.trim() })
+      await updateVendorStore(user.uid, {
+        deliveryCharge: deliveryCharge === '' ? 0 : Number(deliveryCharge),
+        // ── SAVE MIN ORDER AMOUNT TO FIRESTORE ───────────────────────────
+        minOrderAmount: minOrderAmount === '' ? 0 : Number(minOrderAmount),
+        fssai: fssai.trim(),
+        openTime: openTime.trim(),
+        closeTime: closeTime.trim()
+      })
       toast.success('Store details saved! ✅')
     } catch { toast.error('Failed to save. Try again.') }
     setSavingDetails(false)
@@ -312,8 +321,7 @@ export default function VendorApp() {
     setItemPhotoUploading(null); setItemPhotoProgress(0); e.target.value = ''
   }
 
-  // ── COMBO HANDLERS (ALL WIRED TO FIRESTORE) ───────────────────────────────
-
+  // ── COMBO HANDLERS ────────────────────────────────────────────────────────
   const toggleComboItem = (item, comboState, setComboState) => {
     const exists = comboState.items.find(i => i.id === item.id)
     if (exists) {
@@ -330,7 +338,6 @@ export default function VendorApp() {
 
   const comboOriginalPrice = (items) => items.reduce((s, i) => s + (i.price * (i.qty || 1)), 0)
 
-  // ✅ FIX 3: handleAddCombo now saves to Firestore
   const handleAddCombo = async () => {
     if (!newCombo.name.trim()) return toast.error('Enter combo name')
     if (!newCombo.comboPrice || isNaN(newCombo.comboPrice) || Number(newCombo.comboPrice) <= 0) return toast.error('Enter valid combo price')
@@ -349,7 +356,7 @@ export default function VendorApp() {
       })
       setNewCombo(EMPTY_COMBO)
       setShowAddCombo(false)
-      toast.success('Combo created! 🍱 It will now show on your menu.')
+      toast.success('Combo created! 🍱')
     } catch (err) {
       console.error('Add combo error:', err)
       toast.error('Failed to create combo. Try again.')
@@ -357,7 +364,6 @@ export default function VendorApp() {
     setAddingCombo(false)
   }
 
-  // ✅ FIX 4: handleSaveComboEdit now updates Firestore
   const handleSaveComboEdit = async (comboId) => {
     if (!editComboData.name?.trim()) return toast.error('Combo name required')
     if (!editComboData.comboPrice || isNaN(editComboData.comboPrice) || Number(editComboData.comboPrice) <= 0) return toast.error('Enter valid price')
@@ -383,7 +389,6 @@ export default function VendorApp() {
     setSavingCombo(false)
   }
 
-  // ✅ FIX 5: handleDeleteCombo now deletes from Firestore
   const handleDeleteCombo = async (comboId) => {
     if (!window.confirm('Delete this combo? This cannot be undone.')) return
     try {
@@ -395,7 +400,6 @@ export default function VendorApp() {
     }
   }
 
-  // ✅ FIX 6: toggleComboAvailable now updates Firestore
   const toggleComboAvailable = async (combo) => {
     try {
       await updateCombo(user.uid, combo.id, { available: !combo.available })
@@ -405,7 +409,7 @@ export default function VendorApp() {
     }
   }
 
-  // ── STORE INFO EDIT HANDLERS ──────────────────────────────────────────────
+  // ── STORE INFO EDIT ───────────────────────────────────────────────────────
   const handleOpenStoreEdit = () => {
     setStoreEditData({
       storeName: userData?.storeName || '',
@@ -455,7 +459,7 @@ export default function VendorApp() {
     color: status==='pending'?'#92400e': status==='accepted'?'#1e40af': status==='preparing'?'#6d28d9': status==='ready'?'#15803d': status==='out_for_delivery'?'#0369a1': status==='delivered'?'#065f46':'#991b1b',
   })
 
-  // ── COMBO ITEM PICKER (shared for add & edit) ────────────────────────────
+  // ── COMBO ITEM PICKER ─────────────────────────────────────────────────────
   const ComboItemPicker = ({ comboState, setComboState }) => (
     <div>
       <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Select Items for Combo *</label>
@@ -691,7 +695,7 @@ export default function VendorApp() {
               <div style={{ textAlign:'center', color:'#9ca3af', padding:'40px 20px', fontSize:13 }}>
                 <div style={{ fontSize:40, marginBottom:12 }}>{orderFilter==='delivered'?'✅':orderFilter==='cancelled'?'❌':'📋'}</div>
                 <div style={{ fontWeight:600, marginBottom:4 }}>{orderFilter==='all'?'No orders yet':`No ${ORDER_FILTERS.find(f=>f.id===orderFilter)?.label?.toLowerCase()} orders`}</div>
-                <div style={{ fontSize:12 }}>{orderFilter==='all'?'Orders will appear here when customers place them':`You have no orders with "${ORDER_FILTERS.find(f=>f.id===orderFilter)?.label}" status`}</div>
+                <div style={{ fontSize:12 }}>{orderFilter==='all'?'Orders will appear here when customers place them':`You have no orders with this status`}</div>
               </div>
             )}
 
@@ -863,7 +867,7 @@ export default function VendorApp() {
               <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>🍱</div>
               <div style={{ fontSize:11, color:'#fbbf24', fontWeight:700, letterSpacing:1, marginBottom:4 }}>COMBO OFFERS</div>
               <div style={{ fontSize:18, fontWeight:800, color:'#fff', marginBottom:4 }}>Create Meal Combos</div>
-              <div style={{ fontSize:12, color:'#9ca3af', lineHeight:1.5 }}>Bundle items together at a special price. Combos appear separately on your menu.</div>
+              <div style={{ fontSize:12, color:'#9ca3af', lineHeight:1.5 }}>Bundle items together at a special price.</div>
               <div style={{ display:'flex', gap:8, marginTop:12 }}>
                 <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center' }}>
                   <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>{combos.length}</div>
@@ -892,7 +896,6 @@ export default function VendorApp() {
                   <div style={{ fontSize:14, fontWeight:700, color:'#1f2937' }}>🍱 New Combo</div>
                   <button onClick={() => { setShowAddCombo(false); setNewCombo(EMPTY_COMBO) }} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:28, height:28, cursor:'pointer', fontSize:14 }}>✕</button>
                 </div>
-
                 <div style={{ display:'flex', gap:8, marginBottom:12 }}>
                   {[true,false].map(isV => (
                     <button key={String(isV)} onClick={() => setNewCombo(p=>({...p,isVeg:isV}))} style={{ flex:1, padding:'8px 0', borderRadius:8, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:600, borderWidth:2, borderStyle:'solid', borderColor:newCombo.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#e5e7eb', background:newCombo.isVeg===isV?(isV?'#f0fdf4':'#fff5f5'):'#fff', color:newCombo.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#9ca3af' }}>
@@ -900,17 +903,9 @@ export default function VendorApp() {
                     </button>
                   ))}
                 </div>
-
                 <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  <div>
-                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Combo Name *</label>
-                    <input style={inp} placeholder="e.g. Family Thali Combo, Lunch Special" value={newCombo.name} onChange={e => setNewCombo(p=>({...p,name:e.target.value}))} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Description</label>
-                    <textarea style={{...inp,minHeight:60,resize:'vertical',lineHeight:1.5}} placeholder="e.g. Dal Tadka + 3 Roti + Rice + Papad + Sweet" value={newCombo.description} onChange={e => setNewCombo(p=>({...p,description:e.target.value}))} />
-                  </div>
-
+                  <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Combo Name *</label><input style={inp} placeholder="e.g. Family Thali Combo" value={newCombo.name} onChange={e => setNewCombo(p=>({...p,name:e.target.value}))} /></div>
+                  <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Description</label><textarea style={{...inp,minHeight:60,resize:'vertical',lineHeight:1.5}} placeholder="e.g. Dal Tadka + 3 Roti + Rice + Papad" value={newCombo.description} onChange={e => setNewCombo(p=>({...p,description:e.target.value}))} /></div>
                   <div>
                     <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Tag (optional)</label>
                     <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:6 }}>
@@ -919,28 +914,21 @@ export default function VendorApp() {
                       ))}
                     </div>
                   </div>
-
                   {menuItems.length === 0 ? (
                     <div style={{ background:'#fff5f5', borderRadius:10, padding:14, textAlign:'center', fontSize:12, color:'#dc2626' }}>⚠️ Add menu items first before creating combos</div>
                   ) : (
                     <ComboItemPicker comboState={newCombo} setComboState={setNewCombo} />
                   )}
-
                   <div>
                     <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Combo Price (₹) *</label>
                     <div style={{ position:'relative' }}>
                       <input style={{...inp, paddingRight:120}} type="number" placeholder="Set a discounted combo price" value={newCombo.comboPrice} onChange={e => setNewCombo(p=>({...p,comboPrice:e.target.value}))} />
                       {newCombo.items.length > 0 && newCombo.comboPrice && Number(newCombo.comboPrice) < comboOriginalPrice(newCombo.items) && (
-                        <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-25%)', fontSize:11, fontWeight:700, color:'#16a34a', background:'#d1fae5', borderRadius:6, padding:'3px 8px', whiteSpace:'nowrap' }}>
-                          Save ₹{comboOriginalPrice(newCombo.items) - Number(newCombo.comboPrice)}
-                        </div>
+                        <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-25%)', fontSize:11, fontWeight:700, color:'#16a34a', background:'#d1fae5', borderRadius:6, padding:'3px 8px', whiteSpace:'nowrap' }}>Save ₹{comboOriginalPrice(newCombo.items) - Number(newCombo.comboPrice)}</div>
                       )}
                     </div>
-                    {newCombo.items.length > 0 && (
-                      <div style={{ fontSize:11, color:'#9ca3af', marginTop:4 }}>Original price: ₹{comboOriginalPrice(newCombo.items)}</div>
-                    )}
+                    {newCombo.items.length > 0 && <div style={{ fontSize:11, color:'#9ca3af', marginTop:4 }}>Original price: ₹{comboOriginalPrice(newCombo.items)}</div>}
                   </div>
-
                   <div style={{ display:'flex', gap:8 }}>
                     <button onClick={handleAddCombo} disabled={addingCombo} style={{ flex:2, background:addingCombo?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:'12px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:addingCombo?'not-allowed':'pointer', fontFamily:'Poppins' }}>{addingCombo?'Creating...':'🍱 Create Combo'}</button>
                     <button onClick={() => { setShowAddCombo(false); setNewCombo(EMPTY_COMBO) }} style={{ flex:1, background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Cancel</button>
@@ -953,7 +941,7 @@ export default function VendorApp() {
               <div style={{ textAlign:'center', color:'#9ca3af', padding:'40px 20px' }}>
                 <div style={{ fontSize:48, marginBottom:12 }}>🍱</div>
                 <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:6 }}>No combos yet</div>
-                <div style={{ fontSize:12, lineHeight:1.6 }}>Create meal combos to offer customers value deals and increase order value</div>
+                <div style={{ fontSize:12, lineHeight:1.6 }}>Create meal combos to offer value deals</div>
               </div>
             )}
 
@@ -1008,7 +996,6 @@ export default function VendorApp() {
                         {combo.originalPrice > combo.comboPrice && <div style={{ fontSize:10, fontWeight:700, color:'#4ade80' }}>Save ₹{combo.originalPrice - combo.comboPrice}</div>}
                       </div>
                     </div>
-
                     <div style={{ padding:'10px 14px 0' }}>
                       <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:8 }}>INCLUDES ({combo.items?.length} items)</div>
                       <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
@@ -1019,9 +1006,7 @@ export default function VendorApp() {
                         ))}
                       </div>
                     </div>
-
                     <div style={{ padding:'0 14px 12px', display:'flex', gap:8, alignItems:'center' }}>
-                      {/* ✅ FIX 6: toggleComboAvailable calls Firestore */}
                       <div onClick={() => toggleComboAvailable(combo)} style={{ width:40, height:22, background:combo.available?'#16a34a':'#d1d5db', borderRadius:11, cursor:'pointer', position:'relative', transition:'background 0.2s', flexShrink:0 }}>
                         <div style={{ position:'absolute', width:16, height:16, background:'#fff', borderRadius:'50%', top:3, left:combo.available?21:3, transition:'left 0.2s' }} />
                       </div>
@@ -1120,16 +1105,6 @@ export default function VendorApp() {
                       {['Home Food','Tiffin Service','Restaurant','Cloud Kitchen','Bakery','Sweets & Snacks','Beverages','Biryani House','Fast Food','Healthy Food','South Indian','North Indian','Chinese','Multi-cuisine'].map(c => <option key={c}>{c}</option>)}
                     </select>
                   </div>
-                  <div style={{ background:'#f9fafb', borderRadius:8, padding:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:11, color:'#9ca3af' }}>Email</span>
-                      <span style={{ fontSize:11, fontWeight:500 }}>{userData?.email || '—'}</span>
-                    </div>
-                    <div style={{ display:'flex', justifyContent:'space-between' }}>
-                      <span style={{ fontSize:11, color:'#9ca3af' }}>Subscription Plan</span>
-                      <span style={{ fontSize:11, fontWeight:500 }}>{userData?.plan || '—'}</span>
-                    </div>
-                  </div>
                   <div style={{ display:'flex', gap:8, marginTop:4 }}>
                     <button onClick={handleSaveStoreInfo} disabled={savingStoreInfo} style={{ flex:2, background:savingStoreInfo?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:'12px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:savingStoreInfo?'not-allowed':'pointer', fontFamily:'Poppins' }}>{savingStoreInfo?'Saving...':'💾 Save Store Info'}</button>
                     <button onClick={() => setEditingStoreInfo(false)} style={{ flex:1, background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Cancel</button>
@@ -1176,10 +1151,72 @@ export default function VendorApp() {
               </div>
             </div>
 
+            {/* ── STORE DETAILS — includes Min Order Amount ──────────────────── */}
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
               <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>🏪 Store Details</div>
-              <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🚴 Delivery Charge (₹)</label><input type="number" placeholder="e.g. 20 (0 for free delivery)" value={deliveryCharge} onChange={e => setDeliveryCharge(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} /></div>
-              <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>📋 FSSAI Licence Number</label><input type="text" placeholder="e.g. 10012345000123" value={fssai} onChange={e => setFssai(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} /></div>
+
+              {/* Delivery Charge */}
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🚴 Delivery Charge (₹)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 20 (0 for free delivery)"
+                  value={deliveryCharge}
+                  onChange={e => setDeliveryCharge(e.target.value)}
+                  style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }}
+                />
+              </div>
+
+              {/* ── MIN ORDER AMOUNT INPUT ────────────────────────────────────── */}
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🛒 Minimum Order Amount (₹)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 100 (0 for no minimum)"
+                  value={minOrderAmount}
+                  onChange={e => setMinOrderAmount(e.target.value)}
+                  style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }}
+                />
+                {/* Helper note shown below the input */}
+                <div style={{ marginTop:6, display:'flex', alignItems:'flex-start', gap:6 }}>
+                  <span style={{ fontSize:12, flexShrink:0 }}>💡</span>
+                  <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>
+                    If set, customers must add at least ₹{minOrderAmount || '0'} worth of items before they can checkout.
+                    This will be shown on your restaurant card so customers know in advance.
+                    Set to 0 to remove the minimum.
+                  </p>
+                </div>
+              </div>
+
+              {/* Live Preview of how it looks to users */}
+              {Number(minOrderAmount) > 0 && (
+                <div style={{ marginBottom:14, background:'#eff6ff', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe', display:'flex', alignItems:'center', gap:8 }}>
+                  <span style={{ fontSize:15 }}>👁️</span>
+                  <div>
+                    <div style={{ fontSize:11, fontWeight:700, color:'#1e40af', marginBottom:2 }}>How users will see it:</div>
+                    <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                      <span style={{ fontSize:11, background:'#dbeafe', color:'#1e40af', fontWeight:700, borderRadius:6, padding:'2px 8px' }}>
+                        🛒 Min. ₹{minOrderAmount}
+                      </span>
+                      <span style={{ fontSize:11, color:'#6b7280' }}>shown on restaurant card & menu</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* FSSAI */}
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>📋 FSSAI Licence Number</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 10012345000123"
+                  value={fssai}
+                  onChange={e => setFssai(e.target.value)}
+                  style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }}
+                />
+              </div>
+
+              {/* Opening Hours */}
               <div style={{ marginBottom:12 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🕐 Opening Hours</label>
                 <div style={{ display:'flex', gap:8, marginTop:4, alignItems:'center' }}>
@@ -1188,7 +1225,14 @@ export default function VendorApp() {
                   <input type="time" value={closeTime} onChange={e => setCloseTime(e.target.value)} style={{ flex:1, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none' }} />
                 </div>
               </div>
-              <button onClick={handleSaveDetails} disabled={savingDetails} style={{ width:'100%', background:savingDetails?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>{savingDetails?'Saving...':'💾 Save Store Details'}</button>
+
+              <button
+                onClick={handleSaveDetails}
+                disabled={savingDetails}
+                style={{ width:'100%', background:savingDetails?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
+              >
+                {savingDetails?'Saving...':'💾 Save Store Details'}
+              </button>
             </div>
 
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>Logout</button>
@@ -1234,7 +1278,7 @@ export default function VendorApp() {
               {(cancelReason==='' || !['Delivery location too far','Out of stock / ingredients unavailable','Store closing early today','Unable to prepare on time','Customer unreachable'].includes(cancelReason)) && (
                 <div style={{ marginBottom:16 }}>
                   <div style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:6 }}>{cancelReason===''?'Or type a custom reason:':'Custom reason:'}</div>
-                  <textarea value={!['Delivery location too far','Out of stock / ingredients unavailable','Store closing early today','Unable to prepare on time','Customer unreachable'].includes(cancelReason)?cancelReason:''} onChange={e => setCancelReason(e.target.value)} placeholder="Describe why you are cancelling this order..." rows={3} style={{ width:'100%', padding:'10px 12px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', lineHeight:1.6 }} />
+                  <textarea value={!['Delivery location too far','Out of stock / ingredients unavailable','Store closing early today','Unable to prepare on time','Customer unreachable'].includes(cancelReason)?cancelReason:''} onChange={e => setCancelReason(e.target.value)} placeholder="Describe why you are cancelling..." rows={3} style={{ width:'100%', padding:'10px 12px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', lineHeight:1.6 }} />
                 </div>
               )}
               <button onClick={handleVendorCancelOrder} disabled={cancellingOrder || !cancelReason.trim()} style={{ width:'100%', background:(cancellingOrder||!cancelReason.trim())?'#fca5a5':'#dc2626', color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:(cancellingOrder||!cancelReason.trim())?'not-allowed':'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
