@@ -50,20 +50,11 @@ export const uploadMenuItemPhoto = async (vendorUid, itemId, file, onProgress) =
 }
 
 // ── WHATSAPP NOTIFICATION ─────────────────────────────────────────────────
-/**
- * Send WhatsApp message to vendor when new order placed
- * Opens WhatsApp with pre-filled message — FREE, no API needed!
- */
 export const notifyVendorWhatsApp = (vendorPhone, orderData) => {
   if (!vendorPhone) return
-
-  // Clean phone number — remove spaces, dashes, +
   const cleanPhone = vendorPhone.replace(/[\s\-\+]/g, '')
-  // Add India code if not present
   const phone = cleanPhone.startsWith('91') ? cleanPhone : `91${cleanPhone}`
-
   const itemsList = orderData.items?.map(i => `  • ${i.qty}x ${i.name} — ₹${i.price * i.qty}`).join('\n') || ''
-
   const message = `🔔 *New FeedoZone Order!*
 
 👤 *Customer:* ${orderData.userName}
@@ -81,18 +72,10 @@ ${itemsList}
 
 _Please accept the order on FeedoZone app_
 _feedo-ruddy.vercel.app/vendor_`
-
-  const encodedMsg = encodeURIComponent(message)
-  const waUrl = `https://wa.me/${phone}?text=${encodedMsg}`
-
-  // Open WhatsApp in new tab
-  window.open(waUrl, '_blank')
+  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank')
 }
 
 // ── CALL VENDOR ───────────────────────────────────────────────────────────
-/**
- * Initiate a call to vendor
- */
 export const callVendor = (vendorPhone) => {
   if (!vendorPhone) return
   const cleanPhone = vendorPhone.replace(/[\s\-\+]/g, '')
@@ -103,10 +86,7 @@ export const callVendor = (vendorPhone) => {
 // ── LOCATION UTILS ────────────────────────────────────────────────────────
 export const getUserLocation = () => {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('Geolocation not supported'))
-      return
-    }
+    if (!navigator.geolocation) { reject(new Error('Geolocation not supported')); return }
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       (err) => reject(err),
@@ -217,20 +197,57 @@ export const updateMenuItem = (vendorUid, itemId, data) =>
 export const deleteMenuItem = (vendorUid, itemId) =>
   deleteDoc(doc(db, 'vendors', vendorUid, 'menu', itemId))
 
+// ── COMBOS ────────────────────────────────────────────────────────────────
+// Stored at: vendors/{vendorUid}/combos/{comboId}
+// Each combo has: name, description, comboPrice, originalPrice,
+//                 items (array of {id, name, price, qty}),
+//                 isVeg, available, tag, createdAt
+
+/**
+ * Listen to all combos for a vendor in real-time.
+ * Use this in useEffect the same way getMenuItems is used.
+ * Returns an unsubscribe function — call it on cleanup.
+ */
+export const getCombos = (vendorUid, callback) =>
+  onSnapshot(
+    collection(db, 'vendors', vendorUid, 'combos'),
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    err => { console.error('Combos error:', err.code); callback([]) }
+  )
+
+/**
+ * Add a new combo under this vendor.
+ * Returns the new doc ref (use ref.id if you need the new combo's ID).
+ */
+export const addCombo = (vendorUid, comboData) =>
+  addDoc(collection(db, 'vendors', vendorUid, 'combos'), {
+    ...comboData,
+    available: true,
+    createdAt: serverTimestamp()
+  })
+
+/**
+ * Update any fields on an existing combo.
+ */
+export const updateCombo = (vendorUid, comboId, data) =>
+  updateDoc(doc(db, 'vendors', vendorUid, 'combos', comboId), data)
+
+/**
+ * Permanently delete a combo.
+ */
+export const deleteCombo = (vendorUid, comboId) =>
+  deleteDoc(doc(db, 'vendors', vendorUid, 'combos', comboId))
+
 // ── ORDERS ────────────────────────────────────────────────────────────────
 export const placeOrder = async (orderData) => {
-  // 1. Save order to Firestore
   const ref = await addDoc(collection(db, 'orders'), {
     ...orderData, status: 'pending', createdAt: serverTimestamp()
   })
-
-  // 2. Send in-app notification to vendor (Firestore)
   await sendNotification(orderData.vendorUid, {
     title: '🔔 New Order!',
     body: `${orderData.userName} ordered ₹${orderData.total} — ${orderData.items?.map(i=>`${i.qty}x ${i.name}`).join(', ')}`,
     data: { orderId: ref.id, type: 'new_order' }
   })
-
   return ref
 }
 
@@ -268,8 +285,6 @@ export const getAllOrders = (callback) =>
 
 export const updateOrderStatus = async (orderId, status, orderData = {}) => {
   await updateDoc(doc(db, 'orders', orderId), { status, updatedAt: serverTimestamp() })
-
-  // Notify user about status change
   if (orderData.userUid) {
     const statusMessages = {
       accepted:         { title: '✅ Order Accepted!',        body: `${orderData.vendorName} accepted your order` },
@@ -277,7 +292,9 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
       ready:            { title: '🎉 Order Ready!',            body: 'Your order is ready for delivery' },
       out_for_delivery: { title: '🚴 Out for Delivery!',       body: 'Your order is on the way!' },
       delivered:        { title: '✅ Order Delivered!',        body: `Enjoy your meal! Rate ${orderData.vendorName}` },
-      cancelled:        { title: '❌ Order Cancelled',         body: 'Your order was cancelled' },
+      cancelled:        { title: '❌ Order Cancelled',         body: orderData.cancellationReason
+                            ? `Cancelled: ${orderData.cancellationReason}`
+                            : 'Your order was cancelled' },
     }
     const msg = statusMessages[status]
     if (msg) {

@@ -3,7 +3,9 @@ import { useAuth } from '../hooks/useAuth'
 import {
   logoutUser, getVendorOrders, getMenuItems, updateOrderStatus,
   updateVendorStore, addMenuItem, updateMenuItem, deleteMenuItem,
-  uploadVendorPhoto, uploadMenuItemPhoto
+  uploadVendorPhoto, uploadMenuItemPhoto,
+  // ✅ FIX 1: Import combo functions from services
+  getCombos, addCombo, updateCombo, deleteCombo
 } from '../firebase/services'
 import { useNotifications } from '../hooks/useNotifications'
 import { listenNotifications, markNotificationRead } from '../firebase/services'
@@ -16,8 +18,9 @@ const STATUS_LABEL = { pending:'Accept Order', accepted:'Start Preparing', prepa
 const CANCELLABLE_STATUSES = ['accepted', 'preparing', 'ready']
 const DEFAULT_CATEGORIES = ['Thali','Biryani','Chinese','Snacks','Drinks','Sweets','Roti','Rice']
 const EMPTY_ITEM = { name:'', price:'', category:'Thali', description:'', isVeg: true }
+const EMPTY_COMBO = { name:'', description:'', comboPrice:'', items:[], isVeg:true, available:true, tag:'' }
+const COMBO_TAGS = ['Best Value','Popular','New','Limited','Chef Special','Weekend Only']
 
-// ── ORDER HISTORY FILTER TABS ──────────────────────────────────────────────
 const ORDER_FILTERS = [
   { id:'all',              label:'All',           emoji:'📋' },
   { id:'pending',          label:'Pending',        emoji:'⏳' },
@@ -34,6 +37,7 @@ export default function VendorApp() {
   const [tab, setTab] = useState('orders')
   const [orders, setOrders] = useState([])
   const [menuItems, setMenuItems] = useState([])
+  const [combos, setCombos] = useState([])
   const [isOpen, setIsOpen] = useState(false)
   const [showAddItem, setShowAddItem] = useState(false)
   const [newItem, setNewItem] = useState(EMPTY_ITEM)
@@ -42,21 +46,32 @@ export default function VendorApp() {
   const [showAddCat, setShowAddCat] = useState(false)
   const [selectedVendorOrder, setSelectedVendorOrder] = useState(null)
 
-  // ── ORDER HISTORY FILTER ─────────────────────────────────────────────────
   const [orderFilter, setOrderFilter] = useState('all')
 
-  // ── CANCEL ORDER STATES ──────────────────────────────────────────────────
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [cancelOrderTarget, setCancelOrderTarget] = useState(null)
   const [cancelReason, setCancelReason] = useState('')
   const [cancellingOrder, setCancellingOrder] = useState(false)
 
-  // ── MENU EDIT STATES ─────────────────────────────────────────────────────
   const [menuEditMode, setMenuEditMode] = useState(false)
   const [menuCatFilter, setMenuCatFilter] = useState('All')
   const [editingItem, setEditingItem] = useState(null)
   const [editItemData, setEditItemData] = useState({})
   const [savingEdit, setSavingEdit] = useState(false)
+
+  // ── COMBO STATES ──────────────────────────────────────────────────────────
+  const [showAddCombo, setShowAddCombo] = useState(false)
+  const [newCombo, setNewCombo] = useState(EMPTY_COMBO)
+  const [addingCombo, setAddingCombo] = useState(false)
+  const [editingCombo, setEditingCombo] = useState(null)
+  const [editComboData, setEditComboData] = useState({})
+  const [savingCombo, setSavingCombo] = useState(false)
+  const [comboSearchQuery, setComboSearchQuery] = useState('')
+
+  // ── STORE INFO EDIT STATES ────────────────────────────────────────────────
+  const [editingStoreInfo, setEditingStoreInfo] = useState(false)
+  const [storeEditData, setStoreEditData] = useState({})
+  const [savingStoreInfo, setSavingStoreInfo] = useState(false)
 
   const [newOrderAlert, setNewOrderAlert] = useState(null)
   const [alertDismissed, setAlertDismissed] = useState(false)
@@ -135,9 +150,15 @@ export default function VendorApp() {
     if (userData?.openTime) setOpenTime(userData.openTime)
     if (userData?.closeTime) setCloseTime(userData.closeTime)
     if (userData?.location) { setVendorLocation(userData.location); setLocationName(userData.locationName || '') }
+
     const u1 = getVendorOrders(user.uid, setOrders)
     const u2 = getMenuItems(user.uid, setMenuItems)
-    return () => { u1(); u2() }
+    // ✅ FIX 2: Wire up real Firestore getCombos listener
+    const u3 = getCombos(user.uid, (fetchedCombos) => {
+      console.log('[FeedoZone Vendor] Combos loaded:', fetchedCombos.length)
+      setCombos(fetchedCombos)
+    })
+    return () => { u1(); u2(); u3() }
   }, [user, userData])
 
   const reverseGeocode = async (lat, lng) => {
@@ -291,35 +312,199 @@ export default function VendorApp() {
     setItemPhotoUploading(null); setItemPhotoProgress(0); e.target.value = ''
   }
 
+  // ── COMBO HANDLERS (ALL WIRED TO FIRESTORE) ───────────────────────────────
+
+  const toggleComboItem = (item, comboState, setComboState) => {
+    const exists = comboState.items.find(i => i.id === item.id)
+    if (exists) {
+      setComboState(p => ({ ...p, items: p.items.filter(i => i.id !== item.id) }))
+    } else {
+      setComboState(p => ({ ...p, items: [...p.items, { id: item.id, name: item.name, price: item.price, qty: 1 }] }))
+    }
+  }
+
+  const updateComboItemQty = (itemId, qty, comboState, setComboState) => {
+    if (qty < 1) return
+    setComboState(p => ({ ...p, items: p.items.map(i => i.id === itemId ? { ...i, qty } : i) }))
+  }
+
+  const comboOriginalPrice = (items) => items.reduce((s, i) => s + (i.price * (i.qty || 1)), 0)
+
+  // ✅ FIX 3: handleAddCombo now saves to Firestore
+  const handleAddCombo = async () => {
+    if (!newCombo.name.trim()) return toast.error('Enter combo name')
+    if (!newCombo.comboPrice || isNaN(newCombo.comboPrice) || Number(newCombo.comboPrice) <= 0) return toast.error('Enter valid combo price')
+    if (newCombo.items.length < 2) return toast.error('Select at least 2 items for a combo')
+    setAddingCombo(true)
+    try {
+      await addCombo(user.uid, {
+        name: newCombo.name.trim(),
+        description: newCombo.description.trim(),
+        comboPrice: Number(newCombo.comboPrice),
+        originalPrice: comboOriginalPrice(newCombo.items),
+        items: newCombo.items,
+        isVeg: newCombo.isVeg,
+        available: true,
+        tag: newCombo.tag,
+      })
+      setNewCombo(EMPTY_COMBO)
+      setShowAddCombo(false)
+      toast.success('Combo created! 🍱 It will now show on your menu.')
+    } catch (err) {
+      console.error('Add combo error:', err)
+      toast.error('Failed to create combo. Try again.')
+    }
+    setAddingCombo(false)
+  }
+
+  // ✅ FIX 4: handleSaveComboEdit now updates Firestore
+  const handleSaveComboEdit = async (comboId) => {
+    if (!editComboData.name?.trim()) return toast.error('Combo name required')
+    if (!editComboData.comboPrice || isNaN(editComboData.comboPrice) || Number(editComboData.comboPrice) <= 0) return toast.error('Enter valid price')
+    if (editComboData.items?.length < 2) return toast.error('Select at least 2 items')
+    setSavingCombo(true)
+    try {
+      await updateCombo(user.uid, comboId, {
+        name: editComboData.name.trim(),
+        description: editComboData.description?.trim() || '',
+        comboPrice: Number(editComboData.comboPrice),
+        originalPrice: comboOriginalPrice(editComboData.items),
+        items: editComboData.items,
+        isVeg: editComboData.isVeg,
+        available: editComboData.available !== false,
+        tag: editComboData.tag || '',
+      })
+      toast.success('Combo updated! ✅')
+      setEditingCombo(null)
+    } catch (err) {
+      console.error('Update combo error:', err)
+      toast.error('Failed to update combo.')
+    }
+    setSavingCombo(false)
+  }
+
+  // ✅ FIX 5: handleDeleteCombo now deletes from Firestore
+  const handleDeleteCombo = async (comboId) => {
+    if (!window.confirm('Delete this combo? This cannot be undone.')) return
+    try {
+      await deleteCombo(user.uid, comboId)
+      toast.success('Combo deleted')
+    } catch (err) {
+      console.error('Delete combo error:', err)
+      toast.error('Failed to delete combo.')
+    }
+  }
+
+  // ✅ FIX 6: toggleComboAvailable now updates Firestore
+  const toggleComboAvailable = async (combo) => {
+    try {
+      await updateCombo(user.uid, combo.id, { available: !combo.available })
+    } catch (err) {
+      console.error('Toggle combo error:', err)
+      toast.error('Failed to update combo.')
+    }
+  }
+
+  // ── STORE INFO EDIT HANDLERS ──────────────────────────────────────────────
+  const handleOpenStoreEdit = () => {
+    setStoreEditData({
+      storeName: userData?.storeName || '',
+      phone: userData?.phone || '',
+      address: userData?.address || '',
+      category: userData?.category || '',
+      email: userData?.email || '',
+    })
+    setEditingStoreInfo(true)
+  }
+
+  const handleSaveStoreInfo = async () => {
+    if (!storeEditData.storeName?.trim()) return toast.error('Store name is required')
+    setSavingStoreInfo(true)
+    try {
+      await updateVendorStore(user.uid, {
+        storeName: storeEditData.storeName.trim(),
+        phone: storeEditData.phone.trim(),
+        address: storeEditData.address.trim(),
+        category: storeEditData.category.trim(),
+      })
+      toast.success('Store info updated! ✅')
+      setEditingStoreInfo(false)
+    } catch { toast.error('Failed to save. Try again.') }
+    setSavingStoreInfo(false)
+  }
+
   const liveOrders = orders.filter(o => !['delivered','cancelled'].includes(o.status))
   const todayRevenue = orders.filter(o => o.status==='delivered').reduce((s,o) => s+(o.total||0), 0)
-
-  // ── FILTERED ORDERS for history view ────────────────────────────────────
   const filteredOrders = orderFilter === 'all' ? orders : orders.filter(o => o.status === orderFilter)
 
   const menuCategories = ['All', ...Array.from(new Set(menuItems.map(i => i.category).filter(Boolean)))]
   const filteredMenuItems = menuCatFilter === 'All' ? menuItems : menuItems.filter(i => i.category === menuCatFilter)
+
+  const filteredMenuForCombo = comboSearchQuery.trim()
+    ? menuItems.filter(i => i.name.toLowerCase().includes(comboSearchQuery.toLowerCase()) || i.category?.toLowerCase().includes(comboSearchQuery.toLowerCase()))
+    : menuItems
 
   const inp = {
     width:'100%', padding:'10px 12px', borderWidth:'1px', borderStyle:'solid', borderColor:'#e5e7eb',
     borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box'
   }
 
-  const CANCEL_REASONS = [
-    'Delivery location too far',
-    'Out of stock / ingredients unavailable',
-    'Store closing early today',
-    'Unable to prepare on time',
-    'Customer unreachable',
-    'Other',
-  ]
-
-  // Status badge styles helper
   const statusBadgeStyle = (status) => ({
     fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:20,
     background: status==='pending'?'#fef3c7': status==='accepted'?'#dbeafe': status==='preparing'?'#ede9fe': status==='ready'?'#dcfce7': status==='out_for_delivery'?'#e0f2fe': status==='delivered'?'#d1fae5':'#fee2e2',
     color: status==='pending'?'#92400e': status==='accepted'?'#1e40af': status==='preparing'?'#6d28d9': status==='ready'?'#15803d': status==='out_for_delivery'?'#0369a1': status==='delivered'?'#065f46':'#991b1b',
   })
+
+  // ── COMBO ITEM PICKER (shared for add & edit) ────────────────────────────
+  const ComboItemPicker = ({ comboState, setComboState }) => (
+    <div>
+      <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Select Items for Combo *</label>
+      <div style={{ marginTop:6, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, overflow:'hidden' }}>
+        <div style={{ padding:'8px 10px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background:'#fafafa', display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ fontSize:13 }}>🔍</span>
+          <input style={{ border:'none', outline:'none', fontSize:12, flex:1, fontFamily:'Poppins', background:'transparent' }} placeholder="Search items..." value={comboSearchQuery} onChange={e => setComboSearchQuery(e.target.value)} />
+        </div>
+        <div style={{ maxHeight:200, overflowY:'auto' }}>
+          {filteredMenuForCombo.length === 0 && <div style={{ padding:'16px', textAlign:'center', fontSize:12, color:'#9ca3af' }}>No items found</div>}
+          {filteredMenuForCombo.map(item => {
+            const selected = comboState.items.find(i => i.id === item.id)
+            return (
+              <div key={item.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb', background: selected ? '#fff5f5' : '#fff', cursor:'pointer' }} onClick={() => toggleComboItem(item, comboState, setComboState)}>
+                <div style={{ width:20, height:20, borderRadius:5, borderWidth:2, borderStyle:'solid', borderColor: selected ? '#E24B4A' : '#d1d5db', background: selected ? '#E24B4A' : '#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  {selected && <span style={{ color:'#fff', fontSize:12, fontWeight:900 }}>✓</span>}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:'#1f2937' }}>{item.name}</div>
+                  <div style={{ fontSize:11, color:'#9ca3af' }}>{item.category}</div>
+                </div>
+                <div style={{ fontSize:12, fontWeight:700, color:'#E24B4A' }}>₹{item.price}</div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      {comboState.items.length > 0 && (
+        <div style={{ marginTop:10, background:'#f9fafb', borderRadius:10, padding:10 }}>
+          <div style={{ fontSize:11, fontWeight:600, color:'#6b7280', marginBottom:8 }}>SELECTED ITEMS ({comboState.items.length})</div>
+          {comboState.items.map(item => (
+            <div key={item.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+              <div style={{ flex:1, fontSize:12, color:'#374151' }}>{item.name} <span style={{ color:'#9ca3af' }}>× ₹{item.price}</span></div>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <button onClick={(e) => { e.stopPropagation(); updateComboItemQty(item.id, (item.qty||1) - 1, comboState, setComboState) }} style={{ width:24, height:24, borderRadius:6, border:'none', background:'#e5e7eb', cursor:'pointer', fontSize:14, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
+                <span style={{ fontSize:12, fontWeight:700, minWidth:16, textAlign:'center' }}>{item.qty||1}</span>
+                <button onClick={(e) => { e.stopPropagation(); updateComboItemQty(item.id, (item.qty||1) + 1, comboState, setComboState) }} style={{ width:24, height:24, borderRadius:6, border:'none', background:'#e5e7eb', cursor:'pointer', fontSize:14, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
+                <button onClick={(e) => { e.stopPropagation(); setComboState(p => ({ ...p, items: p.items.filter(i => i.id !== item.id) })) }} style={{ width:24, height:24, borderRadius:6, border:'none', background:'#fee2e2', color:'#dc2626', cursor:'pointer', fontSize:12, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+              </div>
+            </div>
+          ))}
+          <div style={{ display:'flex', justifyContent:'space-between', paddingTop:8, borderTopWidth:1, borderTopStyle:'dashed', borderTopColor:'#e5e7eb', marginTop:4 }}>
+            <span style={{ fontSize:11, color:'#6b7280' }}>Original total</span>
+            <span style={{ fontSize:12, fontWeight:700, color:'#6b7280', textDecoration:'line-through' }}>₹{comboOriginalPrice(comboState.items)}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <div style={{ maxWidth:430, margin:'0 auto', background:'#fff', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' }}>
@@ -352,6 +537,7 @@ export default function VendorApp() {
         {[
           { id:'orders',   label:`Orders${liveOrders.length>0?` (${liveOrders.length})`:''}` },
           { id:'menu',     label:'Menu' },
+          { id:'combos',   label:`Combos${combos.length>0?` (${combos.length})`:''}` },
           { id:'earnings', label:'Earnings' },
           { id:'settings', label:'Settings' }
         ].map(t2 => (
@@ -364,7 +550,6 @@ export default function VendorApp() {
         {/* ── ORDERS TAB ── */}
         {tab === 'orders' && (
           <>
-            {/* ── FULL SCREEN ORDER DETAIL ── */}
             {selectedVendorOrder && (
               <div style={{ position:'fixed', inset:0, background:'#f7f7f7', zIndex:999, overflowY:'auto', maxWidth:430, margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
                 <div style={{ background: selectedVendorOrder.status==='pending'?'linear-gradient(135deg,#E24B4A,#c73232)': selectedVendorOrder.status==='delivered'?'linear-gradient(135deg,#16a34a,#15803d)': selectedVendorOrder.status==='cancelled'?'linear-gradient(135deg,#dc2626,#b91c1c)':'linear-gradient(135deg,#1a1a1a,#2a2a2a)', padding:'20px 16px 28px', color:'#fff' }}>
@@ -386,7 +571,6 @@ export default function VendorApp() {
                 </div>
 
                 <div style={{ padding:'16px 16px 100px', marginTop:-8 }}>
-                  {/* Customer Info */}
                   <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
                     <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:12, textTransform:'uppercase' }}>Customer Details</div>
                     <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
@@ -417,7 +601,6 @@ export default function VendorApp() {
                     )}
                   </div>
 
-                  {/* Order Items */}
                   <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
                     <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:12, textTransform:'uppercase' }}>Items Ordered</div>
                     {selectedVendorOrder.items?.map((item, i) => (
@@ -442,14 +625,6 @@ export default function VendorApp() {
                     </div>
                   </div>
 
-                  {selectedVendorOrder.address?.includes('Note:') && (
-                    <div style={{ background:'#fef3c7', borderRadius:12, padding:'12px 14px', marginBottom:12, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
-                      <div style={{ fontSize:11, fontWeight:700, color:'#92400e', marginBottom:4 }}>📝 SPECIAL NOTE</div>
-                      <div style={{ fontSize:13, color:'#78350f' }}>{selectedVendorOrder.address.split('Note:')[1]?.trim()}</div>
-                    </div>
-                  )}
-
-                  {/* Action Buttons */}
                   {!['delivered','cancelled'].includes(selectedVendorOrder.status) && (
                     <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:10 }}>
                       <div style={{ display:'flex', gap:10 }}>
@@ -482,11 +657,7 @@ export default function VendorApp() {
               </div>
             )}
 
-            {/* ══════════════════════════════════════════
-                ORDER FILTER TABS
-            ══════════════════════════════════════════ */}
             <div style={{ marginBottom:12 }}>
-              {/* Filter summary line */}
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                 <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>
                   {orderFilter === 'all' ? 'All Orders' : ORDER_FILTERS.find(f=>f.id===orderFilter)?.emoji + ' ' + ORDER_FILTERS.find(f=>f.id===orderFilter)?.label}
@@ -499,8 +670,6 @@ export default function VendorApp() {
                   </div>
                 )}
               </div>
-
-              {/* Scrollable filter pills */}
               <div style={{ overflowX:'auto', paddingBottom:4 }}>
                 <div style={{ display:'flex', gap:8, width:'max-content' }}>
                   {ORDER_FILTERS.map(f => {
@@ -508,34 +677,9 @@ export default function VendorApp() {
                     const isActive = orderFilter === f.id
                     const isLive = ['pending','accepted','preparing','ready','out_for_delivery'].includes(f.id)
                     return (
-                      <button
-                        key={f.id}
-                        onClick={() => setOrderFilter(f.id)}
-                        style={{
-                          flexShrink:0, padding:'7px 13px', borderRadius:20, cursor:'pointer',
-                          fontFamily:'Poppins', fontSize:12, fontWeight: isActive ? 700 : 500,
-                          border:'none', whiteSpace:'nowrap', transition:'all 0.18s',
-                          background: isActive
-                            ? (f.id==='cancelled' ? '#fee2e2' : f.id==='delivered' ? '#d1fae5' : f.id==='pending' ? '#fef3c7' : '#E24B4A')
-                            : '#f3f4f6',
-                          color: isActive
-                            ? (f.id==='cancelled' ? '#991b1b' : f.id==='delivered' ? '#065f46' : f.id==='pending' ? '#92400e' : '#fff')
-                            : '#6b7280',
-                          boxShadow: isActive ? '0 3px 10px rgba(0,0,0,0.12)' : 'none',
-                          position:'relative',
-                        }}
-                      >
+                      <button key={f.id} onClick={() => setOrderFilter(f.id)} style={{ flexShrink:0, padding:'7px 13px', borderRadius:20, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight: isActive ? 700 : 500, border:'none', whiteSpace:'nowrap', transition:'all 0.18s', background: isActive ? (f.id==='cancelled'?'#fee2e2':f.id==='delivered'?'#d1fae5':f.id==='pending'?'#fef3c7':'#E24B4A') : '#f3f4f6', color: isActive ? (f.id==='cancelled'?'#991b1b':f.id==='delivered'?'#065f46':f.id==='pending'?'#92400e':'#fff') : '#6b7280', boxShadow: isActive ? '0 3px 10px rgba(0,0,0,0.12)' : 'none' }}>
                         {f.emoji} {f.label}
-                        {count > 0 && (
-                          <span style={{
-                            marginLeft:5, fontSize:10, fontWeight:700,
-                            background: isActive ? 'rgba(0,0,0,0.15)' : (isLive && count > 0 ? '#E24B4A' : '#e5e7eb'),
-                            color: isActive ? 'inherit' : (isLive && count > 0 ? '#fff' : '#6b7280'),
-                            borderRadius:10, padding:'1px 6px',
-                          }}>
-                            {count}
-                          </span>
-                        )}
+                        {count > 0 && <span style={{ marginLeft:5, fontSize:10, fontWeight:700, background: isActive?'rgba(0,0,0,0.15)':(isLive&&count>0?'#E24B4A':'#e5e7eb'), color: isActive?'inherit':(isLive&&count>0?'#fff':'#6b7280'), borderRadius:10, padding:'1px 6px' }}>{count}</span>}
                       </button>
                     )
                   })}
@@ -543,24 +687,16 @@ export default function VendorApp() {
               </div>
             </div>
 
-            {/* ── ORDER LIST (filtered) ── */}
             {filteredOrders.length === 0 && (
               <div style={{ textAlign:'center', color:'#9ca3af', padding:'40px 20px', fontSize:13 }}>
-                <div style={{ fontSize:40, marginBottom:12 }}>
-                  {orderFilter === 'delivered' ? '✅' : orderFilter === 'cancelled' ? '❌' : '📋'}
-                </div>
-                <div style={{ fontWeight:600, marginBottom:4 }}>
-                  {orderFilter === 'all' ? 'No orders yet' : `No ${ORDER_FILTERS.find(f=>f.id===orderFilter)?.label?.toLowerCase()} orders`}
-                </div>
-                <div style={{ fontSize:12 }}>
-                  {orderFilter === 'all' ? 'Orders will appear here when customers place them' : `You have no orders with "${ORDER_FILTERS.find(f=>f.id===orderFilter)?.label}" status`}
-                </div>
+                <div style={{ fontSize:40, marginBottom:12 }}>{orderFilter==='delivered'?'✅':orderFilter==='cancelled'?'❌':'📋'}</div>
+                <div style={{ fontWeight:600, marginBottom:4 }}>{orderFilter==='all'?'No orders yet':`No ${ORDER_FILTERS.find(f=>f.id===orderFilter)?.label?.toLowerCase()} orders`}</div>
+                <div style={{ fontSize:12 }}>{orderFilter==='all'?'Orders will appear here when customers place them':`You have no orders with "${ORDER_FILTERS.find(f=>f.id===orderFilter)?.label}" status`}</div>
               </div>
             )}
 
             {filteredOrders.map(order => (
-              <div key={order.id} onClick={() => setSelectedVendorOrder(order)}
-                style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor: order.status==='pending'?'#fecaca': order.status==='delivered'?'#bbf7d0': order.status==='cancelled'?'#fecaca':'#e5e7eb', borderRadius:12, padding:14, marginBottom:10, cursor:'pointer', opacity: order.status==='cancelled'?0.8:1 }}>
+              <div key={order.id} onClick={() => setSelectedVendorOrder(order)} style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor: order.status==='pending'?'#fecaca':order.status==='delivered'?'#bbf7d0':order.status==='cancelled'?'#fecaca':'#e5e7eb', borderRadius:12, padding:14, marginBottom:10, cursor:'pointer', opacity:order.status==='cancelled'?0.8:1 }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                   <div>
                     <div style={{ fontSize:13, fontWeight:700 }}>#{order.id.slice(-6).toUpperCase()}</div>
@@ -575,26 +711,14 @@ export default function VendorApp() {
                   <div style={{ fontSize:16, fontWeight:800, color:'#E24B4A' }}>₹{order.total} <span style={{ fontSize:11, color:'#9ca3af', fontWeight:400 }}>COD</span></div>
                   <span style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Tap for details →</span>
                 </div>
-                {/* Quick action buttons — only for live orders */}
                 {!['delivered','cancelled'].includes(order.status) && (
                   <div style={{ display:'flex', gap:8, marginTop:10 }} onClick={e => e.stopPropagation()}>
-                    {order.status === 'pending' && (
-                      <button onClick={() => handleReject(order.id)} style={{ background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>Reject</button>
-                    )}
-                    {CANCELLABLE_STATUSES.includes(order.status) && (
-                      <button onClick={() => openCancelModal(order)} style={{ background:'#fff5f5', color:'#dc2626', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>🚫 Cancel</button>
-                    )}
-                    {STATUS_NEXT[order.status] && (
-                      <button onClick={() => handleStatus(order.id, order.status, { userUid: order.userUid, vendorName: userData?.storeName||'' })} style={{ flex:1, background: order.status==='pending'?'#E24B4A':'#1a1a1a', color:'#fff', border:'none', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>{STATUS_LABEL[order.status]}</button>
-                    )}
+                    {order.status === 'pending' && <button onClick={() => handleReject(order.id)} style={{ background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>Reject</button>}
+                    {CANCELLABLE_STATUSES.includes(order.status) && <button onClick={() => openCancelModal(order)} style={{ background:'#fff5f5', color:'#dc2626', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>🚫 Cancel</button>}
+                    {STATUS_NEXT[order.status] && <button onClick={() => handleStatus(order.id, order.status, { userUid:order.userUid, vendorName:userData?.storeName||'' })} style={{ flex:1, background:order.status==='pending'?'#E24B4A':'#1a1a1a', color:'#fff', border:'none', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>{STATUS_LABEL[order.status]}</button>}
                   </div>
                 )}
-                {/* Cancelled reason preview on card */}
-                {order.status === 'cancelled' && order.cancellationReason && (
-                  <div style={{ marginTop:8, background:'#fff5f5', borderRadius:8, padding:'6px 10px', fontSize:11, color:'#991b1b' }}>
-                    🚫 {order.cancellationReason}
-                  </div>
-                )}
+                {order.status === 'cancelled' && order.cancellationReason && <div style={{ marginTop:8, background:'#fff5f5', borderRadius:8, padding:'6px 10px', fontSize:11, color:'#991b1b' }}>🚫 {order.cancellationReason}</div>}
               </div>
             ))}
           </>
@@ -609,9 +733,7 @@ export default function VendorApp() {
                 {menuEditMode && <span style={{ fontSize:11, color:'#E24B4A', fontWeight:600, marginLeft:8 }}>· Edit Mode ON</span>}
               </div>
               <div style={{ display:'flex', gap:8 }}>
-                <button onClick={() => { setMenuEditMode(e => !e); setEditingItem(null) }} style={{ background: menuEditMode?'#fef3c7':'#f3f4f6', color: menuEditMode?'#92400e':'#6b7280', border:'none', padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>
-                  {menuEditMode ? '✅ Done Editing' : '✏️ Edit Menu'}
-                </button>
+                <button onClick={() => { setMenuEditMode(e => !e); setEditingItem(null) }} style={{ background:menuEditMode?'#fef3c7':'#f3f4f6', color:menuEditMode?'#92400e':'#6b7280', border:'none', padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>{menuEditMode?'✅ Done Editing':'✏️ Edit Menu'}</button>
                 <button onClick={() => setShowAddItem(!showAddItem)} style={{ background:'#E24B4A', color:'#fff', border:'none', padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>+ Add</button>
               </div>
             </div>
@@ -620,13 +742,9 @@ export default function VendorApp() {
               <div style={{ overflowX:'auto', marginBottom:12 }}>
                 <div style={{ display:'flex', gap:8, width:'max-content', paddingBottom:4 }}>
                   {menuCategories.map(cat => {
-                    const count = cat==='All' ? menuItems.length : menuItems.filter(i => i.category===cat).length
+                    const count = cat==='All'?menuItems.length:menuItems.filter(i=>i.category===cat).length
                     const isActive = menuCatFilter===cat
-                    return (
-                      <button key={cat} onClick={() => { setMenuCatFilter(cat); setEditingItem(null) }} style={{ flexShrink:0, padding:'7px 14px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight: isActive?700:500, background: isActive?'#E24B4A':'#f3f4f6', color: isActive?'#fff':'#6b7280', boxShadow: isActive?'0 4px 12px rgba(226,75,74,0.3)':'none', transition:'all 0.2s', whiteSpace:'nowrap' }}>
-                        {cat} <span style={{ opacity:0.7, fontSize:10 }}>({count})</span>
-                      </button>
-                    )
+                    return <button key={cat} onClick={() => { setMenuCatFilter(cat); setEditingItem(null) }} style={{ flexShrink:0, padding:'7px 14px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:isActive?700:500, background:isActive?'#E24B4A':'#f3f4f6', color:isActive?'#fff':'#6b7280', boxShadow:isActive?'0 4px 12px rgba(226,75,74,0.3)':'none', transition:'all 0.2s', whiteSpace:'nowrap' }}>{cat} <span style={{ opacity:0.7, fontSize:10 }}>({count})</span></button>
                   })}
                 </div>
               </div>
@@ -637,7 +755,7 @@ export default function VendorApp() {
                 <div style={{ fontSize:13, fontWeight:600, marginBottom:10 }}>New Menu Item</div>
                 <div style={{ display:'flex', gap:8, marginBottom:10 }}>
                   {[true,false].map(isV => (
-                    <button key={String(isV)} onClick={() => setNewItem(p=>({...p,isVeg:isV}))} style={{ flex:1, padding:'8px 0', borderRadius:8, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:600, borderWidth:2, borderStyle:'solid', borderColor: newItem.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#e5e7eb', background: newItem.isVeg===isV?(isV?'#f0fdf4':'#fff5f5'):'#fff', color: newItem.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#9ca3af' }}>
+                    <button key={String(isV)} onClick={() => setNewItem(p=>({...p,isVeg:isV}))} style={{ flex:1, padding:'8px 0', borderRadius:8, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:600, borderWidth:2, borderStyle:'solid', borderColor:newItem.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#e5e7eb', background:newItem.isVeg===isV?(isV?'#f0fdf4':'#fff5f5'):'#fff', color:newItem.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#9ca3af' }}>
                       <span style={{ marginRight:5 }}>{isV?'🟢':'🔴'}</span>{isV?'Veg':'Non-Veg'}
                     </button>
                   ))}
@@ -664,14 +782,14 @@ export default function VendorApp() {
                   <div>
                     <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Item Photo (optional)</label>
                     <div onClick={() => newItemPhotoRef.current?.click()} style={{ marginTop:6, borderWidth:2, borderStyle:'dashed', borderColor:'#e5e7eb', borderRadius:10, padding:16, textAlign:'center', cursor:'pointer', background:'#fafafa', minHeight:80, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      {newItemPhotoPreview ? <img src={newItemPhotoPreview} alt="preview" style={{ maxHeight:120, maxWidth:'100%', objectFit:'cover', borderRadius:8 }} /> : <div><div style={{ fontSize:28 }}>📷</div><div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>Tap to add photo</div></div>}
+                      {newItemPhotoPreview?<img src={newItemPhotoPreview} alt="preview" style={{ maxHeight:120, maxWidth:'100%', objectFit:'cover', borderRadius:8 }} />:<div><div style={{ fontSize:28 }}>📷</div><div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>Tap to add photo</div></div>}
                     </div>
                     <input ref={newItemPhotoRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleNewItemPhotoSelect} />
                     {newItemPhotoPreview && <button onClick={() => { setNewItemPhotoFile(null); setNewItemPhotoPreview(null) }} style={{ marginTop:4, fontSize:11, color:'#dc2626', background:'none', border:'none', cursor:'pointer', fontFamily:'Poppins' }}>✕ Remove photo</button>}
                   </div>
                   {addingItem && newItemPhotoFile && itemPhotoProgress > 0 && <div style={{ background:'#f3f4f6', borderRadius:8, overflow:'hidden', height:6 }}><div style={{ height:'100%', background:'#E24B4A', width:`${itemPhotoProgress}%`, transition:'width 0.3s' }} /></div>}
                   <div style={{ display:'flex', gap:8 }}>
-                    <button onClick={handleAddItem} disabled={addingItem} style={{ flex:1, background: addingItem?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:8, fontSize:13, cursor: addingItem?'not-allowed':'pointer', fontFamily:'Poppins', fontWeight:500 }}>{addingItem?'Adding...':'✅ Add to Menu'}</button>
+                    <button onClick={handleAddItem} disabled={addingItem} style={{ flex:1, background:addingItem?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:8, fontSize:13, cursor:addingItem?'not-allowed':'pointer', fontFamily:'Poppins', fontWeight:500 }}>{addingItem?'Adding...':'✅ Add to Menu'}</button>
                     <button onClick={() => { setShowAddItem(false); setNewItem(EMPTY_ITEM); setNewItemPhotoFile(null); setNewItemPhotoPreview(null); setShowAddCat(false) }} style={{ flex:1, background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:11, borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Cancel</button>
                   </div>
                 </div>
@@ -690,7 +808,7 @@ export default function VendorApp() {
                     </div>
                     <div style={{ display:'flex', gap:8, marginBottom:10 }}>
                       {[true,false].map(isV => (
-                        <button key={String(isV)} onClick={() => setEditItemData(p=>({...p,isVeg:isV}))} style={{ flex:1, padding:'7px 0', borderRadius:8, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:600, borderWidth:2, borderStyle:'solid', borderColor: editItemData.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#e5e7eb', background: editItemData.isVeg===isV?(isV?'#f0fdf4':'#fff5f5'):'#fff', color: editItemData.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#9ca3af' }}>
+                        <button key={String(isV)} onClick={() => setEditItemData(p=>({...p,isVeg:isV}))} style={{ flex:1, padding:'7px 0', borderRadius:8, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:600, borderWidth:2, borderStyle:'solid', borderColor:editItemData.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#e5e7eb', background:editItemData.isVeg===isV?(isV?'#f0fdf4':'#fff5f5'):'#fff', color:editItemData.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#9ca3af' }}>
                           {isV?'🟢 Veg':'🔴 Non-Veg'}
                         </button>
                       ))}
@@ -701,20 +819,20 @@ export default function VendorApp() {
                       <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Description</label><textarea style={{...inp,minHeight:60,resize:'vertical',lineHeight:1.5}} value={editItemData.description} onChange={e => setEditItemData(p=>({...p,description:e.target.value}))} placeholder="What's included?" /></div>
                       <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Category</label><select style={{...inp,cursor:'pointer'}} value={editItemData.category} onChange={e => setEditItemData(p=>({...p,category:e.target.value}))}>{allCategories.map(c => <option key={c}>{c}</option>)}</select></div>
                       <div style={{ display:'flex', gap:8 }}>
-                        <button onClick={() => handleSaveEdit(item.id)} disabled={savingEdit} style={{ flex:2, background: savingEdit?'#f09595':'#16a34a', color:'#fff', border:'none', padding:'11px 0', borderRadius:9, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>{savingEdit?'Saving...':'💾 Save Changes'}</button>
+                        <button onClick={() => handleSaveEdit(item.id)} disabled={savingEdit} style={{ flex:2, background:savingEdit?'#f09595':'#16a34a', color:'#fff', border:'none', padding:'11px 0', borderRadius:9, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>{savingEdit?'Saving...':'💾 Save Changes'}</button>
                         <button onClick={() => setEditingItem(null)} style={{ flex:1, background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'11px 0', borderRadius:9, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Cancel</button>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div style={{ display:'flex', gap:10, alignItems:'flex-start', padding:'12px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background: menuEditMode?'#fafafa':'transparent', borderRadius: menuEditMode?10:0, paddingLeft: menuEditMode?8:0, marginBottom: menuEditMode?4:0 }}>
+                  <div style={{ display:'flex', gap:10, alignItems:'flex-start', padding:'12px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background:menuEditMode?'#fafafa':'transparent', borderRadius:menuEditMode?10:0, paddingLeft:menuEditMode?8:0, marginBottom:menuEditMode?4:0 }}>
                     <div onClick={() => { const input=document.createElement('input'); input.type='file'; input.accept='image/*'; input.onchange=(e)=>handleExistingItemPhoto(e,item.id); input.click() }} style={{ width:64, height:64, borderRadius:10, overflow:'hidden', background:'#f3f4f6', flexShrink:0, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', position:'relative', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
                       {item.photo?<img src={item.photo} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />:<span style={{ fontSize:22 }}>📷</span>}
                       {itemPhotoUploading===item.id && <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#fff', fontWeight:700 }}>{itemPhotoProgress}%</div>}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <div style={{ width:14, height:14, borderRadius:3, flexShrink:0, borderWidth:1.5, borderStyle:'solid', borderColor: item.isVeg===false?'#dc2626':'#16a34a', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ width:7, height:7, borderRadius:'50%', background: item.isVeg===false?'#dc2626':'#16a34a' }} /></div>
+                        <div style={{ width:14, height:14, borderRadius:3, flexShrink:0, borderWidth:1.5, borderStyle:'solid', borderColor:item.isVeg===false?'#dc2626':'#16a34a', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ width:7, height:7, borderRadius:'50%', background:item.isVeg===false?'#dc2626':'#16a34a' }} /></div>
                         <div style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{item.name}</div>
                       </div>
                       {item.description && <div style={{ fontSize:11, color:'#6b7280', marginTop:2, lineHeight:1.4 }}>{item.description}</div>}
@@ -726,12 +844,193 @@ export default function VendorApp() {
                     </div>
                     <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center', flexShrink:0 }}>
                       {menuEditMode && <button onClick={() => startEditItem(item)} style={{ background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>✏️ Edit</button>}
-                      <div onClick={() => updateMenuItem(user.uid, item.id, { available: !item.available })} style={{ width:40, height:22, background: item.available?'#16a34a':'#d1d5db', borderRadius:11, cursor:'pointer', position:'relative', transition:'background 0.2s' }}>
-                        <div style={{ position:'absolute', width:16, height:16, background:'#fff', borderRadius:'50%', top:3, left: item.available?21:3, transition:'left 0.2s' }} />
+                      <div onClick={() => updateMenuItem(user.uid, item.id, { available: !item.available })} style={{ width:40, height:22, background:item.available?'#16a34a':'#d1d5db', borderRadius:11, cursor:'pointer', position:'relative', transition:'background 0.2s' }}>
+                        <div style={{ position:'absolute', width:16, height:16, background:'#fff', borderRadius:'50%', top:3, left:item.available?21:3, transition:'left 0.2s' }} />
                       </div>
                       <button onClick={() => { deleteMenuItem(user.uid, item.id); toast.success('Item deleted') }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, color:'#dc2626', padding:2 }}>🗑️</button>
                     </div>
                   </div>
+                )}
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* ── COMBOS TAB ── */}
+        {tab === 'combos' && (
+          <>
+            <div style={{ background:'linear-gradient(135deg,#1a1a1a,#2d1f00)', borderRadius:14, padding:'16px 16px 18px', marginBottom:14, position:'relative', overflow:'hidden' }}>
+              <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>🍱</div>
+              <div style={{ fontSize:11, color:'#fbbf24', fontWeight:700, letterSpacing:1, marginBottom:4 }}>COMBO OFFERS</div>
+              <div style={{ fontSize:18, fontWeight:800, color:'#fff', marginBottom:4 }}>Create Meal Combos</div>
+              <div style={{ fontSize:12, color:'#9ca3af', lineHeight:1.5 }}>Bundle items together at a special price. Combos appear separately on your menu.</div>
+              <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center' }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>{combos.length}</div>
+                  <div style={{ fontSize:10, color:'#9ca3af' }}>Total Combos</div>
+                </div>
+                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center' }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:'#4ade80' }}>{combos.filter(c=>c.available).length}</div>
+                  <div style={{ fontSize:10, color:'#9ca3af' }}>Active</div>
+                </div>
+                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center' }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:'#fbbf24' }}>{menuItems.length}</div>
+                  <div style={{ fontSize:10, color:'#9ca3af' }}>Items available</div>
+                </div>
+              </div>
+            </div>
+
+            {!showAddCombo && (
+              <button onClick={() => { setShowAddCombo(true); setNewCombo(EMPTY_COMBO); setComboSearchQuery('') }} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:'13px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginBottom:14, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                <span style={{ fontSize:18 }}>🍱</span> Create New Combo
+              </button>
+            )}
+
+            {showAddCombo && (
+              <div style={{ background:'#fff', borderWidth:1.5, borderStyle:'solid', borderColor:'#fde68a', borderRadius:14, padding:16, marginBottom:16, boxShadow:'0 4px 16px rgba(0,0,0,0.08)' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#1f2937' }}>🍱 New Combo</div>
+                  <button onClick={() => { setShowAddCombo(false); setNewCombo(EMPTY_COMBO) }} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:28, height:28, cursor:'pointer', fontSize:14 }}>✕</button>
+                </div>
+
+                <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+                  {[true,false].map(isV => (
+                    <button key={String(isV)} onClick={() => setNewCombo(p=>({...p,isVeg:isV}))} style={{ flex:1, padding:'8px 0', borderRadius:8, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:600, borderWidth:2, borderStyle:'solid', borderColor:newCombo.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#e5e7eb', background:newCombo.isVeg===isV?(isV?'#f0fdf4':'#fff5f5'):'#fff', color:newCombo.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#9ca3af' }}>
+                      {isV?'🟢 Veg':'🔴 Non-Veg'}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <div>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Combo Name *</label>
+                    <input style={inp} placeholder="e.g. Family Thali Combo, Lunch Special" value={newCombo.name} onChange={e => setNewCombo(p=>({...p,name:e.target.value}))} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Description</label>
+                    <textarea style={{...inp,minHeight:60,resize:'vertical',lineHeight:1.5}} placeholder="e.g. Dal Tadka + 3 Roti + Rice + Papad + Sweet" value={newCombo.description} onChange={e => setNewCombo(p=>({...p,description:e.target.value}))} />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Tag (optional)</label>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:6 }}>
+                      {COMBO_TAGS.map(tag => (
+                        <button key={tag} onClick={() => setNewCombo(p=>({...p, tag: p.tag===tag?'':tag}))} style={{ padding:'5px 11px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600, background:newCombo.tag===tag?'#fef3c7':'#f3f4f6', color:newCombo.tag===tag?'#92400e':'#6b7280', borderWidth:1.5, borderStyle:'solid', borderColor:newCombo.tag===tag?'#fbbf24':'transparent' }}>{tag}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {menuItems.length === 0 ? (
+                    <div style={{ background:'#fff5f5', borderRadius:10, padding:14, textAlign:'center', fontSize:12, color:'#dc2626' }}>⚠️ Add menu items first before creating combos</div>
+                  ) : (
+                    <ComboItemPicker comboState={newCombo} setComboState={setNewCombo} />
+                  )}
+
+                  <div>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Combo Price (₹) *</label>
+                    <div style={{ position:'relative' }}>
+                      <input style={{...inp, paddingRight:120}} type="number" placeholder="Set a discounted combo price" value={newCombo.comboPrice} onChange={e => setNewCombo(p=>({...p,comboPrice:e.target.value}))} />
+                      {newCombo.items.length > 0 && newCombo.comboPrice && Number(newCombo.comboPrice) < comboOriginalPrice(newCombo.items) && (
+                        <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-25%)', fontSize:11, fontWeight:700, color:'#16a34a', background:'#d1fae5', borderRadius:6, padding:'3px 8px', whiteSpace:'nowrap' }}>
+                          Save ₹{comboOriginalPrice(newCombo.items) - Number(newCombo.comboPrice)}
+                        </div>
+                      )}
+                    </div>
+                    {newCombo.items.length > 0 && (
+                      <div style={{ fontSize:11, color:'#9ca3af', marginTop:4 }}>Original price: ₹{comboOriginalPrice(newCombo.items)}</div>
+                    )}
+                  </div>
+
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={handleAddCombo} disabled={addingCombo} style={{ flex:2, background:addingCombo?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:'12px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:addingCombo?'not-allowed':'pointer', fontFamily:'Poppins' }}>{addingCombo?'Creating...':'🍱 Create Combo'}</button>
+                    <button onClick={() => { setShowAddCombo(false); setNewCombo(EMPTY_COMBO) }} style={{ flex:1, background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Cancel</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {combos.length === 0 && !showAddCombo && (
+              <div style={{ textAlign:'center', color:'#9ca3af', padding:'40px 20px' }}>
+                <div style={{ fontSize:48, marginBottom:12 }}>🍱</div>
+                <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:6 }}>No combos yet</div>
+                <div style={{ fontSize:12, lineHeight:1.6 }}>Create meal combos to offer customers value deals and increase order value</div>
+              </div>
+            )}
+
+            {combos.map(combo => (
+              <div key={combo.id} style={{ background:'#fff', borderRadius:14, marginBottom:12, overflow:'hidden', boxShadow:'0 2px 10px rgba(0,0,0,0.06)', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6' }}>
+                {editingCombo === combo.id ? (
+                  <div style={{ padding:14 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:'#92400e' }}>✏️ Edit Combo</div>
+                      <button onClick={() => setEditingCombo(null)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#9ca3af' }}>✕</button>
+                    </div>
+                    <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+                      {[true,false].map(isV => (
+                        <button key={String(isV)} onClick={() => setEditComboData(p=>({...p,isVeg:isV}))} style={{ flex:1, padding:'7px 0', borderRadius:8, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:600, borderWidth:2, borderStyle:'solid', borderColor:editComboData.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#e5e7eb', background:editComboData.isVeg===isV?(isV?'#f0fdf4':'#fff5f5'):'#fff', color:editComboData.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#9ca3af' }}>
+                          {isV?'🟢 Veg':'🔴 Non-Veg'}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                      <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Combo Name *</label><input style={inp} value={editComboData.name||''} onChange={e => setEditComboData(p=>({...p,name:e.target.value}))} /></div>
+                      <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Description</label><textarea style={{...inp,minHeight:60,resize:'vertical'}} value={editComboData.description||''} onChange={e => setEditComboData(p=>({...p,description:e.target.value}))} /></div>
+                      <div>
+                        <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Tag</label>
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:6 }}>
+                          {COMBO_TAGS.map(tag => (
+                            <button key={tag} onClick={() => setEditComboData(p=>({...p,tag:p.tag===tag?'':tag}))} style={{ padding:'5px 11px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600, background:editComboData.tag===tag?'#fef3c7':'#f3f4f6', color:editComboData.tag===tag?'#92400e':'#6b7280', borderWidth:1.5, borderStyle:'solid', borderColor:editComboData.tag===tag?'#fbbf24':'transparent' }}>{tag}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <ComboItemPicker comboState={editComboData} setComboState={setEditComboData} />
+                      <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Combo Price (₹) *</label><input style={inp} type="number" value={editComboData.comboPrice||''} onChange={e => setEditComboData(p=>({...p,comboPrice:e.target.value}))} /></div>
+                      <div style={{ display:'flex', gap:8 }}>
+                        <button onClick={() => handleSaveComboEdit(combo.id)} disabled={savingCombo} style={{ flex:2, background:savingCombo?'#f09595':'#16a34a', color:'#fff', border:'none', padding:'11px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>{savingCombo?'Saving...':'💾 Save Changes'}</button>
+                        <button onClick={() => setEditingCombo(null)} style={{ flex:1, background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'11px 0', borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Cancel</button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ background:'linear-gradient(135deg,#1a1a1a,#2d1f00)', padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                          <div style={{ width:14, height:14, borderRadius:3, flexShrink:0, borderWidth:1.5, borderStyle:'solid', borderColor:combo.isVeg===false?'#dc2626':'#16a34a', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ width:7, height:7, borderRadius:'50%', background:combo.isVeg===false?'#dc2626':'#16a34a' }} /></div>
+                          <span style={{ fontSize:14, fontWeight:700, color:'#fff' }}>{combo.name}</span>
+                          {combo.tag && <span style={{ fontSize:10, fontWeight:700, background:'#fbbf24', color:'#78350f', borderRadius:10, padding:'2px 8px' }}>{combo.tag}</span>}
+                        </div>
+                        {combo.description && <div style={{ fontSize:11, color:'#9ca3af', marginTop:4, lineHeight:1.5 }}>{combo.description}</div>}
+                      </div>
+                      <div style={{ textAlign:'right', flexShrink:0, marginLeft:10 }}>
+                        <div style={{ fontSize:20, fontWeight:900, color:'#fbbf24' }}>₹{combo.comboPrice}</div>
+                        {combo.originalPrice > combo.comboPrice && <div style={{ fontSize:10, color:'#9ca3af', textDecoration:'line-through' }}>₹{combo.originalPrice}</div>}
+                        {combo.originalPrice > combo.comboPrice && <div style={{ fontSize:10, fontWeight:700, color:'#4ade80' }}>Save ₹{combo.originalPrice - combo.comboPrice}</div>}
+                      </div>
+                    </div>
+
+                    <div style={{ padding:'10px 14px 0' }}>
+                      <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:8 }}>INCLUDES ({combo.items?.length} items)</div>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
+                        {combo.items?.map((item, i) => (
+                          <div key={i} style={{ background:'#f9fafb', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:600, color:'#374151', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+                            {item.qty > 1 && <span style={{ color:'#E24B4A', fontWeight:800, marginRight:3 }}>{item.qty}×</span>}{item.name}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ padding:'0 14px 12px', display:'flex', gap:8, alignItems:'center' }}>
+                      {/* ✅ FIX 6: toggleComboAvailable calls Firestore */}
+                      <div onClick={() => toggleComboAvailable(combo)} style={{ width:40, height:22, background:combo.available?'#16a34a':'#d1d5db', borderRadius:11, cursor:'pointer', position:'relative', transition:'background 0.2s', flexShrink:0 }}>
+                        <div style={{ position:'absolute', width:16, height:16, background:'#fff', borderRadius:'50%', top:3, left:combo.available?21:3, transition:'left 0.2s' }} />
+                      </div>
+                      <span style={{ fontSize:11, color:combo.available?'#16a34a':'#9ca3af', fontWeight:600 }}>{combo.available?'Available':'Hidden'}</span>
+                      <div style={{ flex:1 }} />
+                      <button onClick={() => { setEditingCombo(combo.id); setEditComboData({ name:combo.name, description:combo.description||'', comboPrice:String(combo.comboPrice), items:[...(combo.items||[])], isVeg:combo.isVeg!==false, tag:combo.tag||'' }); setComboSearchQuery('') }} style={{ background:'#f3f4f6', border:'none', borderRadius:8, padding:'7px 12px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', color:'#374151' }}>✏️ Edit</button>
+                      <button onClick={() => handleDeleteCombo(combo.id)} style={{ background:'#fff5f5', border:'none', borderRadius:8, padding:'7px 12px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', color:'#dc2626' }}>🗑️</button>
+                    </div>
+                  </>
                 )}
               </div>
             ))}
@@ -772,20 +1071,71 @@ export default function VendorApp() {
         {tab === 'settings' && (
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
-              <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>Store Info</div>
-              {[
-                { label:'Store Name', val:userData?.storeName },
-                { label:'Email', val:userData?.email },
-                { label:'Phone / WhatsApp', val:userData?.phone },
-                { label:'Address', val:userData?.address },
-                { label:'Category', val:userData?.category },
-                { label:'Subscription Plan', val:userData?.plan }
-              ].map(f => (
-                <div key={f.label} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#e5e7eb' }}>
-                  <span style={{ fontSize:12, color:'#6b7280' }}>{f.label}</span>
-                  <span style={{ fontSize:12, fontWeight:500 }}>{f.val||'—'}</span>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                <div style={{ fontSize:13, fontWeight:700 }}>Store Info</div>
+                {!editingStoreInfo && (
+                  <button onClick={handleOpenStoreEdit} style={{ display:'flex', alignItems:'center', gap:5, background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+                    ✏️ Edit Info
+                  </button>
+                )}
+              </div>
+
+              {!editingStoreInfo ? (
+                <>
+                  {[
+                    { label:'Store Name', val:userData?.storeName },
+                    { label:'Email', val:userData?.email },
+                    { label:'Phone / WhatsApp', val:userData?.phone },
+                    { label:'Address', val:userData?.address },
+                    { label:'Category', val:userData?.category },
+                    { label:'Subscription Plan', val:userData?.plan }
+                  ].map(f => (
+                    <div key={f.label} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#e5e7eb' }}>
+                      <span style={{ fontSize:12, color:'#6b7280' }}>{f.label}</span>
+                      <span style={{ fontSize:12, fontWeight:500 }}>{f.val||'—'}</span>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <div style={{ background:'#fff5f5', borderRadius:8, padding:'8px 12px', fontSize:11, color:'#991b1b', marginBottom:4 }}>
+                    ⚠️ Email and subscription plan cannot be changed here.
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Store Name *</label>
+                    <input style={inp} placeholder="Your store name" value={storeEditData.storeName||''} onChange={e => setStoreEditData(p=>({...p,storeName:e.target.value}))} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Phone / WhatsApp</label>
+                    <input style={inp} type="tel" placeholder="10-digit mobile number" value={storeEditData.phone||''} onChange={e => setStoreEditData(p=>({...p,phone:e.target.value}))} maxLength={10} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Store Address</label>
+                    <textarea style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.5}} placeholder="Full address with landmark" value={storeEditData.address||''} onChange={e => setStoreEditData(p=>({...p,address:e.target.value}))} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Food Category</label>
+                    <select style={{...inp,cursor:'pointer'}} value={storeEditData.category||''} onChange={e => setStoreEditData(p=>({...p,category:e.target.value}))}>
+                      <option value="">Select category</option>
+                      {['Home Food','Tiffin Service','Restaurant','Cloud Kitchen','Bakery','Sweets & Snacks','Beverages','Biryani House','Fast Food','Healthy Food','South Indian','North Indian','Chinese','Multi-cuisine'].map(c => <option key={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ background:'#f9fafb', borderRadius:8, padding:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                      <span style={{ fontSize:11, color:'#9ca3af' }}>Email</span>
+                      <span style={{ fontSize:11, fontWeight:500 }}>{userData?.email || '—'}</span>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between' }}>
+                      <span style={{ fontSize:11, color:'#9ca3af' }}>Subscription Plan</span>
+                      <span style={{ fontSize:11, fontWeight:500 }}>{userData?.plan || '—'}</span>
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                    <button onClick={handleSaveStoreInfo} disabled={savingStoreInfo} style={{ flex:2, background:savingStoreInfo?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:'12px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:savingStoreInfo?'not-allowed':'pointer', fontFamily:'Poppins' }}>{savingStoreInfo?'Saving...':'💾 Save Store Info'}</button>
+                    <button onClick={() => setEditingStoreInfo(false)} style={{ flex:1, background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Cancel</button>
+                  </div>
                 </div>
-              ))}
+              )}
             </div>
 
             {customCategories.length > 0 && (
@@ -816,7 +1166,7 @@ export default function VendorApp() {
                 {locationSuggestions.length > 0 && (
                   <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, zIndex:50, marginTop:4, overflow:'hidden' }}>
                     {locationSuggestions.map((s,i) => (
-                      <button key={i} onClick={() => handleSelectLocation(s)} style={{ width:'100%', padding:'10px 14px', border:'none', borderBottomWidth: i<locationSuggestions.length-1?1:0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background:'#fff', cursor:'pointer', textAlign:'left', fontFamily:'Poppins', display:'flex', gap:8, alignItems:'center' }}>
+                      <button key={i} onClick={() => handleSelectLocation(s)} style={{ width:'100%', padding:'10px 14px', border:'none', borderBottomWidth:i<locationSuggestions.length-1?1:0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background:'#fff', cursor:'pointer', textAlign:'left', fontFamily:'Poppins', display:'flex', gap:8, alignItems:'center' }}>
                         <span>📍</span>
                         <div><div style={{ fontSize:13, color:'#1f2937' }}>{s.name.split(",")[0]}</div><div style={{ fontSize:11, color:'#9ca3af' }}>{s.name.split(",").slice(1,3).join(",")}</div></div>
                       </button>
@@ -838,7 +1188,7 @@ export default function VendorApp() {
                   <input type="time" value={closeTime} onChange={e => setCloseTime(e.target.value)} style={{ flex:1, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none' }} />
                 </div>
               </div>
-              <button onClick={handleSaveDetails} disabled={savingDetails} style={{ width:'100%', background: savingDetails?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>{savingDetails?'Saving...':'💾 Save Store Details'}</button>
+              <button onClick={handleSaveDetails} disabled={savingDetails} style={{ width:'100%', background:savingDetails?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>{savingDetails?'Saving...':'💾 Save Store Details'}</button>
             </div>
 
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>Logout</button>
@@ -846,9 +1196,7 @@ export default function VendorApp() {
         )}
       </div>
 
-      {/* ══════════════════════════════════════════════
-          CANCEL ORDER MODAL
-      ══════════════════════════════════════════════ */}
+      {/* ── CANCEL ORDER MODAL ── */}
       {showCancelModal && cancelOrderTarget && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1100, display:'flex', flexDirection:'column', justifyContent:'flex-end' }} onClick={e => { if(e.target===e.currentTarget) setShowCancelModal(false) }}>
           <div style={{ background:'#fff', borderRadius:'22px 22px 0 0', maxHeight:'85vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
@@ -873,9 +1221,9 @@ export default function VendorApp() {
               <div style={{ marginBottom:14 }}>
                 <div style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:10 }}>Select cancellation reason *</div>
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  {CANCEL_REASONS.map(reason => (
-                    <button key={reason} onClick={() => setCancelReason(reason==='Other'?'':reason)} style={{ width:'100%', padding:'11px 14px', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', fontSize:13, fontWeight:500, textAlign:'left', display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor: cancelReason===reason?'#E24B4A':'#e5e7eb', background: cancelReason===reason?'#fff5f5':'#fff', color:'#374151', transition:'all 0.15s' }}>
-                      <div style={{ width:18, height:18, borderRadius:'50%', flexShrink:0, borderWidth:2, borderStyle:'solid', borderColor: cancelReason===reason?'#E24B4A':'#d1d5db', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {['Delivery location too far','Out of stock / ingredients unavailable','Store closing early today','Unable to prepare on time','Customer unreachable','Other'].map(reason => (
+                    <button key={reason} onClick={() => setCancelReason(reason==='Other'?'':reason)} style={{ width:'100%', padding:'11px 14px', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', fontSize:13, fontWeight:500, textAlign:'left', display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:cancelReason===reason?'#E24B4A':'#e5e7eb', background:cancelReason===reason?'#fff5f5':'#fff', color:'#374151', transition:'all 0.15s' }}>
+                      <div style={{ width:18, height:18, borderRadius:'50%', flexShrink:0, borderWidth:2, borderStyle:'solid', borderColor:cancelReason===reason?'#E24B4A':'#d1d5db', display:'flex', alignItems:'center', justifyContent:'center' }}>
                         {cancelReason===reason && <div style={{ width:8, height:8, borderRadius:'50%', background:'#E24B4A' }} />}
                       </div>
                       {reason}
@@ -883,13 +1231,13 @@ export default function VendorApp() {
                   ))}
                 </div>
               </div>
-              {(cancelReason==='' || !CANCEL_REASONS.slice(0,-1).includes(cancelReason)) && (
+              {(cancelReason==='' || !['Delivery location too far','Out of stock / ingredients unavailable','Store closing early today','Unable to prepare on time','Customer unreachable'].includes(cancelReason)) && (
                 <div style={{ marginBottom:16 }}>
                   <div style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:6 }}>{cancelReason===''?'Or type a custom reason:':'Custom reason:'}</div>
-                  <textarea value={!CANCEL_REASONS.slice(0,-1).includes(cancelReason)?cancelReason:''} onChange={e => setCancelReason(e.target.value)} placeholder="Describe why you are cancelling this order..." rows={3} style={{ width:'100%', padding:'10px 12px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', lineHeight:1.6 }} />
+                  <textarea value={!['Delivery location too far','Out of stock / ingredients unavailable','Store closing early today','Unable to prepare on time','Customer unreachable'].includes(cancelReason)?cancelReason:''} onChange={e => setCancelReason(e.target.value)} placeholder="Describe why you are cancelling this order..." rows={3} style={{ width:'100%', padding:'10px 12px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', lineHeight:1.6 }} />
                 </div>
               )}
-              <button onClick={handleVendorCancelOrder} disabled={cancellingOrder || !cancelReason.trim()} style={{ width:'100%', background: (cancellingOrder||!cancelReason.trim())?'#fca5a5':'#dc2626', color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor: (cancellingOrder||!cancelReason.trim())?'not-allowed':'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+              <button onClick={handleVendorCancelOrder} disabled={cancellingOrder || !cancelReason.trim()} style={{ width:'100%', background:(cancellingOrder||!cancelReason.trim())?'#fca5a5':'#dc2626', color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:(cancellingOrder||!cancelReason.trim())?'not-allowed':'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
                 {cancellingOrder?'⏳ Cancelling...':'🚫 Confirm Cancel Order'}
               </button>
               <button onClick={() => setShowCancelModal(false)} style={{ width:'100%', background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:12, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Keep Order Active</button>
