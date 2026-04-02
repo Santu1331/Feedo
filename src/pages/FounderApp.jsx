@@ -21,10 +21,9 @@ export default function FounderApp() {
   const [newOrderAlert, setNewOrderAlert] = useState(null)
   const prevOrderCountRef = useRef(0)
   const { playNotifSound, startAlarm, stopAlarm, unlockAudio } = useOrderAlert()
-  usePendingOrderNotifier(true) // trigger FCM every 10 sec
+  usePendingOrderNotifier(true)
   const [audioUnlocked, setAudioUnlocked] = useState(false)
 
-  // Unlock audio on first click
   useEffect(() => {
     const unlock = () => { unlockAudio(); setAudioUnlocked(true) }
     document.addEventListener('click', unlock, { once: true })
@@ -34,9 +33,10 @@ export default function FounderApp() {
       document.removeEventListener('touchstart', unlock)
     }
   }, [])
-  const [analyticsTab, setAnalyticsTab] = useState('overview') // overview, items, vendors, users, monthly
-  const [orderFilter, setOrderFilter] = useState('all') // all, delivered, cancelled, pending, preparing
-  const [users, setUsers] = useState([]) // all users
+
+  const [analyticsTab, setAnalyticsTab] = useState('overview')
+  const [orderFilter, setOrderFilter] = useState('all')
+  const [users, setUsers] = useState([])
 
   // Support ticket states
   const [supportTickets, setSupportTickets] = useState([])
@@ -47,17 +47,15 @@ export default function FounderApp() {
   // Excel export states
   const [exportMonth, setExportMonth] = useState(new Date().getMonth())
   const [exportYear, setExportYear] = useState(new Date().getFullYear())
-  const [exportType, setExportType] = useState('all') // all, vendor, monthly
 
   // Photo states
   const [vendorPhotoFile, setVendorPhotoFile] = useState(null)
   const [vendorPhotoPreview, setVendorPhotoPreview] = useState(null)
   const [photoProgress, setPhotoProgress] = useState(0)
-  const [uploadingPhotoFor, setUploadingPhotoFor] = useState(null) // vendorId
+  const [uploadingPhotoFor, setUploadingPhotoFor] = useState(null)
   const [existingProgress, setExistingProgress] = useState(0)
 
   const photoRef = useRef()
-  const existingPhotoRef = useRef()
 
   // Location for new vendor
   const [newVendorLoc, setNewVendorLoc] = useState(null)
@@ -67,18 +65,62 @@ export default function FounderApp() {
   const [searchingLoc, setSearchingLoc] = useState(false)
   const [detectingLoc, setDetectingLoc] = useState(false)
 
+  // ── BROADCAST STATES ──────────────────────────────────────────────────────
+  const [broadcastMsg, setBroadcastMsg] = useState('')
+  const [broadcastTitle, setBroadcastTitle] = useState('')
+  const [broadcastType, setBroadcastType] = useState('both') // 'whatsapp' | 'email' | 'both'
+  const [broadcastTarget, setBroadcastTarget] = useState('all') // 'all' | 'active' | 'inactive'
+  const [broadcastTemplate, setBroadcastTemplate] = useState('')
+  const [sendingBroadcast, setSendingBroadcast] = useState(false)
+  const [broadcastProgress, setBroadcastProgress] = useState(0)
+  const [broadcastDone, setBroadcastDone] = useState(null) // { sent, failed, skipped }
+  const [broadcastHistory, setBroadcastHistory] = useState([])
+  const [previewMode, setPreviewMode] = useState(false)
+
+  // Message templates
+  const TEMPLATES = [
+    {
+      id: 'new_restaurant',
+      label: '🍽️ New Restaurant',
+      title: '🎉 New Restaurant Just Added on FeedoZone!',
+      msg: `Hi {name}! 👋\n\nGreat news! A brand new restaurant has just joined FeedoZone near you! 🍽️\n\nExplore their fresh menu and place your first order today.\n\n👉 Open the FeedoZone app now and discover what's new!\n\nHappy eating! 😋\n— FeedoZone Team`
+    },
+    {
+      id: 'order_more',
+      label: '🛒 Order More',
+      title: '😋 We Miss You! Order Your Favourite Food Today',
+      msg: `Hi {name}! 🙏\n\nIt's been a while since your last order on FeedoZone! 😢\n\nYour favourite restaurants are waiting for you. Order now and enjoy delicious food delivered right to your door! 🚴\n\n🍱 Open FeedoZone and place an order today!\n\n— FeedoZone Team`
+    },
+    {
+      id: 'offer',
+      label: '🎁 Special Offer',
+      title: '🎁 Special Offer Just For You!',
+      msg: `Hi {name}! 🎉\n\nWe have a special offer waiting just for you on FeedoZone!\n\nDon't miss out — open the app now to see what's available near you! 🍕🍚🥘\n\nOrder today and enjoy the best food from Warananagar!\n\n— FeedoZone Team 🔥`
+    },
+    {
+      id: 'weekend',
+      label: '🎊 Weekend Special',
+      title: '🎊 Weekend is Here! Time to Order!',
+      msg: `Hi {name}! 😄\n\nHappy Weekend! 🎉\n\nSkip the cooking and treat yourself to something delicious from FeedoZone! 🍛\n\nNew dishes, same great taste. Open the app and order now! 🚀\n\n— FeedoZone Team`
+    },
+    {
+      id: 'custom',
+      label: '✏️ Custom Message',
+      title: '',
+      msg: ''
+    }
+  ]
+
   useEffect(() => {
     const u1 = getAllOrders(setOrders)
     const u2 = getAllVendors(setVendors)
 
-    // Load all users
     import('firebase/firestore').then(({ collection, onSnapshot, query, where }) => {
       const q = query(collection(db, 'users'), where('role', '==', 'user'))
       const unsub = onSnapshot(q, snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
       return unsub
     })
 
-    // Load support tickets
     import('firebase/firestore').then(({ collection, onSnapshot }) => {
       onSnapshot(collection(db, 'supportTickets'), snap => {
         const tickets = snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -87,10 +129,19 @@ export default function FounderApp() {
       })
     })
 
+    // Load broadcast history
+    import('firebase/firestore').then(({ collection, onSnapshot, query, orderBy, limit }) => {
+      try {
+        const q = query(collection(db, 'broadcastHistory'), orderBy('sentAt', 'desc'), limit(20))
+        onSnapshot(q, snap => {
+          setBroadcastHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+        })
+      } catch (e) { /* collection may not exist yet */ }
+    })
+
     return () => { u1(); u2() }
   }, [])
 
-  // ── DETECT NEW ORDERS ──────────────────────────────────────────────────
   useEffect(() => {
     if (orders.length === 0) { prevOrderCountRef.current = 0; return }
     if (orders.length > prevOrderCountRef.current && prevOrderCountRef.current > 0) {
@@ -101,7 +152,6 @@ export default function FounderApp() {
         duration: 8000, icon: '🍽️',
         style: { background:'#1f2937', color:'#fff', fontFamily:'Poppins' }
       })
-      // Auto stop alarm after 15 seconds
       setTimeout(() => stopAlarm(), 15000)
     }
     prevOrderCountRef.current = orders.length
@@ -118,7 +168,6 @@ export default function FounderApp() {
 
   const f = field => ({ value: form[field], onChange: e => setForm(p=>({...p,[field]:e.target.value})) })
 
-  // ── Location helpers ──────────────────────────────────────────────────────
   const reverseGeocode = async (lat, lng) => {
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
@@ -162,7 +211,6 @@ export default function FounderApp() {
     toast.success(`📍 ${s.name.split(",")[0]}`)
   }
 
-  // ── Photo select for new vendor ───────────────────────────────────────────
   const handlePhotoSelect = (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -171,7 +219,6 @@ export default function FounderApp() {
     setVendorPhotoPreview(URL.createObjectURL(file))
   }
 
-  // ── Create vendor + upload photo ──────────────────────────────────────────
   const handleCreate = async () => {
     const { storeName, email, password, confirmPass, plan, category, address, phone } = form
     if (!storeName) return toast.error('Store name required')
@@ -179,77 +226,54 @@ export default function FounderApp() {
     if (!password) return toast.error('Password required')
     if (password.length < 6) return toast.error('Password must be 6+ characters')
     if (password !== confirmPass) return toast.error('Passwords do not match')
-
     setCreating(true)
     try {
-      // Step 1: Create vendor account
       const vendorUid = await founderCreateVendor(user.uid, { email, password, storeName, address, phone, plan, category, location: newVendorLoc, locationName: newVendorLocName, deliveryCharge: Number(form.deliveryCharge) || 30 })
-
-      // Step 2: Upload photo if selected
       if (vendorPhotoFile && vendorUid) {
         setPhotoProgress(0)
         const photoUrl = await uploadPhoto(vendorPhotoFile, setPhotoProgress)
         await updateVendorStore(vendorUid, { photo: photoUrl })
       }
-
       toast.success(`✅ Vendor "${storeName}" created!`)
       setForm({ storeName:'', email:'', phone:'', password:'', confirmPass:'', address:'', category:'Thali', plan:'₹500/month', deliveryCharge:'30' })
-      setVendorPhotoFile(null)
-      setVendorPhotoPreview(null)
-      setPhotoProgress(0)
-      setNewVendorLoc(null)
-      setNewVendorLocName('')
-      setLocSearch('')
-      setLocSuggestions([])
+      setVendorPhotoFile(null); setVendorPhotoPreview(null); setPhotoProgress(0)
+      setNewVendorLoc(null); setNewVendorLocName(''); setLocSearch(''); setLocSuggestions([])
       setTab('vendors')
     } catch (err) {
       const msg = err.code==='auth/email-already-in-use' ? 'This email is already registered'
         : err.code==='auth/invalid-email' ? 'Invalid email format'
         : err.message || 'Failed to create vendor'
       toast.error(msg)
-    } finally {
-      setCreating(false)
-    }
+    } finally { setCreating(false) }
   }
 
-  // ── Upload photo for existing vendor ──────────────────────────────────────
   const handleExistingVendorPhoto = async (e, vendorId) => {
     const file = e.target.files[0]
     if (!file) return
     if (file.size > 5 * 1024 * 1024) return toast.error('Photo must be under 5MB')
-    setUploadingPhotoFor(vendorId)
-    setExistingProgress(0)
+    setUploadingPhotoFor(vendorId); setExistingProgress(0)
     try {
       const url = await uploadPhoto(file, setExistingProgress)
       await updateVendorStore(vendorId, { photo: url })
       toast.success('Vendor photo updated! ✅')
-    } catch {
-      toast.error('Upload failed. Try again.')
-    }
-    setUploadingPhotoFor(null)
-    setExistingProgress(0)
-    e.target.value = ''
+    } catch { toast.error('Upload failed. Try again.') }
+    setUploadingPhotoFor(null); setExistingProgress(0); e.target.value = ''
   }
 
-  // ── REPLY TO SUPPORT TICKET ───────────────────────────────────────────────
   const handleReplyTicket = async (ticketId, status = 'replied') => {
     if (!replyText.trim()) return toast.error('Enter your reply')
     setSendingReply(true)
     try {
       const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore')
       await updateDoc(doc(db, 'supportTickets', ticketId), {
-        founderReply: replyText.trim(),
-        status,
-        repliedAt: serverTimestamp()
+        founderReply: replyText.trim(), status, repliedAt: serverTimestamp()
       })
-      setReplyText('')
-      setSelectedTicket(null)
+      setReplyText(''); setSelectedTicket(null)
       toast.success('Reply sent! ✅')
     } catch { toast.error('Failed to send reply') }
     setSendingReply(false)
   }
 
-  // ── DELETE ORDER ─────────────────────────────────────────────────────────
   const handleDeleteOrder = async (orderId, e) => {
     e?.stopPropagation()
     if (!window.confirm('Delete this order? This cannot be undone.')) return
@@ -257,21 +281,144 @@ export default function FounderApp() {
       await deleteDoc(doc(db, 'orders', orderId))
       if (selectedOrder?.id === orderId) setSelectedOrder(null)
       toast.success('Order deleted ✅')
-    } catch (err) {
-      toast.error('Failed to delete order')
-    }
+    } catch { toast.error('Failed to delete order') }
   }
 
-  // ── EXCEL EXPORT ─────────────────────────────────────────────────────────
+  // ── GET BROADCAST TARGET USERS ────────────────────────────────────────────
+  const getBroadcastUsers = () => {
+    if (broadcastTarget === 'all') return users
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const activeUids = new Set(
+      orders
+        .filter(o => o.createdAt?.toDate?.() > thirtyDaysAgo)
+        .map(o => o.userUid)
+    )
+
+    if (broadcastTarget === 'active') {
+      return users.filter(u => activeUids.has(u.id))
+    }
+    if (broadcastTarget === 'inactive') {
+      return users.filter(u => !activeUids.has(u.id))
+    }
+    return users
+  }
+
+  // ── SEND WHATSAPP (opens wa.me links one by one) ──────────────────────────
+  // NOTE: WhatsApp Web API opens individual chat windows.
+  // For bulk WhatsApp, a WhatsApp Business API (like Twilio/Wati) is needed.
+  // This opens the first user's WhatsApp with the message pre-filled.
+  const sendWhatsAppToUser = (phone, name, message) => {
+    const personalised = message.replace(/{name}/g, name || 'there')
+    const encoded = encodeURIComponent(personalised)
+    const number = phone.replace(/\D/g, '')
+    const fullNumber = number.startsWith('91') ? number : '91' + number
+    return `https://wa.me/${fullNumber}?text=${encoded}`
+  }
+
+  // ── SEND EMAIL via mailto ─────────────────────────────────────────────────
+  // NOTE: mailto opens user's email client. For automated bulk email,
+  // integrate EmailJS / Firebase Functions + SendGrid / Nodemailer.
+  const sendEmailToUser = (email, subject, message) => {
+    const encoded = encodeURIComponent(message.replace(/{name}/g, 'there'))
+    return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encoded}`
+  }
+
+  // ── HANDLE BROADCAST ─────────────────────────────────────────────────────
+  const handleBroadcast = async () => {
+    const targetUsers = getBroadcastUsers()
+    const phoneUsers = targetUsers.filter(u => u.mobile || u.phone)
+    const emailUsers = targetUsers.filter(u => u.email)
+
+    if (!broadcastMsg.trim()) return toast.error('Please write a message first')
+    if (targetUsers.length === 0) return toast.error('No users found to send to')
+
+    const sendViaWP = broadcastType === 'whatsapp' || broadcastType === 'both'
+    const sendViaEmail = broadcastType === 'email' || broadcastType === 'both'
+
+    setSendingBroadcast(true)
+    setBroadcastProgress(0)
+    setBroadcastDone(null)
+
+    let sent = 0
+    let skipped = 0
+
+    try {
+      // Save to Firestore broadcast history
+      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
+      await addDoc(collection(db, 'broadcastHistory'), {
+        title: broadcastTitle || 'Broadcast',
+        message: broadcastMsg,
+        type: broadcastType,
+        target: broadcastTarget,
+        totalUsers: targetUsers.length,
+        sentAt: serverTimestamp(),
+        sentBy: user?.email || 'founder'
+      })
+
+      // ── WHATSAPP: Opens wa.me links for each user with phone number ──
+      if (sendViaWP) {
+        const wpUsers = targetUsers.filter(u => u.mobile || u.phone)
+        if (wpUsers.length === 0) {
+          toast.error('No users have WhatsApp numbers saved')
+        } else {
+          // Open first 3 users' WhatsApp automatically, rest copy-ready
+          wpUsers.slice(0, 3).forEach((u, i) => {
+            setTimeout(() => {
+              const phone = u.mobile || u.phone
+              const url = sendWhatsAppToUser(phone, u.name, broadcastMsg)
+              window.open(url, '_blank')
+            }, i * 800)
+          })
+          sent += wpUsers.length
+          if (wpUsers.length > 3) {
+            toast(`📱 Opened 3 WhatsApp chats. ${wpUsers.length - 3} more saved below.`, { duration: 5000 })
+          }
+        }
+      }
+
+      // ── EMAIL: Opens mailto for each user ──
+      if (sendViaEmail) {
+        const emUsers = targetUsers.filter(u => u.email)
+        if (emUsers.length === 0) {
+          toast.error('No users have email addresses saved')
+        } else {
+          // Build mailto with BCC for bulk (max ~50 at a time)
+          const bccList = emUsers.slice(0, 50).map(u => u.email).join(',')
+          const personalised = broadcastMsg.replace(/{name}/g, 'there')
+          const subject = encodeURIComponent(broadcastTitle || 'Message from FeedoZone')
+          const body = encodeURIComponent(personalised)
+          const mailtoUrl = `mailto:?bcc=${encodeURIComponent(bccList)}&subject=${subject}&body=${body}`
+          window.open(mailtoUrl, '_blank')
+          sent += emUsers.length
+        }
+      }
+
+      setBroadcastProgress(100)
+      setBroadcastDone({
+        sent,
+        skipped,
+        wpCount: sendViaWP ? targetUsers.filter(u => u.mobile || u.phone).length : 0,
+        emailCount: sendViaEmail ? targetUsers.filter(u => u.email).length : 0,
+      })
+      toast.success(`✅ Broadcast sent to ${sent} users!`)
+
+    } catch (err) {
+      console.error(err)
+      toast.error('Broadcast failed: ' + err.message)
+    }
+
+    setSendingBroadcast(false)
+  }
+
+  // ── EXPORT ────────────────────────────────────────────────────────────────
   const exportToExcel = (type) => {
     let data = []
     let filename = ''
-
     const formatDate = (o) => o.createdAt?.toDate?.()?.toLocaleDateString('en-IN') || ''
     const formatTime = (o) => o.createdAt?.toDate?.()?.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'}) || ''
 
     if (type === 'monthly') {
-      // Filter by selected month/year
       data = orders.filter(o => {
         const d = o.createdAt?.toDate?.()
         return d && d.getMonth() === exportMonth && d.getFullYear() === exportYear
@@ -292,110 +439,62 @@ export default function FounderApp() {
 
     if (data.length === 0) return toast.error('No orders found for selected period!')
 
-    // Build CSV
-    const headers = ['Order Date', 'Order Time', 'Customer Name', 'Customer Phone', 'Vendor', 'Items', 'Subtotal', 'Delivery Fee', 'Total', 'Payment', 'Status', 'Address']
-    
+    const headers = ['Order Date','Order Time','Customer Name','Customer Phone','Vendor','Items','Subtotal','Delivery Fee','Total','Payment','Status','Address']
     const rows = data.map(o => [
-      formatDate(o),
-      formatTime(o),
-      o.userName || '',
-      o.userPhone || '',
-      o.vendorName || '',
-      o.items?.map(i => i.qty + 'x ' + i.name).join(' | ') || '',
-      o.subtotal || '',
-      o.deliveryFee || '',
-      o.total || '',
-      o.paymentMode || 'COD',
-      o.status || '',
-      (o.address || '').replace(/,/g, ';')
+      formatDate(o), formatTime(o), o.userName||'', o.userPhone||'', o.vendorName||'',
+      o.items?.map(i=>i.qty+'x '+i.name).join(' | ')||'',
+      o.subtotal||'', o.deliveryFee||'', o.total||'', o.paymentMode||'COD', o.status||'',
+      (o.address||'').replace(/,/g,';')
     ])
-
-    // Add summary row
     const totalRevenue = data.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0)
-    rows.push([])
-    rows.push(['SUMMARY', '', '', '', '', '', '', '', '', '', '', ''])
-    rows.push(['Total Orders', data.length, '', '', '', '', '', '', '', '', '', ''])
-    rows.push(['Delivered', data.filter(o=>o.status==='delivered').length, '', '', '', '', '', '', '', '', '', ''])
-    rows.push(['Cancelled', data.filter(o=>o.status==='cancelled').length, '', '', '', '', '', '', '', '', '', ''])
-    rows.push(['Total Revenue (Delivered)', '', '', '', '', '', '', '', '₹' + totalRevenue, '', '', ''])
+    rows.push([], ['SUMMARY','','','','','','','','','','',''])
+    rows.push(['Total Orders', data.length,'','','','','','','','','',''])
+    rows.push(['Delivered', data.filter(o=>o.status==='delivered').length,'','','','','','','','','',''])
+    rows.push(['Cancelled', data.filter(o=>o.status==='cancelled').length,'','','','','','','','','',''])
+    rows.push(['Total Revenue (Delivered)','','','','','','','','₹'+totalRevenue,'','',''])
 
-    const csvContent = [headers, ...rows]
-      .map(row => row.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(','))
-      .join('\n')
-
-    // Download
-    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const csvContent = [headers,...rows].map(row=>row.map(cell=>'"'+String(cell).replace(/"/g,'""')+'"').join(',')).join('\n')
+    const blob = new Blob(['﻿'+csvContent],{type:'text/csv;charset=utf-8;'})
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
+    const a = document.createElement('a'); a.href=url; a.download=filename; a.click()
     URL.revokeObjectURL(url)
     toast.success(`✅ Downloaded: ${filename}`)
   }
 
-  // Vendor-wise export
   const exportVendorWise = () => {
     if (vendors.length === 0) return toast.error('No vendors found!')
-
-    const rows = [['Vendor Name', 'Email', 'Phone', 'Category', 'Plan', 'Total Orders', 'Delivered Orders', 'Total Revenue', 'Status']]
-
+    const rows = [['Vendor Name','Email','Phone','Category','Plan','Total Orders','Delivered Orders','Total Revenue','Status']]
     vendors.forEach(v => {
-      const vOrders = orders.filter(o => o.vendorUid === v.id)
-      const delivered = vOrders.filter(o => o.status === 'delivered')
-      const revenue = delivered.reduce((s,o) => s+(o.total||0), 0)
-      rows.push([
-        v.storeName || '',
-        v.email || '',
-        v.phone || '',
-        v.category || '',
-        v.plan || '',
-        vOrders.length,
-        delivered.length,
-        '₹' + revenue,
-        v.isOpen ? 'Open' : 'Closed'
-      ])
+      const vOrders = orders.filter(o=>o.vendorUid===v.id)
+      const delivered = vOrders.filter(o=>o.status==='delivered')
+      const revenue = delivered.reduce((s,o)=>s+(o.total||0),0)
+      rows.push([v.storeName||'',v.email||'',v.phone||'',v.category||'',v.plan||'',vOrders.length,delivered.length,'₹'+revenue,v.isOpen?'Open':'Closed'])
     })
-
-    const csvContent = rows
-      .map(row => row.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(','))
-      .join('\n')
-
-    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const csvContent = rows.map(row=>row.map(cell=>'"'+String(cell).replace(/"/g,'""')+'"').join(',')).join('\n')
+    const blob = new Blob(['﻿'+csvContent],{type:'text/csv;charset=utf-8;'})
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'FeedoZone_Vendor_Report.csv'
-    a.click()
+    const a = document.createElement('a'); a.href=url; a.download='FeedoZone_Vendor_Report.csv'; a.click()
     URL.revokeObjectURL(url)
     toast.success('✅ Vendor report downloaded!')
   }
 
-  // ── DELETE VENDOR ────────────────────────────────────────────────────────
   const handleDeleteVendor = async (vendorId, vendorName) => {
     if (!window.confirm(`Delete "${vendorName}"? This cannot be undone!`)) return
     try {
       await deleteDoc(doc(db, 'vendors', vendorId))
       await deleteDoc(doc(db, 'users', vendorId))
       toast.success(`"${vendorName}" deleted!`)
-    } catch (err) {
-      toast.error('Delete failed: ' + err.message)
-    }
+    } catch (err) { toast.error('Delete failed: ' + err.message) }
   }
 
-  // ── MOST ORDERED ITEMS ────────────────────────────────────────────────────
   const getMostOrdered = () => {
     const counts = {}
     orders.forEach(o => {
       o.items?.forEach(item => {
-        const key = item.name
-        counts[key] = (counts[key] || 0) + item.qty
+        counts[item.name] = (counts[item.name] || 0) + item.qty
       })
     })
-    return Object.entries(counts)
-      .sort((a,b) => b[1]-a[1])
-      .slice(0, 10)
-      .map(([name, qty]) => ({ name, qty }))
+    return Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([name,qty])=>({name,qty}))
   }
 
   const inp = {
@@ -406,10 +505,12 @@ export default function FounderApp() {
     marginTop:4, boxSizing:'border-box'
   }
 
+  const targetUsers = getBroadcastUsers()
+
   return (
     <div style={{ maxWidth:430, margin:'0 auto', background:'#fff', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' }}>
 
-      {/* ── NEW ORDER ALERT (Founder) ── */}
+      {/* ── NEW ORDER ALERT ── */}
       {newOrderAlert && (
         <div style={{ position:'fixed', top:0, left:'50%', transform:'translateX(-50%)', zIndex:9999, width:'100%', maxWidth:430, padding:'12px 16px', background:'linear-gradient(135deg,#E24B4A,#c73232)', fontFamily:'Poppins,sans-serif', boxShadow:'0 4px 20px rgba(0,0,0,0.3)' }}>
           <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -419,14 +520,8 @@ export default function FounderApp() {
               <div style={{ fontSize:11, color:'rgba(255,255,255,0.85)' }}>{newOrderAlert.userName} · {newOrderAlert.vendorName}</div>
             </div>
             <div style={{ display:'flex', gap:6 }}>
-              <button
-                onClick={() => { stopAlarm(); setTab('orders'); setSelectedOrder(newOrderAlert); setNewOrderAlert(null) }}
-                style={{ background:'rgba(255,255,255,0.25)', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
-              >View</button>
-              <button
-                onClick={() => { stopAlarm(); setNewOrderAlert(null) }}
-                style={{ background:'rgba(255,255,255,0.15)', color:'#fff', border:'none', borderRadius:8, padding:'6px 10px', fontSize:14, cursor:'pointer' }}
-              >✕</button>
+              <button onClick={() => { stopAlarm(); setTab('orders'); setSelectedOrder(newOrderAlert); setNewOrderAlert(null) }} style={{ background:'rgba(255,255,255,0.25)', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>View</button>
+              <button onClick={() => { stopAlarm(); setNewOrderAlert(null) }} style={{ background:'rgba(255,255,255,0.15)', color:'#fff', border:'none', borderRadius:8, padding:'6px 10px', fontSize:14, cursor:'pointer' }}>✕</button>
             </div>
           </div>
         </div>
@@ -445,12 +540,13 @@ export default function FounderApp() {
       {/* ── NAV ── */}
       <div style={{ display:'flex', background:'#0a0a0a', overflowX:'auto', flexShrink:0 }}>
         {[
-          { id:'overview',  label:'Overview' },
-          { id:'orders',    label:`Orders (${todayOrders.length})` },
-          { id:'vendors',   label:`Vendors (${vendors.length})` },
-          { id:'addvendor', label:'+ Add Vendor' },
-          { id:'support',   label:`💬 Support${supportTickets.filter(t=>t.status==='open').length>0?` (${supportTickets.filter(t=>t.status==='open').length})`:''}` },
-          { id:'analytics', label:'📊 Analytics' }
+          { id:'overview',   label:'Overview' },
+          { id:'orders',     label:`Orders (${todayOrders.length})` },
+          { id:'vendors',    label:`Vendors (${vendors.length})` },
+          { id:'addvendor',  label:'+ Add Vendor' },
+          { id:'broadcast',  label:`📣 Broadcast${users.length > 0 ? ` (${users.length})` : ''}` },
+          { id:'support',    label:`💬 Support${supportTickets.filter(t=>t.status==='open').length>0?` (${supportTickets.filter(t=>t.status==='open').length})`:''}` },
+          { id:'analytics',  label:'📊 Analytics' }
         ].map(t2 => (
           <button key={t2.id} onClick={() => setTab(t2.id)} style={{
             flexShrink:0, padding:'11px 14px', fontSize:12, fontWeight:500,
@@ -489,84 +585,36 @@ export default function FounderApp() {
             </div>
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:11, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>Logout</button>
 
-            {/* ── EXCEL EXPORT SECTION ── */}
+            {/* Excel Export */}
             <div style={{ marginTop:16, background:'#f9fafb', borderRadius:12, padding:14, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
               <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
                 <span style={{ fontSize:18 }}>📊</span>
                 <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>Export to Excel</div>
-                <span style={{ fontSize:10, background:'#dcfce7', color:'#166534', padding:'2px 8px', borderRadius:10, fontWeight:600 }}>CSV / Excel</span>
               </div>
-
-              {/* Quick export buttons */}
               <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:14 }}>
-                <button
-                  onClick={() => exportToExcel('today')}
-                  style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}
-                >
-                  <span style={{ fontSize:18 }}>📅</span>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:600, color:'#1f2937' }}>Today's Orders</div>
-                    <div style={{ fontSize:11, color:'#9ca3af' }}>{todayOrders.length} orders · ₹{todayRevenue} revenue</div>
-                  </div>
-                  <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>↓ Download</span>
-                </button>
-
-                <button
-                  onClick={() => exportToExcel('all')}
-                  style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}
-                >
-                  <span style={{ fontSize:18 }}>📦</span>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:600, color:'#1f2937' }}>All Orders</div>
-                    <div style={{ fontSize:11, color:'#9ca3af' }}>{orders.length} total orders</div>
-                  </div>
-                  <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>↓ Download</span>
-                </button>
-
-                <button
-                  onClick={exportVendorWise}
-                  style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}
-                >
-                  <span style={{ fontSize:18 }}>🏪</span>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:600, color:'#1f2937' }}>Vendor-wise Report</div>
-                    <div style={{ fontSize:11, color:'#9ca3af' }}>{vendors.length} vendors · orders + revenue</div>
-                  </div>
-                  <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>↓ Download</span>
-                </button>
+                {[
+                  { icon:'📅', label:"Today's Orders", sub:`${todayOrders.length} orders · ₹${todayRevenue}`, fn: () => exportToExcel('today') },
+                  { icon:'📦', label:'All Orders', sub:`${orders.length} total orders`, fn: () => exportToExcel('all') },
+                  { icon:'🏪', label:'Vendor-wise Report', sub:`${vendors.length} vendors`, fn: exportVendorWise },
+                ].map(b => (
+                  <button key={b.label} onClick={b.fn} style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}>
+                    <span style={{ fontSize:18 }}>{b.icon}</span>
+                    <div style={{ flex:1 }}><div style={{ fontSize:12, fontWeight:600, color:'#1f2937' }}>{b.label}</div><div style={{ fontSize:11, color:'#9ca3af' }}>{b.sub}</div></div>
+                    <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>↓ Download</span>
+                  </button>
+                ))}
               </div>
-
-              {/* Monthly export */}
               <div style={{ background:'#fff', borderRadius:10, padding:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
                 <div style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:10 }}>📆 Monthly Export</div>
                 <div style={{ display:'flex', gap:8, marginBottom:10 }}>
-                  <select
-                    value={exportMonth}
-                    onChange={e => setExportMonth(Number(e.target.value))}
-                    style={{ flex:1, padding:'9px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none', background:'#fff' }}
-                  >
-                    {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m,i) => (
-                      <option key={i} value={i}>{m}</option>
-                    ))}
+                  <select value={exportMonth} onChange={e => setExportMonth(Number(e.target.value))} style={{ flex:1, padding:'9px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none', background:'#fff' }}>
+                    {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m,i) => <option key={i} value={i}>{m}</option>)}
                   </select>
-                  <select
-                    value={exportYear}
-                    onChange={e => setExportYear(Number(e.target.value))}
-                    style={{ width:90, padding:'9px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none', background:'#fff' }}
-                  >
-                    {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                  <select value={exportYear} onChange={e => setExportYear(Number(e.target.value))} style={{ width:90, padding:'9px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none', background:'#fff' }}>
+                    {[2024,2025,2026,2027].map(y => <option key={y} value={y}>{y}</option>)}
                   </select>
                 </div>
-                <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8 }}>
-                  {orders.filter(o => {
-                    const d = o.createdAt?.toDate?.()
-                    return d && d.getMonth() === exportMonth && d.getFullYear() === exportYear
-                  }).length} orders in {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][exportMonth]} {exportYear}
-                </div>
-                <button
-                  onClick={() => exportToExcel('monthly')}
-                  style={{ width:'100%', background:'#16a34a', color:'#fff', border:'none', padding:'10px 0', borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
-                >
+                <button onClick={() => exportToExcel('monthly')} style={{ width:'100%', background:'#16a34a', color:'#fff', border:'none', padding:'10px 0', borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
                   📊 Download Monthly Report
                 </button>
               </div>
@@ -574,10 +622,364 @@ export default function FounderApp() {
           </>
         )}
 
+        {/* ── BROADCAST TAB ── */}
+        {tab==='broadcast' && (
+          <>
+            {/* ── HEADER CARD ── */}
+            <div style={{ background:'linear-gradient(135deg,#1a1a1a,#2d1a00)', borderRadius:14, padding:'16px', marginBottom:16, position:'relative', overflow:'hidden' }}>
+              <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>📣</div>
+              <div style={{ fontSize:10, color:'#fbbf24', fontWeight:700, letterSpacing:1.5, marginBottom:4, textTransform:'uppercase' }}>Customer Retention</div>
+              <div style={{ fontSize:17, fontWeight:800, color:'#fff', marginBottom:4 }}>Broadcast Message</div>
+              <div style={{ fontSize:12, color:'#9ca3af', lineHeight:1.5 }}>Send WhatsApp or Email to all your users at once to bring them back and increase orders.</div>
+              <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', textAlign:'center', flex:1 }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>{users.length}</div>
+                  <div style={{ fontSize:10, color:'#9ca3af' }}>Total Users</div>
+                </div>
+                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', textAlign:'center', flex:1 }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:'#4ade80' }}>{users.filter(u=>u.mobile||u.phone).length}</div>
+                  <div style={{ fontSize:10, color:'#9ca3af' }}>Have WhatsApp</div>
+                </div>
+                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', textAlign:'center', flex:1 }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:'#60a5fa' }}>{users.filter(u=>u.email).length}</div>
+                  <div style={{ fontSize:10, color:'#9ca3af' }}>Have Email</div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── SUCCESS RESULT ── */}
+            {broadcastDone && (
+              <div style={{ background:'#f0fdf4', borderRadius:12, padding:16, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+                <div style={{ fontSize:24, marginBottom:8 }}>✅</div>
+                <div style={{ fontSize:14, fontWeight:700, color:'#166534', marginBottom:8 }}>Broadcast Sent!</div>
+                <div style={{ display:'flex', gap:10 }}>
+                  {broadcastDone.wpCount > 0 && (
+                    <div style={{ background:'#fff', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+                      <div style={{ fontSize:16, fontWeight:700, color:'#25D366' }}>{broadcastDone.wpCount}</div>
+                      <div style={{ fontSize:10, color:'#6b7280' }}>WhatsApp</div>
+                    </div>
+                  )}
+                  {broadcastDone.emailCount > 0 && (
+                    <div style={{ background:'#fff', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+                      <div style={{ fontSize:16, fontWeight:700, color:'#3b82f6' }}>{broadcastDone.emailCount}</div>
+                      <div style={{ fontSize:10, color:'#6b7280' }}>Email</div>
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => setBroadcastDone(null)} style={{ width:'100%', background:'transparent', color:'#16a34a', borderWidth:1, borderStyle:'solid', borderColor:'#86efac', padding:'9px 0', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginTop:10 }}>
+                  Send Another
+                </button>
+              </div>
+            )}
+
+            {/* ── STEP 1: CHOOSE TEMPLATE ── */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ background:'#E24B4A', color:'#fff', borderRadius:'50%', width:20, height:20, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>1</span>
+                Choose a Template
+              </div>
+              <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:4 }}>
+                {TEMPLATES.map(t => (
+                  <button key={t.id}
+                    onClick={() => {
+                      setBroadcastTemplate(t.id)
+                      if (t.id !== 'custom') {
+                        setBroadcastMsg(t.msg)
+                        setBroadcastTitle(t.title)
+                      } else {
+                        setBroadcastMsg('')
+                        setBroadcastTitle('')
+                      }
+                    }}
+                    style={{
+                      flexShrink:0, padding:'8px 14px', borderRadius:20, cursor:'pointer', fontFamily:'Poppins',
+                      fontSize:11, fontWeight:600, whiteSpace:'nowrap',
+                      borderWidth:1.5, borderStyle:'solid',
+                      borderColor: broadcastTemplate===t.id ? '#E24B4A' : '#e5e7eb',
+                      background: broadcastTemplate===t.id ? '#fff5f5' : '#fff',
+                      color: broadcastTemplate===t.id ? '#E24B4A' : '#6b7280',
+                    }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── STEP 2: TARGET AUDIENCE ── */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ background:'#E24B4A', color:'#fff', borderRadius:'50%', width:20, height:20, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>2</span>
+                Target Audience
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                {[
+                  { id:'all', label:'All Users', count: users.length, icon:'👥' },
+                  { id:'active', label:'Active (30d)', count: (() => { const thirtyDaysAgo = new Date(Date.now()-30*24*60*60*1000); const activeUids = new Set(orders.filter(o=>o.createdAt?.toDate?.()>thirtyDaysAgo).map(o=>o.userUid)); return users.filter(u=>activeUids.has(u.id)).length })(), icon:'🔥' },
+                  { id:'inactive', label:'Inactive', count: (() => { const thirtyDaysAgo = new Date(Date.now()-30*24*60*60*1000); const activeUids = new Set(orders.filter(o=>o.createdAt?.toDate?.()>thirtyDaysAgo).map(o=>o.userUid)); return users.filter(u=>!activeUids.has(u.id)).length })(), icon:'😴' },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setBroadcastTarget(t.id)} style={{
+                    flex:1, padding:'10px 8px', borderRadius:10, cursor:'pointer', fontFamily:'Poppins',
+                    borderWidth:1.5, borderStyle:'solid',
+                    borderColor: broadcastTarget===t.id ? '#E24B4A' : '#e5e7eb',
+                    background: broadcastTarget===t.id ? '#fff5f5' : '#fff',
+                    textAlign:'center'
+                  }}>
+                    <div style={{ fontSize:18, marginBottom:2 }}>{t.icon}</div>
+                    <div style={{ fontSize:11, fontWeight:700, color: broadcastTarget===t.id ? '#E24B4A' : '#1f2937' }}>{t.label}</div>
+                    <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginTop:1 }}>{t.count} users</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── STEP 3: SEND VIA ── */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ background:'#E24B4A', color:'#fff', borderRadius:'50%', width:20, height:20, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>3</span>
+                Send Via
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                {[
+                  { id:'whatsapp', label:'WhatsApp', icon:'💬', color:'#25D366', count: users.filter(u=>u.mobile||u.phone).length },
+                  { id:'email',    label:'Email',     icon:'📧', color:'#3b82f6', count: users.filter(u=>u.email).length },
+                  { id:'both',     label:'Both',      icon:'🚀', color:'#E24B4A', count: users.length },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setBroadcastType(t.id)} style={{
+                    flex:1, padding:'10px 8px', borderRadius:10, cursor:'pointer', fontFamily:'Poppins',
+                    borderWidth:1.5, borderStyle:'solid',
+                    borderColor: broadcastType===t.id ? t.color : '#e5e7eb',
+                    background: broadcastType===t.id ? t.color + '15' : '#fff',
+                    textAlign:'center'
+                  }}>
+                    <div style={{ fontSize:18, marginBottom:2 }}>{t.icon}</div>
+                    <div style={{ fontSize:11, fontWeight:700, color: broadcastType===t.id ? t.color : '#1f2937' }}>{t.label}</div>
+                    <div style={{ fontSize:10, color:'#9ca3af', marginTop:1 }}>{t.count} users</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── STEP 4: WRITE MESSAGE ── */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ background:'#E24B4A', color:'#fff', borderRadius:'50%', width:20, height:20, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>4</span>
+                Write Your Message
+              </div>
+
+              {/* Title (for email subject) */}
+              <div style={{ marginBottom:8 }}>
+                <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Subject / Title (used as email subject)</label>
+                <input
+                  style={inp}
+                  placeholder="e.g. 🎉 New restaurant on FeedoZone!"
+                  value={broadcastTitle}
+                  onChange={e => setBroadcastTitle(e.target.value)}
+                />
+              </div>
+
+              {/* Message body */}
+              <textarea
+                value={broadcastMsg}
+                onChange={e => setBroadcastMsg(e.target.value)}
+                placeholder="Write your message here...&#10;&#10;Tip: Use {name} to personalize — it gets replaced with each user's name!"
+                rows={8}
+                style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'vertical', boxSizing:'border-box', lineHeight:1.7, color:'#1f2937' }}
+              />
+
+              {/* Personalisation tip */}
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:6, padding:'7px 10px', background:'#fef3c7', borderRadius:8 }}>
+                <span style={{ fontSize:13 }}>💡</span>
+                <span style={{ fontSize:11, color:'#92400e' }}>
+                  Write <strong>{'{name}'}</strong> in your message — it gets replaced with each user's real name automatically!
+                </span>
+              </div>
+
+              {/* Character count */}
+              <div style={{ fontSize:11, color: broadcastMsg.length > 1000 ? '#dc2626' : '#9ca3af', marginTop:4, textAlign:'right' }}>
+                {broadcastMsg.length} characters {broadcastMsg.length > 1000 ? '(too long for WhatsApp!)' : ''}
+              </div>
+            </div>
+
+            {/* ── PREVIEW ── */}
+            {broadcastMsg && (
+              <div style={{ marginBottom:14 }}>
+                <button
+                  onClick={() => setPreviewMode(p => !p)}
+                  style={{ width:'100%', padding:'9px 0', background:'#f3f4f6', color:'#374151', border:'none', borderRadius:10, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom: previewMode ? 8 : 0 }}
+                >
+                  {previewMode ? '▲ Hide Preview' : '👁️ Preview Message'}
+                </button>
+                {previewMode && (
+                  <div style={{ background:'#dcfce7', borderRadius:12, padding:14, borderWidth:1, borderStyle:'solid', borderColor:'#86efac' }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:'#166534', marginBottom:8, letterSpacing:0.5 }}>PREVIEW (WhatsApp style)</div>
+                    <div style={{ background:'#fff', borderRadius:12, padding:12, boxShadow:'0 2px 6px rgba(0,0,0,0.08)' }}>
+                      <div style={{ fontSize:12, color:'#1f2937', lineHeight:1.7, whiteSpace:'pre-wrap' }}>
+                        {broadcastMsg.replace(/{name}/g, users[0]?.name || 'Arjun')}
+                      </div>
+                      <div style={{ fontSize:10, color:'#9ca3af', marginTop:8, textAlign:'right' }}>
+                        FeedoZone Team · {new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── SEND BUTTON ── */}
+            <div style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#1f2937' }}>Ready to send?</div>
+                  <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>
+                    Sending to <strong>{targetUsers.length} users</strong> via <strong>{broadcastType === 'both' ? 'WhatsApp + Email' : broadcastType}</strong>
+                  </div>
+                </div>
+                <div style={{ background: targetUsers.length > 0 ? '#dcfce7' : '#fee2e2', borderRadius:20, padding:'4px 10px' }}>
+                  <span style={{ fontSize:11, fontWeight:700, color: targetUsers.length > 0 ? '#16a34a' : '#dc2626' }}>
+                    {targetUsers.length} recipients
+                  </span>
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              {sendingBroadcast && (
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ background:'#e5e7eb', borderRadius:8, overflow:'hidden', height:8, marginBottom:6 }}>
+                    <div style={{ height:'100%', background:'#E24B4A', width:`${broadcastProgress}%`, transition:'width 0.3s', borderRadius:8 }} />
+                  </div>
+                  <div style={{ fontSize:11, color:'#6b7280', textAlign:'center' }}>Sending... {broadcastProgress}%</div>
+                </div>
+              )}
+
+              <div style={{ display:'flex', gap:8 }}>
+                {(broadcastType === 'whatsapp' || broadcastType === 'both') && (
+                  <button
+                    onClick={handleBroadcast}
+                    disabled={sendingBroadcast || !broadcastMsg.trim() || targetUsers.length === 0}
+                    style={{
+                      flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+                      padding:'13px 0', background: (!broadcastMsg.trim() || sendingBroadcast) ? '#d1d5db' : '#25D366',
+                      color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700,
+                      cursor: (!broadcastMsg.trim() || sendingBroadcast) ? 'not-allowed' : 'pointer',
+                      fontFamily:'Poppins'
+                    }}
+                  >
+                    <span style={{ fontSize:16 }}>💬</span>
+                    {sendingBroadcast ? 'Sending...' : `WhatsApp (${targetUsers.filter(u=>u.mobile||u.phone).length})`}
+                  </button>
+                )}
+                {(broadcastType === 'email' || broadcastType === 'both') && (
+                  <button
+                    onClick={handleBroadcast}
+                    disabled={sendingBroadcast || !broadcastMsg.trim() || targetUsers.length === 0}
+                    style={{
+                      flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+                      padding:'13px 0', background: (!broadcastMsg.trim() || sendingBroadcast) ? '#d1d5db' : '#3b82f6',
+                      color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700,
+                      cursor: (!broadcastMsg.trim() || sendingBroadcast) ? 'not-allowed' : 'pointer',
+                      fontFamily:'Poppins'
+                    }}
+                  >
+                    <span style={{ fontSize:16 }}>📧</span>
+                    {sendingBroadcast ? 'Sending...' : `Email (${targetUsers.filter(u=>u.email).length})`}
+                  </button>
+                )}
+              </div>
+
+              {/* Important note */}
+              <div style={{ marginTop:10, padding:'8px 12px', background:'#fffbeb', borderRadius:8, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
+                <div style={{ fontSize:11, color:'#92400e', lineHeight:1.6 }}>
+                  <strong>📱 WhatsApp:</strong> Opens chat windows for each user (up to 3 at once). For bulk sending, integrate WhatsApp Business API (Wati/Twilio).<br/>
+                  <strong>📧 Email:</strong> Opens your email client with BCC to all users. Works immediately for up to 50 users.
+                </div>
+              </div>
+            </div>
+
+            {/* ── BROADCAST HISTORY ── */}
+            {broadcastHistory.length > 0 && (
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:10 }}>📋 Recent Broadcasts</div>
+                {broadcastHistory.slice(0,5).map(b => (
+                  <div key={b.id} style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:8, borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:4 }}>
+                      <div style={{ fontSize:12, fontWeight:600, color:'#1f2937', flex:1, marginRight:8 }}>{b.title || 'Broadcast'}</div>
+                      <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+                        {(b.type==='whatsapp'||b.type==='both') && <span style={{ fontSize:9, background:'#dcfce7', color:'#166534', padding:'2px 6px', borderRadius:6, fontWeight:700 }}>WA</span>}
+                        {(b.type==='email'||b.type==='both') && <span style={{ fontSize:9, background:'#dbeafe', color:'#1e40af', padding:'2px 6px', borderRadius:6, fontWeight:700 }}>Email</span>}
+                      </div>
+                    </div>
+                    <div style={{ fontSize:11, color:'#6b7280' }}>
+                      Sent to {b.totalUsers} users · {b.target} · {b.sentAt?.toDate?.()?.toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})||''}
+                    </div>
+                    <div style={{ marginTop:6, fontSize:11, color:'#374151', lineHeight:1.5, background:'#fff', borderRadius:6, padding:'6px 8px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+                      {b.message?.slice(0,80)}{b.message?.length>80?'...':''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ALL USER PHONE LIST (for manual WhatsApp) */}
+            <div style={{ background:'#f9fafb', borderRadius:12, padding:14, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', marginBottom:16 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:10 }}>📱 All User Contacts ({users.length})</div>
+              <div style={{ fontSize:11, color:'#6b7280', marginBottom:10, lineHeight:1.5 }}>
+                Send WhatsApp individually by tapping a user, or copy all numbers for bulk messaging tools.
+              </div>
+
+              {/* Copy all numbers button */}
+              <button
+                onClick={() => {
+                  const nums = users.filter(u=>u.mobile||u.phone).map(u=>'91'+(u.mobile||u.phone).replace(/\D/g,'')).join('\n')
+                  navigator.clipboard?.writeText(nums).then(() => toast.success('All numbers copied!')).catch(() => toast.error('Copy failed'))
+                }}
+                style={{ width:'100%', padding:'9px 0', background:'#fff', color:'#25D366', borderWidth:1.5, borderStyle:'solid', borderColor:'#86efac', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10 }}
+              >
+                📋 Copy All WhatsApp Numbers
+              </button>
+
+              {users.slice(0,20).map((u, i) => (
+                <div key={u.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottomWidth: i < Math.min(users.length,20)-1 ? 1 : 0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+                  <div style={{ width:32, height:32, borderRadius:'50%', background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    <span style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{u.name?.[0]?.toUpperCase()||'U'}</span>
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:600, color:'#1f2937' }}>{u.name||'—'}</div>
+                    <div style={{ fontSize:11, color:'#9ca3af' }}>{u.mobile||u.phone||'No number'}</div>
+                  </div>
+                  {(u.mobile || u.phone) && (
+                    <a
+                      href={`https://wa.me/91${(u.mobile||u.phone).replace(/\D/g,'')}?text=${encodeURIComponent(broadcastMsg.replace(/{name}/g,u.name||'there')||'Hi '+u.name+'! Order from FeedoZone today 🍽️')}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 10px', background:'#25D366', borderRadius:8, textDecoration:'none', flexShrink:0 }}
+                    >
+                      <span style={{ fontSize:13 }}>💬</span>
+                      <span style={{ fontSize:11, fontWeight:600, color:'#fff', fontFamily:'Poppins' }}>WA</span>
+                    </a>
+                  )}
+                  {u.email && (
+                    <a
+                      href={`mailto:${u.email}?subject=${encodeURIComponent(broadcastTitle||'Message from FeedoZone')}&body=${encodeURIComponent(broadcastMsg.replace(/{name}/g,u.name||'there')||'Hi from FeedoZone!')}`}
+                      style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 10px', background:'#3b82f6', borderRadius:8, textDecoration:'none', flexShrink:0 }}
+                    >
+                      <span style={{ fontSize:13 }}>📧</span>
+                      <span style={{ fontSize:11, fontWeight:600, color:'#fff', fontFamily:'Poppins' }}>Email</span>
+                    </a>
+                  )}
+                </div>
+              ))}
+              {users.length > 20 && (
+                <div style={{ textAlign:'center', paddingTop:10, fontSize:11, color:'#9ca3af' }}>
+                  +{users.length-20} more users · use bulk send above
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
         {/* ── ORDERS ── */}
         {tab==='orders' && (
           <>
-            {/* Order detail modal */}
             {selectedOrder && (
               <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
                 onClick={e => { if(e.target===e.currentTarget) setSelectedOrder(null) }}>
@@ -587,26 +989,18 @@ export default function FounderApp() {
                     <button onClick={() => setSelectedOrder(null)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer' }}>✕</button>
                   </div>
                   <div style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:12 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>Customer</span>
-                      <span style={{ fontSize:12, fontWeight:600 }}>{selectedOrder.userName}</span>
-                    </div>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>Phone</span>
-                      <span style={{ fontSize:12, fontWeight:600 }}>{selectedOrder.userPhone || '—'}</span>
-                    </div>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>Vendor</span>
-                      <span style={{ fontSize:12, fontWeight:600 }}>{selectedOrder.vendorName}</span>
-                    </div>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>Address</span>
-                      <span style={{ fontSize:12, fontWeight:600, maxWidth:180, textAlign:'right' }}>{selectedOrder.address || '—'}</span>
-                    </div>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>Date</span>
-                      <span style={{ fontSize:12 }}>{selectedOrder.createdAt?.toDate?.()?.toLocaleString('en-IN') || '—'}</span>
-                    </div>
+                    {[
+                      ['Customer', selectedOrder.userName],
+                      ['Phone', selectedOrder.userPhone||'—'],
+                      ['Vendor', selectedOrder.vendorName],
+                      ['Address', selectedOrder.address||'—'],
+                      ['Date', selectedOrder.createdAt?.toDate?.()?.toLocaleString('en-IN')||'—'],
+                    ].map(([k,v]) => (
+                      <div key={k} style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                        <span style={{ fontSize:12, color:'#6b7280' }}>{k}</span>
+                        <span style={{ fontSize:12, fontWeight:600, maxWidth:200, textAlign:'right' }}>{v}</span>
+                      </div>
+                    ))}
                     <div style={{ display:'flex', justifyContent:'space-between' }}>
                       <span style={{ fontSize:12, color:'#6b7280' }}>Status</span>
                       <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:8,
@@ -619,57 +1013,43 @@ export default function FounderApp() {
                   {selectedOrder.items?.map((item, i) => (
                     <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
                       <span style={{ fontSize:13 }}>{item.qty}x {item.name}</span>
-                      <span style={{ fontSize:13, fontWeight:600 }}>₹{item.price * item.qty}</span>
+                      <span style={{ fontSize:13, fontWeight:600 }}>₹{item.price*item.qty}</span>
                     </div>
                   ))}
                   <div style={{ display:'flex', justifyContent:'space-between', marginTop:10, paddingTop:10, borderTopWidth:2, borderTopStyle:'solid', borderTopColor:'#e5e7eb' }}>
                     <span style={{ fontSize:14, fontWeight:700 }}>Total</span>
                     <span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{selectedOrder.total}</span>
                   </div>
-                  <button
-                    onClick={(e) => handleDeleteOrder(selectedOrder.id, e)}
-                    style={{ width:'100%', marginTop:14, background:'#fee2e2', color:'#dc2626', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
-                  >
+                  <button onClick={(e) => handleDeleteOrder(selectedOrder.id, e)} style={{ width:'100%', marginTop:14, background:'#fee2e2', color:'#dc2626', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
                     🗑️ Delete This Order
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Order filters */}
             <div style={{ display:'flex', gap:6, marginBottom:12, overflowX:'auto', paddingBottom:4 }}>
               {[
-                { id:'all',          label:'All',           count: orders.length },
-                { id:'pending',      label:'Pending',       count: orders.filter(o=>o.status==='pending').length },
-                { id:'preparing',    label:'Preparing',     count: orders.filter(o=>o.status==='preparing'||o.status==='accepted').length },
-                { id:'delivered',    label:'Delivered',     count: orders.filter(o=>o.status==='delivered').length },
-                { id:'cancelled',    label:'Cancelled',     count: orders.filter(o=>o.status==='cancelled').length },
+                { id:'all', label:'All', count: orders.length },
+                { id:'pending', label:'Pending', count: orders.filter(o=>o.status==='pending').length },
+                { id:'preparing', label:'Preparing', count: orders.filter(o=>o.status==='preparing'||o.status==='accepted').length },
+                { id:'delivered', label:'Delivered', count: orders.filter(o=>o.status==='delivered').length },
+                { id:'cancelled', label:'Cancelled', count: orders.filter(o=>o.status==='cancelled').length },
               ].map(f => (
                 <button key={f.id} onClick={() => setOrderFilter(f.id)}
                   style={{ flexShrink:0, padding:'6px 12px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600,
-                    background: orderFilter===f.id ? '#E24B4A' : '#f3f4f6',
-                    color: orderFilter===f.id ? '#fff' : '#6b7280'
-                  }}>
+                    background: orderFilter===f.id?'#E24B4A':'#f3f4f6', color: orderFilter===f.id?'#fff':'#6b7280' }}>
                   {f.label} ({f.count})
                 </button>
               ))}
             </div>
-            <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8 }}>
-              {orderFilter === 'all' ? orders.length : orders.filter(o => {
-                if (orderFilter === 'preparing') return o.status==='preparing'||o.status==='accepted'
-                return o.status === orderFilter
-              }).length} orders · tap for details
-            </div>
-            {orders.length===0 && <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>No orders yet</div>}
+
             {orders.filter(o => {
               if (orderFilter === 'all') return true
               if (orderFilter === 'preparing') return o.status==='preparing'||o.status==='accepted'
               return o.status === orderFilter
             }).slice(0,50).map(o => (
               <div key={o.id} onClick={() => setSelectedOrder(o)} style={{ display:'flex', gap:8, alignItems:'center', padding:'10px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', cursor:'pointer' }}>
-                <div style={{ fontSize:11, color:'#9ca3af', minWidth:42 }}>
-                  {o.createdAt?.toDate?.()?.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})||'--'}
-                </div>
+                <div style={{ fontSize:11, color:'#9ca3af', minWidth:42 }}>{o.createdAt?.toDate?.()?.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})||'--'}</div>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:12, fontWeight:600 }}>{o.userName}</div>
                   <div style={{ fontSize:11, color:'#6b7280' }}>{o.vendorName} · {o.items?.length} item(s)</div>
@@ -681,10 +1061,7 @@ export default function FounderApp() {
                     background: o.status==='delivered'?'#d1fae5':o.status==='cancelled'?'#fee2e2':o.status==='preparing'?'#dbeafe':'#fef3c7',
                     color: o.status==='delivered'?'#065f46':o.status==='cancelled'?'#991b1b':o.status==='preparing'?'#1e40af':'#92400e'
                   }}>{o.status?.replace('_',' ')}</span>
-                  <button
-                    onClick={(e) => handleDeleteOrder(o.id, e)}
-                    style={{ background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:6, padding:'3px 8px', fontSize:10, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
-                  >🗑️</button>
+                  <button onClick={(e) => handleDeleteOrder(o.id, e)} style={{ background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:6, padding:'3px 8px', fontSize:10, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>🗑️</button>
                 </div>
               </div>
             ))}
@@ -694,7 +1071,6 @@ export default function FounderApp() {
         {/* ── SUPPORT TICKETS ── */}
         {tab==='support' && (
           <>
-            {/* Ticket detail modal */}
             {selectedTicket && (
               <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
                 onClick={e => { if(e.target===e.currentTarget) { setSelectedTicket(null); setReplyText('') } }}>
@@ -703,113 +1079,59 @@ export default function FounderApp() {
                     <div style={{ fontSize:15, fontWeight:700 }}>Support Ticket</div>
                     <button onClick={() => { setSelectedTicket(null); setReplyText('') }} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer' }}>✕</button>
                   </div>
-                  {/* Ticket info */}
                   <div style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:12 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>From</span>
-                      <span style={{ fontSize:12, fontWeight:600 }}>{selectedTicket.userName}</span>
-                    </div>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>Email</span>
-                      <span style={{ fontSize:12 }}>{selectedTicket.userEmail}</span>
-                    </div>
-                    {selectedTicket.userPhone && (
-                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                        <span style={{ fontSize:12, color:'#6b7280' }}>Phone</span>
-                        <span style={{ fontSize:12 }}>{selectedTicket.userPhone}</span>
-                      </div>
-                    )}
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>Category</span>
-                      <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:10, background:'#fef3c7', color:'#92400e' }}>{selectedTicket.category}</span>
-                    </div>
-                    <div style={{ display:'flex', justifyContent:'space-between' }}>
-                      <span style={{ fontSize:12, color:'#6b7280' }}>Date</span>
-                      <span style={{ fontSize:11, color:'#9ca3af' }}>{selectedTicket.createdAt?.toDate?.()?.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
-                    </div>
+                    {[['From',selectedTicket.userName],['Email',selectedTicket.userEmail],['Category',selectedTicket.category]].map(([k,v]) => (
+                      <div key={k} style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>{k}</span><span style={{ fontSize:12, fontWeight:600 }}>{v}</span></div>
+                    ))}
                   </div>
-                  {/* Message */}
-                  <div style={{ fontSize:12, fontWeight:600, color:'#6b7280', marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>Message</div>
                   <div style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:14, fontSize:13, color:'#374151', lineHeight:1.6 }}>{selectedTicket.message}</div>
-                  {/* Previous reply */}
-                  {selectedTicket.founderReply ? (
+                  {selectedTicket.founderReply && (
                     <div style={{ background:'#eff6ff', borderRadius:10, padding:12, marginBottom:14, borderLeftWidth:3, borderLeftStyle:'solid', borderLeftColor:'#3b82f6' }}>
                       <div style={{ fontSize:11, fontWeight:600, color:'#1e40af', marginBottom:4 }}>👑 Your Previous Reply</div>
                       <div style={{ fontSize:13, color:'#1e3a8a' }}>{selectedTicket.founderReply}</div>
                     </div>
-                  ) : null}
-                  {/* Reply box */}
-                  <div style={{ fontSize:12, fontWeight:600, color:'#6b7280', marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>Your Reply</div>
-                  <textarea
-                    value={replyText}
-                    onChange={e => setReplyText(e.target.value)}
-                    placeholder="Type your reply to the user..."
-                    rows={4}
-                    style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', marginBottom:10, lineHeight:1.6 }}
-                  />
+                  )}
+                  <textarea value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Type your reply..." rows={4} style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', marginBottom:10, lineHeight:1.6 }} />
                   <div style={{ display:'flex', gap:8 }}>
-                    <button onClick={() => handleReplyTicket(selectedTicket.id, 'replied')} disabled={sendingReply}
-                      style={{ flex:1, background: sendingReply?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
-                      {sendingReply ? 'Sending...' : '📩 Send Reply'}
-                    </button>
-                    <button onClick={() => handleReplyTicket(selectedTicket.id, 'resolved')} disabled={sendingReply}
-                      style={{ flex:1, background:'#16a34a', color:'#fff', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
-                      ✅ Resolve
-                    </button>
+                    <button onClick={() => handleReplyTicket(selectedTicket.id,'replied')} disabled={sendingReply} style={{ flex:1, background:sendingReply?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>{sendingReply?'Sending...':'📩 Send Reply'}</button>
+                    <button onClick={() => handleReplyTicket(selectedTicket.id,'resolved')} disabled={sendingReply} style={{ flex:1, background:'#16a34a', color:'#fff', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>✅ Resolve</button>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Filter tabs */}
             <div style={{ display:'flex', gap:6, marginBottom:12 }}>
               {[
-                { id:'open',     label:'Open',     count: supportTickets.filter(t=>t.status==='open').length },
-                { id:'replied',  label:'Replied',  count: supportTickets.filter(t=>t.status==='replied').length },
+                { id:'open', label:'Open', count: supportTickets.filter(t=>t.status==='open').length },
+                { id:'replied', label:'Replied', count: supportTickets.filter(t=>t.status==='replied').length },
                 { id:'resolved', label:'Resolved', count: supportTickets.filter(t=>t.status==='resolved').length },
-                { id:'all',      label:'All',      count: supportTickets.length },
+                { id:'all_support', label:'All', count: supportTickets.length },
               ].map(f => (
-                <button key={f.id}
-                  onClick={() => setOrderFilter(f.id === 'all' ? 'all_support' : f.id)}
+                <button key={f.id} onClick={() => setOrderFilter(f.id)}
                   style={{ flexShrink:0, padding:'6px 12px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600,
-                    background: orderFilter===(f.id==='all'?'all_support':f.id) || (f.id==='open' && orderFilter!=='replied' && orderFilter!=='resolved' && orderFilter!=='all_support') ? '#E24B4A' : '#f3f4f6',
-                    color: orderFilter===(f.id==='all'?'all_support':f.id) || (f.id==='open' && orderFilter!=='replied' && orderFilter!=='resolved' && orderFilter!=='all_support') ? '#fff' : '#6b7280'
-                  }}>
+                    background: orderFilter===f.id?'#E24B4A':'#f3f4f6', color: orderFilter===f.id?'#fff':'#6b7280' }}>
                   {f.label} ({f.count})
                 </button>
               ))}
             </div>
 
-            {supportTickets.length === 0 && (
-              <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>
-                <div style={{ fontSize:40, marginBottom:8 }}>💬</div>
-                No support tickets yet
-              </div>
-            )}
-
             {supportTickets
-              .filter(t => orderFilter==='all_support' ? true : orderFilter==='replied' ? t.status==='replied' : orderFilter==='resolved' ? t.status==='resolved' : t.status==='open')
+              .filter(t => orderFilter==='all_support' ? true : t.status===(orderFilter==='open'?'open':orderFilter==='replied'?'replied':'resolved'))
               .map(ticket => (
               <div key={ticket.id} onClick={() => { setSelectedTicket(ticket); setReplyText(ticket.founderReply||'') }}
-                style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor: ticket.status==='open'?'#fecaca':'#f3f4f6', borderRadius:12, padding:14, marginBottom:10, cursor:'pointer' }}>
+                style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:ticket.status==='open'?'#fecaca':'#f3f4f6', borderRadius:12, padding:14, marginBottom:10, cursor:'pointer' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
                   <div>
                     <div style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{ticket.userName}</div>
                     <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{ticket.userEmail}</div>
                   </div>
-                  <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
-                    <span style={{ fontSize:9, fontWeight:600, padding:'2px 7px', borderRadius:8,
-                      background: ticket.status==='resolved'?'#d1fae5': ticket.status==='replied'?'#dbeafe':'#fee2e2',
-                      color: ticket.status==='resolved'?'#065f46': ticket.status==='replied'?'#1e40af':'#991b1b'
-                    }}>{ticket.status==='resolved'?'✅ Resolved': ticket.status==='replied'?'💬 Replied':'🔴 Open'}</span>
-                    <span style={{ fontSize:9, color:'#9ca3af' }}>{ticket.createdAt?.toDate?.()?.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</span>
-                  </div>
+                  <span style={{ fontSize:9, fontWeight:600, padding:'2px 7px', borderRadius:8,
+                    background: ticket.status==='resolved'?'#d1fae5':ticket.status==='replied'?'#dbeafe':'#fee2e2',
+                    color: ticket.status==='resolved'?'#065f46':ticket.status==='replied'?'#1e40af':'#991b1b'
+                  }}>{ticket.status==='resolved'?'✅ Resolved':ticket.status==='replied'?'💬 Replied':'🔴 Open'}</span>
                 </div>
-                <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:10, background:'#fef3c7', color:'#92400e', marginBottom:6, display:'inline-block' }}>{ticket.category}</span>
-                <div style={{ fontSize:12, color:'#6b7280', marginTop:4 }}>{ticket.message.slice(0,80)}{ticket.message.length>80?'...':''}</div>
-                {ticket.founderReply && (
-                  <div style={{ marginTop:8, fontSize:11, color:'#3b82f6', fontWeight:500 }}>💬 You replied: {ticket.founderReply.slice(0,50)}...</div>
-                )}
+                <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:10, background:'#fef3c7', color:'#92400e', display:'inline-block', marginBottom:6 }}>{ticket.category}</span>
+                <div style={{ fontSize:12, color:'#6b7280' }}>{ticket.message.slice(0,80)}{ticket.message.length>80?'...':''}</div>
               </div>
             ))}
           </>
@@ -819,70 +1141,26 @@ export default function FounderApp() {
         {tab==='vendors' && (
           <>
             <div style={{ fontSize:12, color:'#6b7280', marginBottom:10 }}>{vendors.length} registered vendors</div>
-            {vendors.length===0 && (
-              <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>No vendors yet. Add your first vendor!</div>
-            )}
             {vendors.map(v => (
               <div key={v.id} style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, overflow:'hidden', marginBottom:12 }}>
-
-                {/* Vendor photo banner */}
                 <div style={{ height:100, position:'relative', background:'linear-gradient(135deg,#1a1a1a,#2a2a2a)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  {v.photo
-                    ? <img src={v.photo} alt={v.storeName} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                    : <span style={{ fontSize:32 }}>🏪</span>
-                  }
-                  {/* Upload photo button */}
-                  <button
-                    onClick={() => {
-                      const input = document.createElement('input')
-                      input.type = 'file'; input.accept = 'image/*'
-                      input.onchange = (e) => handleExistingVendorPhoto(e, v.id)
-                      input.click()
-                    }}
-                    style={{
-                      position:'absolute', bottom:8, right:8,
-                      background:'rgba(0,0,0,0.7)', color:'#fff',
-                      border:'none', borderRadius:8, padding:'5px 10px',
-                      fontSize:11, cursor:'pointer', fontFamily:'Poppins', fontWeight:500
-                    }}
-                  >
-                    {uploadingPhotoFor===v.id ? `${existingProgress}%` : '📷 Change Photo'}
+                  {v.photo ? <img src={v.photo} alt={v.storeName} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:32 }}>🏪</span>}
+                  <button onClick={() => { const input=document.createElement('input'); input.type='file'; input.accept='image/*'; input.onchange=(e)=>handleExistingVendorPhoto(e,v.id); input.click() }}
+                    style={{ position:'absolute', bottom:8, right:8, background:'rgba(0,0,0,0.7)', color:'#fff', border:'none', borderRadius:8, padding:'5px 10px', fontSize:11, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>
+                    {uploadingPhotoFor===v.id?`${existingProgress}%`:'📷 Change Photo'}
                   </button>
-                  {/* Open/Closed badge */}
-                  <div style={{ position:'absolute', top:8, left:8, background: v.isOpen?'#16a34a':'#dc2626', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:600 }}>
-                    {v.isOpen ? '● Open' : '● Closed'}
+                  <div style={{ position:'absolute', top:8, left:8, background:v.isOpen?'#16a34a':'#dc2626', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:600 }}>
+                    {v.isOpen?'● Open':'● Closed'}
                   </div>
                 </div>
-
                 <div style={{ padding:12 }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
                     <span style={{ fontSize:14, fontWeight:600 }}>{v.storeName}</span>
-                    <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:8,
-                      background: v.subscriptionStatus==='active'?'#d1fae5':'#fee2e2',
-                      color: v.subscriptionStatus==='active'?'#065f46':'#991b1b'
-                    }}>{v.subscriptionStatus==='active'?'Paid':'Due'}</span>
+                    <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:8, background:v.subscriptionStatus==='active'?'#d1fae5':'#fee2e2', color:v.subscriptionStatus==='active'?'#065f46':'#991b1b' }}>{v.subscriptionStatus==='active'?'Paid':'Due'}</span>
                   </div>
                   <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8 }}>{v.email} · {v.category}</div>
-                <div style={{ fontSize:11, color:'#6b7280', marginBottom:8 }}>🚴 Delivery: {v.deliveryCharge === 0 ? 'Free' : ('₹' + (v.deliveryCharge ?? 30))} · 📞 {v.phone || '—'}</div>
-                  <div style={{ display:'flex', gap:16, marginBottom:10 }}>
-                    {[
-                      { val: v.totalOrders||0,               lbl:'Orders' },
-                      { val: `${v.onTimePercent||100}%`,     lbl:'On-time' },
-                      { val: `${v.avgPrepTime||v.prepTime||20}m`, lbl:'Avg prep' },
-                      { val: v.plan||'₹500/mo',              lbl:'Plan' }
-                    ].map(s => (
-                      <div key={s.lbl} style={{ textAlign:'center' }}>
-                        <div style={{ fontSize:13, fontWeight:600 }}>{s.val}</div>
-                        <div style={{ fontSize:10, color:'#6b7280' }}>{s.lbl}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => handleDeleteVendor(v.id, v.storeName)}
-                    style={{ width:'100%', background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:8, padding:'8px 0', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
-                  >
-                    🗑️ Delete Vendor
-                  </button>
+                  <div style={{ fontSize:11, color:'#6b7280', marginBottom:8 }}>🚴 Delivery: {v.deliveryCharge===0?'Free':('₹'+(v.deliveryCharge??30))} · 📞 {v.phone||'—'}</div>
+                  <button onClick={() => handleDeleteVendor(v.id, v.storeName)} style={{ width:'100%', background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:8, padding:'8px 0', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>🗑️ Delete Vendor</button>
                 </div>
               </div>
             ))}
@@ -893,117 +1171,63 @@ export default function FounderApp() {
         {tab==='analytics' && (
           <>
             <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>📊 Analytics</div>
-
-            {/* ── ANALYTICS TAB SWITCHER ── */}
             <div style={{ display:'flex', gap:6, marginBottom:14, overflowX:'auto', paddingBottom:2 }}>
-              {[
-                { id:'overview', label:'📊 Overview' },
-                { id:'monthly',  label:'📅 Monthly' },
-                { id:'items',    label:'🍽️ Items' },
-                { id:'vendors',  label:'🏪 Vendors' },
-                { id:'users',    label:'👤 Users' },
-              ].map(t => (
-                <button key={t.id} onClick={() => setAnalyticsTab(t.id)}
-                  style={{ flexShrink:0, padding:'7px 14px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600,
-                    background: analyticsTab===t.id?'#E24B4A':'#f3f4f6',
-                    color: analyticsTab===t.id?'#fff':'#6b7280'
-                  }}>{t.label}
-                </button>
+              {[{id:'overview',label:'📊 Overview'},{id:'monthly',label:'📅 Monthly'},{id:'items',label:'🍽️ Items'},{id:'vendors',label:'🏪 Vendors'},{id:'users',label:'👤 Users'}].map(t => (
+                <button key={t.id} onClick={() => setAnalyticsTab(t.id)} style={{ flexShrink:0, padding:'7px 14px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600, background:analyticsTab===t.id?'#E24B4A':'#f3f4f6', color:analyticsTab===t.id?'#fff':'#6b7280' }}>{t.label}</button>
               ))}
             </div>
 
-            {/* ── OVERVIEW ── */}
             {analyticsTab==='overview' && (() => {
               const totalRev = orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0)
-              const delivered = orders.filter(o=>o.status==='delivered').length
-              const cancelled = orders.filter(o=>o.status==='cancelled').length
-              const pending = orders.filter(o=>o.status==='pending').length
-              const activeUsers = [...new Set(orders.filter(o => {
-                const d = o.createdAt?.toDate?.()
-                const now = new Date()
-                return d && (now - d) < 30 * 24 * 60 * 60 * 1000
-              }).map(o => o.userUid))].length
-
-              const stats = [
-                { icon:'📦', label:'Total Orders',    val: orders.length,   bg:'#fff5f5', click: () => setOrderFilter('all') },
-                { icon:'💰', label:'Total Revenue',   val: '₹'+totalRev.toLocaleString(), bg:'#f0fdf4', click: null },
-                { icon:'✅', label:'Delivered',        val: delivered,       bg:'#f0fdf4', click: () => { setTab('orders'); setOrderFilter('delivered') } },
-                { icon:'❌', label:'Cancelled',        val: cancelled,       bg:'#fff5f5', click: () => { setTab('orders'); setOrderFilter('cancelled') } },
-                { icon:'⏳', label:'Pending',          val: pending,         bg:'#fffbeb', click: () => { setTab('orders'); setOrderFilter('pending') } },
-                { icon:'👥', label:'Total Users',      val: users.length,    bg:'#eff6ff', click: null },
-                { icon:'🔥', label:'Active (30 days)', val: activeUsers,     bg:'#fff7ed', click: null },
-                { icon:'🏪', label:'Active Vendors',  val: vendors.filter(v=>v.isOpen).length, bg:'#f0fdf4', click: null },
-              ]
-
+              const activeUsers = [...new Set(orders.filter(o=>{const d=o.createdAt?.toDate?.();const now=new Date();return d&&(now-d)<30*24*60*60*1000}).map(o=>o.userUid))].length
               return (
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                  {stats.map(s => (
-                    <div key={s.label}
-                      onClick={s.click || undefined}
-                      style={{ background: s.bg, borderRadius:12, padding:14, cursor: s.click?'pointer':'default',
-                        borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6',
-                        boxShadow: s.click?'0 2px 8px rgba(0,0,0,0.06)':'none'
-                      }}>
+                  {[
+                    {icon:'📦',label:'Total Orders',val:orders.length,bg:'#fff5f5'},
+                    {icon:'💰',label:'Total Revenue',val:'₹'+totalRev.toLocaleString(),bg:'#f0fdf4'},
+                    {icon:'✅',label:'Delivered',val:orders.filter(o=>o.status==='delivered').length,bg:'#f0fdf4'},
+                    {icon:'❌',label:'Cancelled',val:orders.filter(o=>o.status==='cancelled').length,bg:'#fff5f5'},
+                    {icon:'⏳',label:'Pending',val:orders.filter(o=>o.status==='pending').length,bg:'#fffbeb'},
+                    {icon:'👥',label:'Total Users',val:users.length,bg:'#eff6ff'},
+                    {icon:'🔥',label:'Active (30d)',val:activeUsers,bg:'#fff7ed'},
+                    {icon:'🏪',label:'Active Vendors',val:vendors.filter(v=>v.isOpen).length,bg:'#f0fdf4'},
+                  ].map(s => (
+                    <div key={s.label} style={{ background:s.bg, borderRadius:12, padding:14, borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6' }}>
                       <div style={{ fontSize:22, marginBottom:6 }}>{s.icon}</div>
                       <div style={{ fontSize:20, fontWeight:700, color:'#1f2937' }}>{s.val}</div>
                       <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>{s.label}</div>
-                      {s.click && <div style={{ fontSize:10, color:'#E24B4A', marginTop:4, fontWeight:600 }}>Tap to filter →</div>}
                     </div>
                   ))}
                 </div>
               )
             })()}
 
-            {/* ── MONTHLY REVENUE ── */}
             {analyticsTab==='monthly' && (() => {
-              const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-              const year = new Date().getFullYear()
-              const monthlyData = months.map((m, i) => {
-                const mo = orders.filter(o => {
-                  const d = o.createdAt?.toDate?.()
-                  return d && d.getMonth()===i && d.getFullYear()===year
-                })
-                return {
-                  month: m,
-                  orders: mo.length,
-                  revenue: mo.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0),
-                  delivered: mo.filter(o=>o.status==='delivered').length,
-                  cancelled: mo.filter(o=>o.status==='cancelled').length,
-                }
+              const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+              const year=new Date().getFullYear()
+              const monthlyData=months.map((m,i)=>{
+                const mo=orders.filter(o=>{const d=o.createdAt?.toDate?.();return d&&d.getMonth()===i&&d.getFullYear()===year})
+                return {month:m,orders:mo.length,revenue:mo.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0),delivered:mo.filter(o=>o.status==='delivered').length,cancelled:mo.filter(o=>o.status==='cancelled').length}
               })
-              const maxRev = Math.max(...monthlyData.map(m=>m.revenue), 1)
-              const totalYearRev = monthlyData.reduce((s,m)=>s+m.revenue,0)
-              const totalYearOrders = monthlyData.reduce((s,m)=>s+m.orders,0)
+              const maxRev=Math.max(...monthlyData.map(m=>m.revenue),1)
+              const totalYearRev=monthlyData.reduce((s,m)=>s+m.revenue,0)
+              const totalYearOrders=monthlyData.reduce((s,m)=>s+m.orders,0)
               return (
                 <>
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
-                    <div style={{ background:'#f0fdf4', borderRadius:12, padding:14 }}>
-                      <div style={{ fontSize:11, color:'#6b7280', marginBottom:4 }}>{year} TOTAL REVENUE</div>
-                      <div style={{ fontSize:20, fontWeight:700, color:'#16a34a' }}>₹{totalYearRev.toLocaleString()}</div>
-                    </div>
-                    <div style={{ background:'#fff5f5', borderRadius:12, padding:14 }}>
-                      <div style={{ fontSize:11, color:'#6b7280', marginBottom:4 }}>{year} TOTAL ORDERS</div>
-                      <div style={{ fontSize:20, fontWeight:700, color:'#E24B4A' }}>{totalYearOrders}</div>
-                    </div>
+                    <div style={{ background:'#f0fdf4', borderRadius:12, padding:14 }}><div style={{ fontSize:11, color:'#6b7280', marginBottom:4 }}>{year} TOTAL REVENUE</div><div style={{ fontSize:20, fontWeight:700, color:'#16a34a' }}>₹{totalYearRev.toLocaleString()}</div></div>
+                    <div style={{ background:'#fff5f5', borderRadius:12, padding:14 }}><div style={{ fontSize:11, color:'#6b7280', marginBottom:4 }}>{year} TOTAL ORDERS</div><div style={{ fontSize:20, fontWeight:700, color:'#E24B4A' }}>{totalYearOrders}</div></div>
                   </div>
                   <div style={{ background:'#fff', borderRadius:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', overflow:'hidden' }}>
-                    <div style={{ padding:'12px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', fontSize:12, fontWeight:700, color:'#1f2937' }}>
-                      📅 Monthly Revenue — {year}
-                    </div>
-                    {monthlyData.map((m, i) => (
+                    <div style={{ padding:'12px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', fontSize:12, fontWeight:700 }}>📅 Monthly Revenue — {year}</div>
+                    {monthlyData.map(m => (
                       <div key={m.month} style={{ padding:'10px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
-                          <div>
-                            <span style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{m.month}</span>
-                            <span style={{ fontSize:11, color:'#9ca3af', marginLeft:8 }}>{m.orders} orders</span>
-                          </div>
-                          <div style={{ textAlign:'right' }}>
-                            <div style={{ fontSize:13, fontWeight:700, color: m.revenue>0?'#16a34a':'#9ca3af' }}>₹{m.revenue.toLocaleString()}</div>
-                            <div style={{ fontSize:10, color:'#9ca3af' }}>✅{m.delivered} ❌{m.cancelled}</div>
-                          </div>
+                          <div><span style={{ fontSize:13, fontWeight:600 }}>{m.month}</span><span style={{ fontSize:11, color:'#9ca3af', marginLeft:8 }}>{m.orders} orders</span></div>
+                          <div style={{ textAlign:'right' }}><div style={{ fontSize:13, fontWeight:700, color:m.revenue>0?'#16a34a':'#9ca3af' }}>₹{m.revenue.toLocaleString()}</div><div style={{ fontSize:10, color:'#9ca3af' }}>✅{m.delivered} ❌{m.cancelled}</div></div>
                         </div>
                         <div style={{ background:'#f3f4f6', borderRadius:4, height:6, overflow:'hidden' }}>
-                          <div style={{ height:'100%', background: m.revenue>0?'#16a34a':'#e5e7eb', width:((m.revenue/maxRev)*100)+'%', borderRadius:4, transition:'width 0.5s' }} />
+                          <div style={{ height:'100%', background:m.revenue>0?'#16a34a':'#e5e7eb', width:((m.revenue/maxRev)*100)+'%', borderRadius:4 }} />
                         </div>
                       </div>
                     ))}
@@ -1012,84 +1236,60 @@ export default function FounderApp() {
               )
             })()}
 
-            {/* Most ordered items */}
             {analyticsTab==='items' && (
               <div style={{ background:'#fff', borderRadius:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', overflow:'hidden' }}>
                 <div style={{ padding:'12px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', fontSize:12, fontWeight:600, color:'#6b7280' }}>TOP 10 MOST ORDERED ITEMS</div>
-                {getMostOrdered().length === 0 && <div style={{ padding:20, textAlign:'center', color:'#9ca3af', fontSize:13 }}>No orders yet</div>}
-                {getMostOrdered().map((item, i) => {
-                  const max = getMostOrdered()[0]?.qty || 1
+                {getMostOrdered().map((item,i)=>{
+                  const max=getMostOrdered()[0]?.qty||1
                   return (
                     <div key={item.name} style={{ padding:'10px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                          <span style={{ fontSize:16, fontWeight:700, color:'#E24B4A', minWidth:22 }}>#{i+1}</span>
-                          <span style={{ fontSize:13, fontWeight:500 }}>{item.name}</span>
-                        </div>
+                        <div style={{ display:'flex', alignItems:'center', gap:8 }}><span style={{ fontSize:16, fontWeight:700, color:'#E24B4A', minWidth:22 }}>#{i+1}</span><span style={{ fontSize:13, fontWeight:500 }}>{item.name}</span></div>
                         <span style={{ fontSize:12, fontWeight:700, color:'#E24B4A' }}>{item.qty} orders</span>
                       </div>
-                      <div style={{ background:'#f3f4f6', borderRadius:4, height:6, overflow:'hidden' }}>
-                        <div style={{ height:'100%', background:'#E24B4A', width:((item.qty/max)*100)+'%', borderRadius:4 }} />
-                      </div>
+                      <div style={{ background:'#f3f4f6', borderRadius:4, height:6, overflow:'hidden' }}><div style={{ height:'100%', background:'#E24B4A', width:((item.qty/max)*100)+'%', borderRadius:4 }} /></div>
                     </div>
                   )
                 })}
               </div>
             )}
 
-            {/* Top vendors by orders */}
             {analyticsTab==='vendors' && (
               <div style={{ background:'#fff', borderRadius:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', overflow:'hidden' }}>
                 <div style={{ padding:'12px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', fontSize:12, fontWeight:600, color:'#6b7280' }}>TOP VENDORS BY ORDERS</div>
-                {vendors.map(v => {
-                  const vOrders = orders.filter(o => o.vendorUid === v.id)
-                  const vRevenue = vOrders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0)
+                {vendors.map(v=>{
+                  const vOrders=orders.filter(o=>o.vendorUid===v.id)
+                  const vRevenue=vOrders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0)
                   return (
                     <div key={v.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
                       <div style={{ width:36, height:36, borderRadius:9, overflow:'hidden', background:'#fee2e2', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                        {v.photo ? <img src={v.photo} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span>🏪</span>}
+                        {v.photo?<img src={v.photo} style={{ width:'100%', height:'100%', objectFit:'cover' }} />:<span>🏪</span>}
                       </div>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, fontWeight:600 }}>{v.storeName}</div>
-                        <div style={{ fontSize:11, color:'#6b7280' }}>{vOrders.length} orders · ₹{vRevenue.toLocaleString()} revenue</div>
-                      </div>
-                      <div style={{ background: v.isOpen?'#dcfce7':'#fee2e2', borderRadius:20, padding:'3px 8px' }}>
-                        <span style={{ fontSize:10, fontWeight:600, color: v.isOpen?'#16a34a':'#dc2626' }}>{v.isOpen?'Open':'Closed'}</span>
-                      </div>
+                      <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:600 }}>{v.storeName}</div><div style={{ fontSize:11, color:'#6b7280' }}>{vOrders.length} orders · ₹{vRevenue.toLocaleString()}</div></div>
+                      <div style={{ background:v.isOpen?'#dcfce7':'#fee2e2', borderRadius:20, padding:'3px 8px' }}><span style={{ fontSize:10, fontWeight:600, color:v.isOpen?'#16a34a':'#dc2626' }}>{v.isOpen?'Open':'Closed'}</span></div>
                     </div>
                   )
-                }).sort((a,b) => orders.filter(o=>o.vendorUid===b.key).length - orders.filter(o=>o.vendorUid===a.key).length)}
+                })}
               </div>
             )}
 
-            {/* Top users */}
             {analyticsTab==='users' && (
               <div style={{ background:'#fff', borderRadius:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', overflow:'hidden' }}>
                 <div style={{ padding:'12px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', fontSize:12, fontWeight:600, color:'#6b7280' }}>TOP USERS BY ORDERS</div>
                 {(() => {
-                  const userMap = {}
-                  orders.forEach(o => {
-                    if (!userMap[o.userUid]) userMap[o.userUid] = { name: o.userName, phone: o.userPhone, count: 0, spent: 0 }
+                  const userMap={}
+                  orders.forEach(o=>{
+                    if(!userMap[o.userUid]) userMap[o.userUid]={name:o.userName,phone:o.userPhone,count:0,spent:0}
                     userMap[o.userUid].count++
-                    if (o.status === 'delivered') userMap[o.userUid].spent += o.total || 0
+                    if(o.status==='delivered') userMap[o.userUid].spent+=o.total||0
                   })
-                  return Object.values(userMap)
-                    .sort((a,b) => b.count - a.count)
-                    .slice(0,10)
-                    .map((u, i) => (
-                      <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
-                        <div style={{ width:34, height:34, borderRadius:'50%', background:'#E24B4A', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                          <span style={{ fontSize:14, fontWeight:700, color:'#fff' }}>#{i+1}</span>
-                        </div>
-                        <div style={{ flex:1 }}>
-                          <div style={{ fontSize:13, fontWeight:600 }}>{u.name}</div>
-                          <div style={{ fontSize:11, color:'#6b7280' }}>{u.phone || '—'} · ₹{u.spent.toLocaleString()} spent</div>
-                        </div>
-                        <div style={{ background:'#fef3c7', borderRadius:20, padding:'3px 10px' }}>
-                          <span style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>{u.count} orders</span>
-                        </div>
-                      </div>
-                    ))
+                  return Object.values(userMap).sort((a,b)=>b.count-a.count).slice(0,10).map((u,i)=>(
+                    <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
+                      <div style={{ width:34, height:34, borderRadius:'50%', background:'#E24B4A', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:14, fontWeight:700, color:'#fff' }}>#{i+1}</span></div>
+                      <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:600 }}>{u.name}</div><div style={{ fontSize:11, color:'#6b7280' }}>{u.phone||'—'} · ₹{u.spent.toLocaleString()} spent</div></div>
+                      <div style={{ background:'#fef3c7', borderRadius:20, padding:'3px 10px' }}><span style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>{u.count} orders</span></div>
+                    </div>
+                  ))
                 })()}
               </div>
             )}
@@ -1103,151 +1303,56 @@ export default function FounderApp() {
               <span style={{ fontSize:14, fontWeight:600 }}>Create Vendor Account</span>
               <span style={{ fontSize:10, background:'#FCEBEB', color:'#A32D2D', padding:'2px 8px', borderRadius:10, fontWeight:600 }}>Founder Only</span>
             </div>
-
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-
-              {/* Vendor photo picker */}
               <div>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Store Photo (optional)</label>
-                <div
-                  onClick={() => photoRef.current?.click()}
-                  style={{
-                    marginTop:6, borderWidth:2, borderStyle:'dashed', borderColor:'#e5e7eb',
-                    borderRadius:12, overflow:'hidden', cursor:'pointer',
-                    height:120, display:'flex', alignItems:'center', justifyContent:'center',
-                    background:'#fafafa', position:'relative'
-                  }}
-                >
-                  {vendorPhotoPreview
-                    ? <img src={vendorPhotoPreview} alt="preview" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                    : <div style={{ textAlign:'center' }}>
-                        <div style={{ fontSize:28 }}>🏪</div>
-                        <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>Tap to add store photo</div>
-                      </div>
-                  }
+                <div onClick={() => photoRef.current?.click()} style={{ marginTop:6, borderWidth:2, borderStyle:'dashed', borderColor:'#e5e7eb', borderRadius:12, overflow:'hidden', cursor:'pointer', height:120, display:'flex', alignItems:'center', justifyContent:'center', background:'#fafafa' }}>
+                  {vendorPhotoPreview ? <img src={vendorPhotoPreview} alt="preview" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <div style={{ textAlign:'center' }}><div style={{ fontSize:28 }}>🏪</div><div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>Tap to add store photo</div></div>}
                 </div>
                 <input ref={photoRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handlePhotoSelect} />
-                {vendorPhotoPreview && (
-                  <button onClick={() => { setVendorPhotoFile(null); setVendorPhotoPreview(null) }}
-                    style={{ marginTop:4, fontSize:11, color:'#dc2626', background:'none', border:'none', cursor:'pointer', fontFamily:'Poppins' }}>
-                    ✕ Remove photo
-                  </button>
-                )}
+                {vendorPhotoPreview && <button onClick={() => { setVendorPhotoFile(null); setVendorPhotoPreview(null) }} style={{ marginTop:4, fontSize:11, color:'#dc2626', background:'none', border:'none', cursor:'pointer', fontFamily:'Poppins' }}>✕ Remove photo</button>}
               </div>
-
-              <div>
-                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Store / Vendor Name *</label>
-                <input style={inp} placeholder="e.g. Shree Ganesh Thali" {...f('storeName')} />
-              </div>
-              <div>
-                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Vendor Email * (used for login)</label>
-                <input style={inp} type="email" placeholder="vendor@example.com" {...f('email')} />
-              </div>
+              <div><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Store / Vendor Name *</label><input style={inp} placeholder="e.g. Shree Ganesh Thali" {...f('storeName')} /></div>
+              <div><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Vendor Email * (used for login)</label><input style={inp} type="email" placeholder="vendor@example.com" {...f('email')} /></div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                <div>
-                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Password *</label>
-                  <input style={inp} type="password" placeholder="Min 6 chars" {...f('password')} />
-                </div>
-                <div>
-                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Confirm *</label>
-                  <input style={inp} type="password" placeholder="Repeat" {...f('confirmPass')} />
-                </div>
+                <div><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Password *</label><input style={inp} type="password" placeholder="Min 6 chars" {...f('password')} /></div>
+                <div><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Confirm *</label><input style={inp} type="password" placeholder="Repeat" {...f('confirmPass')} /></div>
               </div>
-              <div>
-                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Phone / WhatsApp</label>
-                <input style={inp} placeholder="+91 98765 43210" {...f('phone')} />
-              </div>
-              <div>
-                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Store Address</label>
-                <input style={inp} placeholder="Near college gate, Warananagar..." {...f('address')} />
-              </div>
+              <div><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Phone / WhatsApp</label><input style={inp} placeholder="+91 98765 43210" {...f('phone')} /></div>
+              <div><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Store Address</label><input style={inp} placeholder="Near college gate, Warananagar..." {...f('address')} /></div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                <div>
-                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Category</label>
-                  <select style={{ ...inp, cursor:'pointer', marginTop:4 }} {...f('category')}>
-                    {['Thali','Biryani','Chinese','Snacks','Drinks','Sweets','Roti','Rice'].map(c=><option key={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Plan</label>
-                  <select style={{ ...inp, cursor:'pointer', marginTop:4 }} {...f('plan')}>
-                    <option>₹500/month</option>
-                    <option>₹1000/month</option>
-                    <option>Free Trial</option>
-                  </select>
-                </div>
+                <div><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Category</label><select style={{ ...inp, cursor:'pointer', marginTop:4 }} {...f('category')}>{['Thali','Biryani','Chinese','Snacks','Drinks','Sweets','Roti','Rice'].map(c=><option key={c}>{c}</option>)}</select></div>
+                <div><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Plan</label><select style={{ ...inp, cursor:'pointer', marginTop:4 }} {...f('plan')}><option>₹500/month</option><option>₹1000/month</option><option>Free Trial</option></select></div>
               </div>
-
-              {/* Delivery Charge */}
+              <div><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🚴 Delivery Charge (₹)</label><input style={inp} type="number" placeholder="e.g. 30 (enter 0 for free)" {...f('deliveryCharge')} /></div>
               <div>
-                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🚴 Delivery Charge (₹)</label>
-                <input style={inp} type="number" placeholder="e.g. 30 (enter 0 for free)" {...f('deliveryCharge')} />
-              </div>
-
-              {/* Vendor Location */}
-              <div>
-                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>📍 Store Location (for distance sorting)</label>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>📍 Store Location</label>
                 <div style={{ marginTop:6, display:'flex', flexDirection:'column', gap:6 }}>
-                  {newVendorLocName && (
-                    <div style={{ fontSize:12, color:'#16a34a', fontWeight:500, padding:'6px 10px', background:'#f0fdf4', borderRadius:8 }}>
-                      ✅ {newVendorLocName}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleDetectVendorLoc}
-                    disabled={detectingLoc}
-                    style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 12px', background:'#fff5f5', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca', borderRadius:9, cursor:'pointer', fontFamily:'Poppins' }}
-                  >
-                    <span>📍</span>
-                    <span style={{ fontSize:12, color:'#E24B4A', fontWeight:500 }}>{detectingLoc ? 'Detecting...' : 'Use Current GPS'}</span>
+                  {newVendorLocName && <div style={{ fontSize:12, color:'#16a34a', fontWeight:500, padding:'6px 10px', background:'#f0fdf4', borderRadius:8 }}>✅ {newVendorLocName}</div>}
+                  <button type="button" onClick={handleDetectVendorLoc} disabled={detectingLoc} style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 12px', background:'#fff5f5', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca', borderRadius:9, cursor:'pointer', fontFamily:'Poppins' }}>
+                    <span>📍</span><span style={{ fontSize:12, color:'#E24B4A', fontWeight:500 }}>{detectingLoc?'Detecting...':'Use Current GPS'}</span>
                   </button>
                   <div style={{ position:'relative' }}>
-                    <input
-                      style={{ ...inp, marginTop:0 }}
-                      placeholder="Or search: Warananagar, Kolhapur..."
-                      value={locSearch}
-                      onChange={e => handleLocSearch(e.target.value)}
-                    />
+                    <input style={{ ...inp, marginTop:0 }} placeholder="Or search: Warananagar, Kolhapur..." value={locSearch} onChange={e => handleLocSearch(e.target.value)} />
                     {locSuggestions.length > 0 && (
                       <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:9, zIndex:50, marginTop:2, overflow:'hidden' }}>
-                        {locSuggestions.map((s, i) => (
-                          <button key={i} type="button" onClick={() => handleSelectVendorLoc(s)} style={{ width:'100%', padding:'9px 12px', border:'none', borderBottomWidth: i < locSuggestions.length-1?1:0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background:'#fff', cursor:'pointer', textAlign:'left', fontFamily:'Poppins', fontSize:12, color:'#1f2937' }}>
-                            📍 {s.name.split(",")[0]}
-                          </button>
+                        {locSuggestions.map((s,i) => (
+                          <button key={i} type="button" onClick={() => handleSelectVendorLoc(s)} style={{ width:'100%', padding:'9px 12px', border:'none', borderBottomWidth:i<locSuggestions.length-1?1:0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background:'#fff', cursor:'pointer', textAlign:'left', fontFamily:'Poppins', fontSize:12, color:'#1f2937' }}>📍 {s.name.split(",")[0]}</button>
                         ))}
                       </div>
                     )}
                   </div>
                 </div>
               </div>
-
-              {/* Photo upload progress */}
               {creating && vendorPhotoFile && photoProgress > 0 && (
-                <div>
-                  <div style={{ fontSize:11, color:'#6b7280', marginBottom:4 }}>Uploading photo... {photoProgress}%</div>
-                  <div style={{ background:'#f3f4f6', borderRadius:8, overflow:'hidden', height:6 }}>
-                    <div style={{ height:'100%', background:'#E24B4A', width:`${photoProgress}%`, transition:'width 0.3s' }} />
-                  </div>
-                </div>
+                <div><div style={{ fontSize:11, color:'#6b7280', marginBottom:4 }}>Uploading photo... {photoProgress}%</div><div style={{ background:'#f3f4f6', borderRadius:8, overflow:'hidden', height:6 }}><div style={{ height:'100%', background:'#E24B4A', width:`${photoProgress}%`, transition:'width 0.3s' }} /></div></div>
               )}
-
-              <button
-                onClick={handleCreate}
-                disabled={creating}
-                style={{
-                  width:'100%', background: creating?'#f09595':'#E24B4A', color:'#fff',
-                  border:'none', padding:13, borderRadius:10, fontSize:14,
-                  fontWeight:600, cursor: creating?'not-allowed':'pointer',
-                  fontFamily:'Poppins', marginTop:4
-                }}
-              >
-                {creating ? 'Creating Account...' : '✅ Create Vendor Account'}
+              <button onClick={handleCreate} disabled={creating} style={{ width:'100%', background:creating?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:13, borderRadius:10, fontSize:14, fontWeight:600, cursor:creating?'not-allowed':'pointer', fontFamily:'Poppins', marginTop:4 }}>
+                {creating?'Creating Account...':'✅ Create Vendor Account'}
               </button>
             </div>
-
             <div style={{ marginTop:14, padding:12, background:'#f0fdf4', borderRadius:10, fontSize:12, color:'#166534' }}>
-              💡 After creating, share the email + password with the vendor. They select "Vendor" tab on login screen and use those credentials.
+              💡 After creating, share the email + password with the vendor.
             </div>
           </div>
         )}
