@@ -242,7 +242,6 @@ export default function UserApp() {
   const cartCount = cart.reduce((s,c) => s + c.qty, 0)
   const deliveryFee = Number(cartVendor?.deliveryCharge ?? 0)
 
-  // ── MIN ORDER AMOUNT helpers ──────────────────────────────────────────────
   const minOrder = Number(cartVendor?.minOrderAmount ?? 0)
   const minOrderShortfall = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
   const meetsMinOrder = minOrderShortfall === 0
@@ -297,7 +296,6 @@ export default function UserApp() {
     if (!deliveryName.trim()) return toast.error('Enter your name')
     if (!deliveryPhone.trim()) return toast.error('Enter phone number')
     if (!deliveryAddress.trim() && !deliveryHostel.trim()) return toast.error('Enter delivery address')
-    // ── MIN ORDER CHECK ───────────────────────────────────────────────────
     if (minOrder > 0 && cartTotal < minOrder) {
       return toast.error(`Minimum order is ₹${minOrder}. Add ₹${minOrderShortfall} more to checkout.`, { duration: 4000, icon: '🛒' })
     }
@@ -376,7 +374,6 @@ export default function UserApp() {
 
   const unreadCount = notifications.length
 
-  // ── COMBO CARD ────────────────────────────────────────────────────────────
   const ComboCard = ({ combo }) => {
     const inCart = cart.find(c => c.id === 'combo_' + combo.id)
     const vendorClosed = !selectedVendor?.isOpen
@@ -618,21 +615,17 @@ export default function UserApp() {
                         <div style={{ background:'#f0fdf4', color:'#16a34a', fontSize:12, fontWeight:700, padding:'2px 8px', borderRadius:8 }}>⭐ {v.rating||4.5}</div>
                       </div>
                       <div style={{ fontSize:12, color:'#9ca3af', marginTop:3 }}>{v.category}</div>
-
-                      {/* ── INFO ROW: delivery time + delivery fee + min order ── */}
                       <div style={{ display:'flex', flexWrap:'wrap', gap:10, marginTop:8, alignItems:'center' }}>
                         <span style={{ fontSize:12, color:'#9ca3af' }}>🕐 {v.prepTime||20}-{(v.prepTime||20)+15} min</span>
                         <span style={{ fontSize:12, color:v.isOpen?'#6b7280':'#9ca3af' }}>
                           {Number(v.deliveryCharge)===0 ? '🎉 Free delivery' : ('₹'+(v.deliveryCharge??0)+' delivery')}
                         </span>
-                        {/* ── MIN ORDER BADGE on card ── */}
                         {vMinOrder > 0 && (
                           <span style={{ fontSize:11, fontWeight:700, background:'#dbeafe', color:'#1e40af', borderRadius:6, padding:'2px 7px', display:'inline-flex', alignItems:'center', gap:3 }}>
                             🛒 Min. ₹{vMinOrder}
                           </span>
                         )}
                       </div>
-
                       {!v.isOpen && (
                         <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:6, background:'#fee2e2', borderRadius:8, padding:'6px 10px' }}>
                           <span style={{ fontSize:12 }}>🔒</span>
@@ -674,12 +667,10 @@ export default function UserApp() {
               </div>
             </div>
 
-            {/* ── VENDOR MENU HEADER STATS ROW ── */}
             <div style={{ padding:'10px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
               <span style={{ fontSize:12, color:'#6b7280' }}>🕐 {selectedVendor.prepTime||20}-{(selectedVendor.prepTime||20)+15} min</span>
               <span style={{ fontSize:12, color:'#6b7280' }}>{!selectedVendor.deliveryCharge?'🎉 Free delivery':('₹'+selectedVendor.deliveryCharge+' delivery')}</span>
               {selectedVendor.distance !== null && userLat && <span style={{ fontSize:12, color:'#16a34a' }}>📍 {selectedVendor.distance < 1 ? `${Math.round(selectedVendor.distance*1000)}m away` : `${selectedVendor.distance?.toFixed(1)}km away`}</span>}
-              {/* ── MIN ORDER shown in vendor menu header ── */}
               {Number(selectedVendor.minOrderAmount) > 0 && (
                 <span style={{ fontSize:11, fontWeight:700, background:'#dbeafe', color:'#1e40af', borderRadius:6, padding:'3px 8px', display:'inline-flex', alignItems:'center', gap:3 }}>
                   🛒 Min. order ₹{selectedVendor.minOrderAmount}
@@ -687,7 +678,6 @@ export default function UserApp() {
               )}
             </div>
 
-            {/* ── CLOSED WARNING IN MENU ── */}
             {!selectedVendor.isOpen && (
               <div style={{ background:'#fee2e2', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', margin:'12px 16px', borderRadius:12, padding:'14px 16px', display:'flex', alignItems:'center', gap:12 }}>
                 <div style={{ width:42, height:42, borderRadius:12, background:'#dc2626', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>🔒</div>
@@ -831,7 +821,6 @@ export default function UserApp() {
                     <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>{s.sub}</div>
                   </div>
                 ))}
-                {/* ── MIN ORDER stat box ── */}
                 {Number(selectedVendor.minOrderAmount) > 0 && (
                   <div style={{ flex:1, minWidth:70, textAlign:'center', padding:'10px 8px', background:'#eff6ff', borderRadius:10, borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
                     <div style={{ fontSize:15, fontWeight:700, color:'#1e40af' }}>₹{selectedVendor.minOrderAmount}</div>
@@ -931,7 +920,6 @@ export default function UserApp() {
 
             {cart.length > 0 && !showCheckout && (
               <>
-                {/* ── MIN ORDER PROGRESS BAR ── */}
                 {minOrder > 0 && (
                   <div style={{ margin:'14px 0 10px', background: meetsMinOrder ? '#f0fdf4' : '#eff6ff', borderRadius:12, padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor: meetsMinOrder ? '#86efac' : '#bfdbfe' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
@@ -943,7 +931,6 @@ export default function UserApp() {
                       </div>
                       <span style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>₹{cartTotal} / ₹{minOrder}</span>
                     </div>
-                    {/* Progress bar */}
                     <div style={{ height:6, background: meetsMinOrder ? '#bbf7d0' : '#dbeafe', borderRadius:99, overflow:'hidden' }}>
                       <div style={{
                         height:'100%',
@@ -967,7 +954,6 @@ export default function UserApp() {
                   <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:600 }}>Total</span><span style={{ fontSize:14, fontWeight:600 }}>₹{cartTotal+deliveryFee}</span></div>
                 </div>
 
-                {/* ── CHECKOUT BUTTON — disabled + tooltip if min order not met ── */}
                 <button
                   onClick={() => {
                     if (!meetsMinOrder) {
@@ -1181,7 +1167,11 @@ export default function UserApp() {
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500, marginBottom:16 }}>Logout</button>
             <div style={{ marginBottom:4, fontSize:11, color:'#9ca3af', fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>Help & Legal</div>
             <div style={{ background:'#fafafa', borderRadius:12, overflow:'hidden', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', marginBottom:80 }}>
-              {[{icon:'💬',label:'Contact Support',sub:'Report issue or ask a question',action:()=>{setShowSupport(true);setSupportSent(false)}},{icon:'📜',label:'Terms & Conditions',sub:'Our terms of service',action:()=>setShowTerms(true)},{icon:'🔒',label:'Privacy Policy',sub:'How we handle your data',action:()=>setShowPrivacy(true)}].map((item,i,arr)=>(
+              {[
+                {icon:'💬',label:'Contact Support',sub:'Report issue or ask a question',action:()=>{setShowSupport(true);setSupportSent(false)}},
+                {icon:'📜',label:'Terms & Conditions',sub:'Our terms of service',action:()=>setShowTerms(true)},
+                {icon:'🔒',label:'Privacy Policy',sub:'How we handle your data',action:()=>setShowPrivacy(true)}
+              ].map((item,i,arr)=>(
                 <button key={item.label} onClick={item.action} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', background:'transparent', border:'none', borderBottomWidth:i<arr.length-1?1:0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}>
                   <div style={{ width:36, height:36, borderRadius:10, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>{item.icon}</div>
                   <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{item.label}</div><div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{item.sub}</div></div>
@@ -1263,6 +1253,86 @@ export default function UserApp() {
                   <button onClick={()=>setSupportSent(false)} style={{ background:'#f3f4f6', border:'none', padding:'10px 20px', borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', color:'#374151' }}>Send Another</button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TERMS & CONDITIONS MODAL ── */}
+      {showTerms && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }} onClick={e=>{if(e.target===e.currentTarget)setShowTerms(false)}}>
+          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'88vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
+            <div style={{ padding:'16px 20px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, background:'#fff', zIndex:1 }}>
+              <div>
+                <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>📜 Terms & Conditions</div>
+                <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>Please read carefully</div>
+              </div>
+              <button onClick={()=>setShowTerms(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding:'20px 20px 48px' }}>
+              {[
+                { title:'1. Acceptance of Terms', body:'By using FeedoZone, you agree to be bound by these terms and conditions. If you do not agree, please do not use the platform. Continued use of the app constitutes acceptance.' },
+                { title:'2. Eligibility', body:'You must be 18 years or older, or have parental / guardian consent to use FeedoZone. By registering, you confirm that the information you provide is accurate and up to date.' },
+                { title:'3. Orders & Payments', body:'All orders placed are subject to restaurant availability and acceptance. Payment is currently Cash on Delivery (COD) only. Prices displayed are inclusive of applicable taxes unless stated otherwise.' },
+                { title:'4. Delivery', body:'FeedoZone facilitates food ordering and delivery within Warananagar and nearby areas. Delivery times are estimates and may vary. FeedoZone is not liable for delays caused by traffic, weather, or restaurant preparation time.' },
+                { title:'5. Cancellation Policy', body:'Orders may be cancelled by the restaurant if they are unable to fulfill them. Users may request cancellation before the order is accepted by the restaurant. Cancellations after acceptance are subject to restaurant discretion.' },
+                { title:'6. User Responsibilities', body:'You are responsible for providing accurate delivery details, including address and contact number. FeedoZone is not liable for failed or delayed deliveries due to incorrect information provided by the user.' },
+                { title:'7. Prohibited Conduct', body:'Users must not misuse the platform, place fraudulent orders, abuse vendors or delivery personnel, or attempt to manipulate pricing or offers. Violations may result in account suspension.' },
+                { title:'8. Intellectual Property', body:'All content, logos, and branding on FeedoZone are the property of FeedoZone. You may not reproduce or distribute any part of the platform without prior written permission.' },
+                { title:'9. Limitation of Liability', body:'FeedoZone acts as an intermediary between users and vendors. We are not responsible for the quality, safety, or legality of food items. Any disputes regarding food quality should be raised with the vendor directly.' },
+                { title:'10. Changes to Terms', body:'FeedoZone reserves the right to update these terms at any time without prior notice. Continued use of the platform after changes constitutes your acceptance of the revised terms.' },
+              ].map((section, i) => (
+                <div key={i} style={{ marginBottom:18 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:5 }}>{section.title}</div>
+                  <div style={{ fontSize:12, color:'#6b7280', lineHeight:1.8 }}>{section.body}</div>
+                </div>
+              ))}
+              <div style={{ marginTop:10, padding:'12px 14px', background:'#f9fafb', borderRadius:10, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+                <div style={{ fontSize:11, color:'#9ca3af', lineHeight:1.6 }}>Last updated: June 2025 · FeedoZone, Warananagar, Kolhapur, Maharashtra, India</div>
+              </div>
+              <button onClick={()=>setShowTerms(false)} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:13, borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginTop:16 }}>I Understand ✓</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── PRIVACY POLICY MODAL ── */}
+      {showPrivacy && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }} onClick={e=>{if(e.target===e.currentTarget)setShowPrivacy(false)}}>
+          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'88vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
+            <div style={{ padding:'16px 20px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, background:'#fff', zIndex:1 }}>
+              <div>
+                <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>🔒 Privacy Policy</div>
+                <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>How we handle your data</div>
+              </div>
+              <button onClick={()=>setShowPrivacy(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding:'20px 20px 48px' }}>
+              {[
+                { title:'1. Information We Collect', body:'We collect your name, email address, phone number, and delivery address when you register or place an order. We may also collect your device location if you grant permission, to show nearby restaurants.' },
+                { title:'2. How We Use Your Data', body:'Your data is used solely to process orders, facilitate food delivery, improve your experience on FeedoZone, and send you relevant notifications. We do not sell or rent your personal data to third parties.' },
+                { title:'3. Data Storage & Security', body:'Your data is securely stored using Google Firebase (Firestore and Authentication). We follow industry-standard encryption and security practices to protect your personal information from unauthorized access.' },
+                { title:'4. Location Data', body:'Location is used only to sort and display nearby restaurants and estimate delivery distances. Location is not tracked continuously, stored permanently, or shared with any third party.' },
+                { title:'5. Push Notifications', body:'With your permission, we send push notifications for order status updates (e.g. order accepted, out for delivery). You can disable notifications at any time from your device settings.' },
+                { title:'6. Cookies & Local Storage', body:'The app may use local storage to save your session, language preference, and active tab. No third-party tracking cookies are used within the FeedoZone app.' },
+                { title:'7. Sharing of Information', body:'We may share your order details (name, phone, address) with the restaurant vendor solely to fulfill your order. We do not share data with advertisers or unrelated third parties.' },
+                { title:'8. Data Retention', body:'We retain your account data for as long as your account is active. Order history is retained for dispute resolution purposes. You may request deletion at any time via Support.' },
+                { title:'9. Your Rights', body:'You have the right to access, correct, or delete your personal data. To exercise these rights, contact us through the Support section in your profile. We will respond within 7 working days.' },
+                { title:'10. Changes to This Policy', body:'We may update this Privacy Policy from time to time. We will notify you of significant changes via the app. Continued use of FeedoZone after changes constitutes acceptance of the revised policy.' },
+              ].map((section, i) => (
+                <div key={i} style={{ marginBottom:18 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:5 }}>{section.title}</div>
+                  <div style={{ fontSize:12, color:'#6b7280', lineHeight:1.8 }}>{section.body}</div>
+                </div>
+              ))}
+              <div style={{ marginTop:10, padding:'12px 14px', background:'#f0fdf4', borderRadius:10, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0', display:'flex', alignItems:'flex-start', gap:10 }}>
+                <span style={{ fontSize:16, flexShrink:0 }}>🔐</span>
+                <div style={{ fontSize:11, color:'#166534', lineHeight:1.6 }}>Your privacy matters to us. FeedoZone will never sell your data or use it for purposes other than providing you the best food delivery experience.</div>
+              </div>
+              <div style={{ marginTop:10, padding:'10px 14px', background:'#f9fafb', borderRadius:10, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+                <div style={{ fontSize:11, color:'#9ca3af', lineHeight:1.6 }}>Last updated: June 2025 · FeedoZone, Warananagar, Kolhapur, Maharashtra, India</div>
+              </div>
+              <button onClick={()=>setShowPrivacy(false)} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:13, borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginTop:16 }}>Got It ✓</button>
             </div>
           </div>
         </div>
