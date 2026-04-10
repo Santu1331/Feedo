@@ -6,6 +6,7 @@ import { db } from '../firebase/config'
 import toast from 'react-hot-toast'
 import { useOrderAlert } from '../hooks/useOrderAlert'
 import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
+import FounderBill from '../components/FounderBill'
 
 export default function FounderApp() {
   const { user } = useAuth()
@@ -43,6 +44,10 @@ export default function FounderApp() {
   const [selectedTicket, setSelectedTicket] = useState(null)
   const [replyText, setReplyText] = useState('')
   const [sendingReply, setSendingReply] = useState(false)
+
+  // ── CHANGE 2: FounderBill states ──────────────────────────────────────────
+  const [showFounderBill, setShowFounderBill] = useState(false)
+  const [founderBillOrder, setFounderBillOrder] = useState(null)
 
   // Excel export states
   const [exportMonth, setExportMonth] = useState(new Date().getMonth())
@@ -304,10 +309,6 @@ export default function FounderApp() {
     return users
   }
 
-  // ── SEND WHATSAPP (opens wa.me links one by one) ──────────────────────────
-  // NOTE: WhatsApp Web API opens individual chat windows.
-  // For bulk WhatsApp, a WhatsApp Business API (like Twilio/Wati) is needed.
-  // This opens the first user's WhatsApp with the message pre-filled.
   const sendWhatsAppToUser = (phone, name, message) => {
     const personalised = message.replace(/{name}/g, name || 'there')
     const encoded = encodeURIComponent(personalised)
@@ -316,9 +317,6 @@ export default function FounderApp() {
     return `https://wa.me/${fullNumber}?text=${encoded}`
   }
 
-  // ── SEND EMAIL via mailto ─────────────────────────────────────────────────
-  // NOTE: mailto opens user's email client. For automated bulk email,
-  // integrate EmailJS / Firebase Functions + SendGrid / Nodemailer.
   const sendEmailToUser = (email, subject, message) => {
     const encoded = encodeURIComponent(message.replace(/{name}/g, 'there'))
     return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encoded}`
@@ -344,7 +342,6 @@ export default function FounderApp() {
     let skipped = 0
 
     try {
-      // Save to Firestore broadcast history
       const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
       await addDoc(collection(db, 'broadcastHistory'), {
         title: broadcastTitle || 'Broadcast',
@@ -356,13 +353,11 @@ export default function FounderApp() {
         sentBy: user?.email || 'founder'
       })
 
-      // ── WHATSAPP: Opens wa.me links for each user with phone number ──
       if (sendViaWP) {
         const wpUsers = targetUsers.filter(u => u.mobile || u.phone)
         if (wpUsers.length === 0) {
           toast.error('No users have WhatsApp numbers saved')
         } else {
-          // Open first 3 users' WhatsApp automatically, rest copy-ready
           wpUsers.slice(0, 3).forEach((u, i) => {
             setTimeout(() => {
               const phone = u.mobile || u.phone
@@ -377,13 +372,11 @@ export default function FounderApp() {
         }
       }
 
-      // ── EMAIL: Opens mailto for each user ──
       if (sendViaEmail) {
         const emUsers = targetUsers.filter(u => u.email)
         if (emUsers.length === 0) {
           toast.error('No users have email addresses saved')
         } else {
-          // Build mailto with BCC for bulk (max ~50 at a time)
           const bccList = emUsers.slice(0, 50).map(u => u.email).join(',')
           const personalised = broadcastMsg.replace(/{name}/g, 'there')
           const subject = encodeURIComponent(broadcastTitle || 'Message from FeedoZone')
@@ -439,19 +432,22 @@ export default function FounderApp() {
 
     if (data.length === 0) return toast.error('No orders found for selected period!')
 
-    const headers = ['Order Date','Order Time','Customer Name','Customer Phone','Vendor','Items','Subtotal','Delivery Fee','Total','Payment','Status','Address']
+    // ── CHANGE 5: Added 'Bill No' as first header ──
+    const headers = ['Bill No','Order Date','Order Time','Customer Name','Customer Phone','Vendor','Items','Subtotal','Delivery Fee','Total','Payment','Status','Address']
     const rows = data.map(o => [
+      // ── CHANGE 5: Added bill number as first column ──
+      (o.billNo || 'FZ-'+(o.id?.slice(-6)||'').toUpperCase()),
       formatDate(o), formatTime(o), o.userName||'', o.userPhone||'', o.vendorName||'',
       o.items?.map(i=>i.qty+'x '+i.name).join(' | ')||'',
       o.subtotal||'', o.deliveryFee||'', o.total||'', o.paymentMode||'COD', o.status||'',
       (o.address||'').replace(/,/g,';')
     ])
     const totalRevenue = data.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0)
-    rows.push([], ['SUMMARY','','','','','','','','','','',''])
-    rows.push(['Total Orders', data.length,'','','','','','','','','',''])
-    rows.push(['Delivered', data.filter(o=>o.status==='delivered').length,'','','','','','','','','',''])
-    rows.push(['Cancelled', data.filter(o=>o.status==='cancelled').length,'','','','','','','','','',''])
-    rows.push(['Total Revenue (Delivered)','','','','','','','','₹'+totalRevenue,'','',''])
+    rows.push([], ['SUMMARY','','','','','','','','','','','',''])
+    rows.push(['Total Orders', data.length,'','','','','','','','','','',''])
+    rows.push(['Delivered', data.filter(o=>o.status==='delivered').length,'','','','','','','','','','',''])
+    rows.push(['Cancelled', data.filter(o=>o.status==='cancelled').length,'','','','','','','','','','',''])
+    rows.push(['Total Revenue (Delivered)','','','','','','','','','₹'+totalRevenue,'','',''])
 
     const csvContent = [headers,...rows].map(row=>row.map(cell=>'"'+String(cell).replace(/"/g,'""')+'"').join(',')).join('\n')
     const blob = new Blob(['﻿'+csvContent],{type:'text/csv;charset=utf-8;'})
@@ -766,7 +762,6 @@ export default function FounderApp() {
                 Write Your Message
               </div>
 
-              {/* Title (for email subject) */}
               <div style={{ marginBottom:8 }}>
                 <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Subject / Title (used as email subject)</label>
                 <input
@@ -777,7 +772,6 @@ export default function FounderApp() {
                 />
               </div>
 
-              {/* Message body */}
               <textarea
                 value={broadcastMsg}
                 onChange={e => setBroadcastMsg(e.target.value)}
@@ -786,7 +780,6 @@ export default function FounderApp() {
                 style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'vertical', boxSizing:'border-box', lineHeight:1.7, color:'#1f2937' }}
               />
 
-              {/* Personalisation tip */}
               <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:6, padding:'7px 10px', background:'#fef3c7', borderRadius:8 }}>
                 <span style={{ fontSize:13 }}>💡</span>
                 <span style={{ fontSize:11, color:'#92400e' }}>
@@ -794,7 +787,6 @@ export default function FounderApp() {
                 </span>
               </div>
 
-              {/* Character count */}
               <div style={{ fontSize:11, color: broadcastMsg.length > 1000 ? '#dc2626' : '#9ca3af', marginTop:4, textAlign:'right' }}>
                 {broadcastMsg.length} characters {broadcastMsg.length > 1000 ? '(too long for WhatsApp!)' : ''}
               </div>
@@ -841,7 +833,6 @@ export default function FounderApp() {
                 </div>
               </div>
 
-              {/* Progress bar */}
               {sendingBroadcast && (
                 <div style={{ marginBottom:12 }}>
                   <div style={{ background:'#e5e7eb', borderRadius:8, overflow:'hidden', height:8, marginBottom:6 }}>
@@ -886,7 +877,6 @@ export default function FounderApp() {
                 )}
               </div>
 
-              {/* Important note */}
               <div style={{ marginTop:10, padding:'8px 12px', background:'#fffbeb', borderRadius:8, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
                 <div style={{ fontSize:11, color:'#92400e', lineHeight:1.6 }}>
                   <strong>📱 WhatsApp:</strong> Opens chat windows for each user (up to 3 at once). For bulk sending, integrate WhatsApp Business API (Wati/Twilio).<br/>
@@ -926,7 +916,6 @@ export default function FounderApp() {
                 Send WhatsApp individually by tapping a user, or copy all numbers for bulk messaging tools.
               </div>
 
-              {/* Copy all numbers button */}
               <button
                 onClick={() => {
                   const nums = users.filter(u=>u.mobile||u.phone).map(u=>'91'+(u.mobile||u.phone).replace(/\D/g,'')).join('\n')
@@ -980,6 +969,7 @@ export default function FounderApp() {
         {/* ── ORDERS ── */}
         {tab==='orders' && (
           <>
+            {/* ── ORDER DETAIL MODAL ── */}
             {selectedOrder && (
               <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
                 onClick={e => { if(e.target===e.currentTarget) setSelectedOrder(null) }}>
@@ -1020,7 +1010,16 @@ export default function FounderApp() {
                     <span style={{ fontSize:14, fontWeight:700 }}>Total</span>
                     <span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{selectedOrder.total}</span>
                   </div>
-                  <button onClick={(e) => handleDeleteOrder(selectedOrder.id, e)} style={{ width:'100%', marginTop:14, background:'#fee2e2', color:'#dc2626', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
+
+                  {/* ── CHANGE 4: View Full Bill button above Delete ── */}
+                  <button
+                    onClick={() => { setFounderBillOrder(selectedOrder); setShowFounderBill(true) }}
+                    style={{ width:'100%', marginTop:8, background:'#111', color:'#fff', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:8, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+                  >
+                    🧾 View Full Bill
+                  </button>
+
+                  <button onClick={(e) => handleDeleteOrder(selectedOrder.id, e)} style={{ width:'100%', marginTop:6, background:'#fee2e2', color:'#dc2626', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
                     🗑️ Delete This Order
                   </button>
                 </div>
@@ -1049,7 +1048,16 @@ export default function FounderApp() {
               return o.status === orderFilter
             }).slice(0,50).map(o => (
               <div key={o.id} onClick={() => setSelectedOrder(o)} style={{ display:'flex', gap:8, alignItems:'center', padding:'10px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', cursor:'pointer' }}>
-                <div style={{ fontSize:11, color:'#9ca3af', minWidth:42 }}>{o.createdAt?.toDate?.()?.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})||'--'}</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:3, minWidth:42, alignItems:'flex-start' }}>
+                  <div style={{ fontSize:11, color:'#9ca3af' }}>{o.createdAt?.toDate?.()?.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})||'--'}</div>
+                  {/* ── CHANGE 3: Bill chip in order list row ── */}
+                  <button
+                    onClick={e => { e.stopPropagation(); setFounderBillOrder(o); setShowFounderBill(true) }}
+                    style={{ fontSize:10, fontWeight:700, background:'#E24B4A', color:'#fff', border:'none', borderRadius:6, padding:'2px 7px', cursor:'pointer', fontFamily:'Poppins', flexShrink:0 }}
+                  >
+                    🧾 {'FZ-'+(o.billNo?.slice(-6) || o.id?.slice(-6).toUpperCase())}
+                  </button>
+                </div>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:12, fontWeight:600 }}>{o.userName}</div>
                   <div style={{ fontSize:11, color:'#6b7280' }}>{o.vendorName} · {o.items?.length} item(s)</div>
@@ -1356,7 +1364,18 @@ export default function FounderApp() {
             </div>
           </div>
         )}
+
       </div>
+
+      {/* ── CHANGE 6: FounderBill modal rendered at root level ── */}
+      {showFounderBill && founderBillOrder && (
+        <FounderBill
+          order={founderBillOrder}
+          vendors={vendors}
+          onClose={() => { setShowFounderBill(false); setFounderBillOrder(null) }}
+        />
+      )}
+
     </div>
   )
 }

@@ -8,6 +8,7 @@ import {
 } from '../firebase/services'
 import { db } from '../firebase/config'
 import { useNotifications } from '../hooks/useNotifications'
+import UserBill from '../components/UserBill'
 import toast from 'react-hot-toast'
 
 const S = {
@@ -42,6 +43,32 @@ const VegDot = ({ isVeg }) => (
   </div>
 )
 
+// ── Helper: seconds remaining in 5-min cancel window ──
+function getCancelSecondsLeft(order) {
+  if (!order?.createdAt) return 0
+  const placedMs = order.createdAt?.toDate
+    ? order.createdAt.toDate().getTime()
+    : order.createdAt?.seconds
+      ? order.createdAt.seconds * 1000
+      : null
+  if (!placedMs) return 0
+  const elapsed = (Date.now() - placedMs) / 1000
+  return Math.max(0, 300 - elapsed) // 300 seconds = 5 minutes
+}
+
+// ── Cancel countdown hook ──
+function useCancelCountdown(order) {
+  const [secondsLeft, setSecondsLeft] = useState(() => getCancelSecondsLeft(order))
+  useEffect(() => {
+    if (!order) return
+    const tick = () => setSecondsLeft(getCancelSecondsLeft(order))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [order])
+  return secondsLeft
+}
+
 export default function UserApp() {
   const { user, userData } = useAuth()
   const [tab, setTab] = useState(() => localStorage.getItem('feedo_tab') || 'home')
@@ -67,7 +94,8 @@ export default function UserApp() {
   const [reviewText, setReviewText] = useState('')
   const [reviews, setReviews] = useState([])
   const [submittingReview, setSubmittingReview] = useState(false)
-
+  const [showBill, setShowBill] = useState(false)
+  const [billOrder, setBillOrder] = useState(null)
   const [showSupport, setShowSupport] = useState(false)
   const [showTerms, setShowTerms] = useState(false)
   const [showPrivacy, setShowPrivacy] = useState(false)
@@ -100,6 +128,11 @@ export default function UserApp() {
   const [deliveryAddress, setDeliveryAddress] = useState('')
   const [deliveryHostel, setDeliveryHostel] = useState('')
   const [deliveryNote, setDeliveryNote] = useState('')
+
+  // ── Cancel order state ──
+  const [cancellingOrder, setCancellingOrder] = useState(false)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+  const [orderToCancel, setOrderToCancel] = useState(null)
 
   const t = (en, mr) => lang === 'mr' ? mr : en
 
@@ -246,6 +279,29 @@ export default function UserApp() {
   const minOrderShortfall = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
   const meetsMinOrder = minOrderShortfall === 0
 
+  // ── Handle user cancel order ──
+  const handleCancelOrder = async (order) => {
+    if (cancellingOrder) return
+    setCancellingOrder(true)
+    try {
+      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore')
+      await updateDoc(doc(db, 'orders', order.id), {
+        status: 'cancelled',
+        cancelledBy: 'user',
+        cancellationReason: 'Cancelled by customer within 5 minutes',
+        cancelledAt: serverTimestamp(),
+      })
+      toast.success('Order cancelled successfully.')
+      setShowCancelConfirm(false)
+      setOrderToCancel(null)
+      if (selectedOrder?.id === order.id) setSelectedOrder(null)
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to cancel. Please try again.')
+    }
+    setCancellingOrder(false)
+  }
+
   useEffect(() => {
     if (!user) return
     let unsub
@@ -301,17 +357,20 @@ export default function UserApp() {
     }
     try {
       const fullAddress = [deliveryHostel.trim(), deliveryAddress.trim(), deliveryNote.trim() ? `Note: ${deliveryNote.trim()}` : ''].filter(Boolean).join(' · ')
+      const billNo = 'FZ-' + Date.now().toString(36).slice(-6).toUpperCase()
       await placeOrder({
         userUid: user.uid, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
         userEmail: user.email, vendorUid: cartVendor.id, vendorName: cartVendor.storeName,
         items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty, isCombo: i.isCombo||false })),
         subtotal: cartTotal, deliveryFee: deliveryFee, total: cartTotal + deliveryFee,
-        address: fullAddress, paymentMode: 'COD'
+        address: fullAddress, paymentMode: 'COD',
+        billNo,
       })
       const vendorSnap = await import('firebase/firestore').then(({doc, getDoc}) => getDoc(doc(db, 'vendors', cartVendor.id)))
       const vendorInfo = vendorSnap.exists() ? vendorSnap.data() : {}
       setOrderSuccess({
         orderId: Math.random().toString(36).slice(-6).toUpperCase(),
+        billNo,
         vendorName: cartVendor.storeName, vendorPhone: vendorInfo.phone || '',
         vendorPhoto: vendorInfo.photo || '', items: cart.map(i => ({ ...i })),
         total: cartTotal + deliveryFee, subtotal: cartTotal, deliveryFee: deliveryFee,
@@ -373,6 +432,65 @@ export default function UserApp() {
   }
 
   const unreadCount = notifications.length
+
+  // ── Cancel Confirm Modal ──
+  const CancelConfirmModal = ({ order, onConfirm, onClose, loading }) => {
+    const secs = useCancelCountdown(order)
+    const mm = String(Math.floor(secs / 60)).padStart(2,'0')
+    const ss = String(Math.floor(secs % 60)).padStart(2,'0')
+    return (
+      <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+        onClick={e => { if(e.target===e.currentTarget) onClose() }}>
+        <div style={{ background:'#fff', borderRadius:20, padding:24, maxWidth:380, width:'100%', fontFamily:'Poppins,sans-serif', textAlign:'center' }}>
+          <div style={{ fontSize:40, marginBottom:10 }}>⚠️</div>
+          <div style={{ fontSize:16, fontWeight:700, color:'#1f2937', marginBottom:6 }}>Cancel this order?</div>
+          <div style={{ fontSize:12, color:'#6b7280', marginBottom:16, lineHeight:1.6 }}>
+            Are you sure you want to cancel your order from <strong>{order?.vendorName}</strong>? This action cannot be undone.
+          </div>
+          {secs > 0 && (
+            <div style={{ background:'#fff7ed', borderRadius:10, padding:'8px 14px', marginBottom:16, display:'inline-block', borderWidth:1, borderStyle:'solid', borderColor:'#fed7aa' }}>
+              <span style={{ fontSize:11, color:'#c2410c', fontWeight:600 }}>⏱ Cancel window closes in {mm}:{ss}</span>
+            </div>
+          )}
+          <div style={{ display:'flex', gap:10 }}>
+            <button onClick={onClose} style={{ flex:1, background:'#f3f4f6', color:'#374151', border:'none', padding:'12px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>Keep Order</button>
+            <button onClick={() => onConfirm(order)} disabled={loading} style={{ flex:1, background:loading?'#fca5a5':'#dc2626', color:'#fff', border:'none', padding:'12px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:loading?'not-allowed':'pointer', fontFamily:'Poppins' }}>
+              {loading ? 'Cancelling...' : 'Yes, Cancel'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Cancel button for order card ──
+  const CancelOrderButton = ({ order, style = {} }) => {
+    const [secs, setSecs] = useState(() => getCancelSecondsLeft(order))
+    useEffect(() => {
+      const tick = () => setSecs(getCancelSecondsLeft(order))
+      tick()
+      const id = setInterval(tick, 1000)
+      return () => clearInterval(id)
+    }, [order])
+    const isCancellable = secs > 0 && !['delivered','cancelled'].includes(order.status)
+    if (!isCancellable) return null
+    const mm = String(Math.floor(secs / 60)).padStart(2,'0')
+    const ss = String(Math.floor(secs % 60)).padStart(2,'0')
+    return (
+      <button
+        onClick={e => { e.stopPropagation(); setOrderToCancel(order); setShowCancelConfirm(true) }}
+        style={{
+          display:'flex', alignItems:'center', justifyContent:'center', gap:5,
+          background:'#fee2e2', borderRadius:8, padding:'6px 0', flex:1,
+          borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', cursor:'pointer',
+          fontFamily:'Poppins', ...style
+        }}
+      >
+        <span style={{ fontSize:13 }}>❌</span>
+        <span style={{ fontSize:11, fontWeight:600, color:'#dc2626' }}>Cancel ({mm}:{ss})</span>
+      </button>
+    )
+  }
 
   const ComboCard = ({ combo }) => {
     const inCart = cart.find(c => c.id === 'combo_' + combo.id)
@@ -804,7 +922,7 @@ export default function UserApp() {
               })()}
             </div>
 
-            {/* VENDOR INFO */}
+            {/* ── VENDOR INFO ── */}
             <div style={{ margin:'20px 0 100px', background:'#fff' }}>
               <div style={{ padding:'0 16px 12px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
                 <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', letterSpacing:0.2 }}>Restaurant Info</div>
@@ -835,6 +953,7 @@ export default function UserApp() {
                   <div style={{ flex:1 }}><div style={{ fontSize:11, color:'#9ca3af', marginBottom:3, fontWeight:500 }}>ADDRESS</div><div style={{ fontSize:13, color:'#1f2937', fontWeight:500, lineHeight:1.4 }}>{selectedVendor.address}</div></div>
                 </div>
               )}
+
               {selectedVendor.openTime && selectedVendor.closeTime && (
                 <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'center' }}>
                   <div style={{ width:38, height:38, borderRadius:10, background:'#eff6ff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>🕐</span></div>
@@ -842,6 +961,40 @@ export default function UserApp() {
                   <div style={{ background:selectedVendor.isOpen?'#dcfce7':'#fee2e2', borderRadius:20, padding:'4px 10px' }}><span style={{ fontSize:11, fontWeight:600, color:selectedVendor.isOpen?'#16a34a':'#dc2626' }}>{selectedVendor.isOpen?'Open Now':'Closed'}</span></div>
                 </div>
               )}
+
+              {/* ── GST Number (shown only if vendor has it) ── */}
+              {selectedVendor.gstNo && (
+                <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'center' }}>
+                  <div style={{ width:38, height:38, borderRadius:10, background:'#fefce8', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>🏛️</span></div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginBottom:3, fontWeight:500 }}>GST NUMBER</div>
+                    <div style={{ fontSize:13, color:'#1f2937', fontWeight:600, letterSpacing:0.5 }}>{selectedVendor.gstNo}</div>
+                  </div>
+                  <div style={{ background:'#fef9c3', borderRadius:20, padding:'4px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#fde047' }}>
+                    <span style={{ fontSize:11, fontWeight:600, color:'#854d0e' }}>GST Registered</span>
+                  </div>
+                </div>
+              )}
+
+              {/* ── UPI ID (shown only if vendor has it) ── */}
+              {selectedVendor.upiId && (
+                <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'center' }}>
+                  <div style={{ width:38, height:38, borderRadius:10, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>💳</span></div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginBottom:3, fontWeight:500 }}>UPI ID</div>
+                    <div style={{ fontSize:13, color:'#1f2937', fontWeight:600 }}>{selectedVendor.upiId}</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(selectedVendor.upiId).then(() => toast.success('UPI ID copied!')).catch(() => {})
+                    }}
+                    style={{ background:'#dcfce7', border:'none', borderRadius:20, padding:'6px 12px', fontSize:11, fontWeight:600, color:'#16a34a', cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:4 }}
+                  >
+                    📋 Copy
+                  </button>
+                </div>
+              )}
+
               {selectedVendor.fssai && (
                 <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'center' }}>
                   <div style={{ width:38, height:38, borderRadius:10, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>🏛️</span></div>
@@ -849,6 +1002,7 @@ export default function UserApp() {
                   <div style={{ background:'#dcfce7', borderRadius:20, padding:'4px 10px' }}><span style={{ fontSize:11, fontWeight:600, color:'#16a34a' }}>✓ Verified</span></div>
                 </div>
               )}
+
               {selectedVendor.phone && (
                 <div style={{ display:'flex', gap:14, padding:'14px 16px', alignItems:'center' }}>
                   <div style={{ width:38, height:38, borderRadius:10, background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>📞</span></div>
@@ -1023,12 +1177,24 @@ export default function UserApp() {
                       <span style={{ fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹{o.total}</span>
                       {isActive ? <span style={{ fontSize:11, color:'#E24B4A', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}><span style={{ width:6, height:6, borderRadius:'50%', background:'#E24B4A', display:'inline-block' }} />Track Order →</span> : <span style={{ fontSize:11, color:'#9ca3af' }}>Tap for details →</span>}
                     </div>
-                    {o.status === 'delivered' && (
-                      <div onClick={e => { e.stopPropagation(); const v=vendors.find(x=>x.id===o.vendorUid); if(v){setReviewVendor(v);setReviewRating(5);setShowReview(true)} }} style={{ marginTop:10, display:'flex', alignItems:'center', justifyContent:'space-between', background:'linear-gradient(90deg,#fff7ed,#fef3c7)', borderRadius:8, padding:'8px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:6 }}><span style={{ fontSize:14 }}>⭐</span><span style={{ fontSize:11, fontWeight:600, color:'#92400e' }}>Rate your experience</span></div>
-                        <span style={{ fontSize:11, fontWeight:700, color:'#d97706' }}>Rate Now →</span>
+
+                    {/* Action buttons row */}
+                    <div style={{ display:'flex', gap:8, marginTop:8 }}>
+                      <div
+                        onClick={e => { e.stopPropagation(); setBillOrder(o); setShowBill(true) }}
+                        style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:5, background:'#f9fafb', borderRadius:8, padding:'6px 0', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', cursor:'pointer' }}
+                      >
+                        <span style={{ fontSize:13 }}>🧾</span>
+                        <span style={{ fontSize:11, fontWeight:600, color:'#374151' }}>View Bill</span>
                       </div>
-                    )}
+                      {o.status === 'delivered' && (
+                        <div onClick={e => { e.stopPropagation(); const v=vendors.find(x=>x.id===o.vendorUid); if(v){setReviewVendor(v);setReviewRating(5);setShowReview(true)} }} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:5, background:'linear-gradient(90deg,#fff7ed,#fef3c7)', borderRadius:8, padding:'6px 0', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', cursor:'pointer' }}>
+                          <span style={{ fontSize:13 }}>⭐</span><span style={{ fontSize:11, fontWeight:600, color:'#92400e' }}>Rate Now</span>
+                        </div>
+                      )}
+                      {/* ── 5-min Cancel Button ── */}
+                      <CancelOrderButton order={o} />
+                    </div>
                   </div>
                 )
               })}
@@ -1050,6 +1216,7 @@ export default function UserApp() {
           const stepOrder = ['pending','accepted','preparing','ready','out_for_delivery','delivered']
           const currentIdx = stepOrder.indexOf(o.status)
           const isCancelled = o.status === 'cancelled'
+
           return (
             <div style={{ background:'#f7f7f7', minHeight:'100%' }}>
               <div style={{ background:isCancelled?'linear-gradient(135deg,#dc2626,#b91c1c)':o.status==='delivered'?'linear-gradient(135deg,#16a34a,#15803d)':'linear-gradient(135deg,#E24B4A,#c73232)', padding:'20px 16px 32px', color:'#fff' }}>
@@ -1068,6 +1235,7 @@ export default function UserApp() {
                   <span style={{ fontSize:12, fontWeight:700 }}>{isCancelled?'❌ Cancelled':o.status==='delivered'?'✅ Delivered!':o.status==='out_for_delivery'?'🚴 On the way!':o.status==='preparing'?'👨‍🍳 Preparing...':o.status==='accepted'?'✅ Accepted!':'⏳ Order Placed'}</span>
                 </div>
               </div>
+
               <div style={{ padding:'0 16px 100px', marginTop:-8 }}>
                 {!isCancelled ? (
                   <div style={{ background:'#fff', borderRadius:16, padding:20, marginBottom:14, boxShadow:'0 4px 16px rgba(0,0,0,0.08)' }}>
@@ -1112,9 +1280,15 @@ export default function UserApp() {
                         <button onClick={() => { const v=vendors.find(x=>x.id===o.vendorUid); if(v) openVendor(v); setSelectedOrder(null) }} style={{ marginTop:14, background:'#E24B4A', color:'#fff', border:'none', padding:'11px 24px', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>🔄 Reorder from Same Restaurant</button>
                       </>
                     )}
-                    {o.cancelledBy !== 'vendor' && <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>This order has been cancelled</div>}
+                    {o.cancelledBy === 'user' && (
+                      <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>You cancelled this order</div>
+                    )}
+                    {o.cancelledBy !== 'vendor' && o.cancelledBy !== 'user' && (
+                      <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>This order has been cancelled</div>
+                    )}
                   </div>
                 )}
+
                 <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12 }}>
                   <div style={{ fontSize:12, fontWeight:700, color:'#9ca3af', marginBottom:12, textTransform:'uppercase', letterSpacing:0.5 }}>Order Details</div>
                   {o.items?.map((item,i) => (
@@ -1128,6 +1302,32 @@ export default function UserApp() {
                   <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}><span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee</span><span style={{ fontSize:12 }}>{o.deliveryFee===0?'Free 🎉':('₹'+o.deliveryFee)}</span></div>
                   <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10 }}><span style={{ fontSize:14, fontWeight:700 }}>Total</span><span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{o.total}</span></div>
                 </div>
+
+                {!isCancelled && (
+                  <button
+                    onClick={() => { setBillOrder(o); setShowBill(true) }}
+                    style={{ width:'100%', background:'#1f2937', color:'#fff', border:'none', padding:'13px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+                  >
+                    🧾 View Digital Bill
+                  </button>
+                )}
+
+                {/* ── 5-min Cancel Button in tracking ── */}
+                {!isCancelled && (() => {
+                  const secs = getCancelSecondsLeft(o)
+                  if (secs <= 0) return null
+                  const mm = String(Math.floor(secs / 60)).padStart(2,'0')
+                  const ss = String(Math.floor(secs % 60)).padStart(2,'0')
+                  return (
+                    <button
+                      onClick={() => { setOrderToCancel(o); setShowCancelConfirm(true) }}
+                      style={{ width:'100%', background:'#fee2e2', color:'#dc2626', borderWidth:1.5, borderStyle:'solid', borderColor:'#fca5a5', padding:'13px 0', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+                    >
+                      ❌ Cancel Order · {mm}:{ss} left
+                    </button>
+                  )
+                })()}
+
                 {o.vendorPhone && !isCancelled && (
                   <div style={{ background:'#fff', borderRadius:14, padding:14, marginBottom:12 }}>
                     <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:10 }}>NEED HELP?</div>
@@ -1218,6 +1418,12 @@ export default function UserApp() {
                 </div>
               </div>
             )}
+            <button
+              onClick={() => { setBillOrder(orderSuccess); setShowBill(true) }}
+              style={{ width:'100%', background:'#1f2937', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+            >
+              🧾 View Digital Bill
+            </button>
             <button onClick={()=>{const latestOrder=orders[0];setOrderSuccess(null);setTab('orders');if(latestOrder)setTimeout(()=>setSelectedOrder(latestOrder),100)}} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10 }}>📋 Track My Order</button>
             <button onClick={()=>{setOrderSuccess(null);setTab('home')}} style={{ width:'100%', background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>🏠 Back to Home</button>
           </div>
@@ -1275,7 +1481,7 @@ export default function UserApp() {
                 { title:'2. Eligibility', body:'You must be 18 years or older, or have parental / guardian consent to use FeedoZone. By registering, you confirm that the information you provide is accurate and up to date.' },
                 { title:'3. Orders & Payments', body:'All orders placed are subject to restaurant availability and acceptance. Payment is currently Cash on Delivery (COD) only. Prices displayed are inclusive of applicable taxes unless stated otherwise.' },
                 { title:'4. Delivery', body:'FeedoZone facilitates food ordering and delivery within Warananagar and nearby areas. Delivery times are estimates and may vary. FeedoZone is not liable for delays caused by traffic, weather, or restaurant preparation time.' },
-                { title:'5. Cancellation Policy', body:'Orders may be cancelled by the restaurant if they are unable to fulfill them. Users may request cancellation before the order is accepted by the restaurant. Cancellations after acceptance are subject to restaurant discretion.' },
+                { title:'5. Cancellation Policy', body:'Orders may be cancelled by the restaurant if they are unable to fulfill them. Users may cancel orders within 5 minutes of placing them. Cancellations after 5 minutes are not permitted through the app.' },
                 { title:'6. User Responsibilities', body:'You are responsible for providing accurate delivery details, including address and contact number. FeedoZone is not liable for failed or delayed deliveries due to incorrect information provided by the user.' },
                 { title:'7. Prohibited Conduct', body:'Users must not misuse the platform, place fraudulent orders, abuse vendors or delivery personnel, or attempt to manipulate pricing or offers. Violations may result in account suspension.' },
                 { title:'8. Intellectual Property', body:'All content, logos, and branding on FeedoZone are the property of FeedoZone. You may not reproduce or distribute any part of the platform without prior written permission.' },
@@ -1355,6 +1561,24 @@ export default function UserApp() {
           </button>
         ))}
       </div>
+
+      {/* UserBill Modal */}
+      {showBill && billOrder && (
+        <UserBill
+          order={billOrder}
+          onClose={() => { setShowBill(false); setBillOrder(null) }}
+        />
+      )}
+
+      {/* ── Cancel Confirmation Modal ── */}
+      {showCancelConfirm && orderToCancel && (
+        <CancelConfirmModal
+          order={orderToCancel}
+          onConfirm={handleCancelOrder}
+          onClose={() => { setShowCancelConfirm(false); setOrderToCancel(null) }}
+          loading={cancellingOrder}
+        />
+      )}
     </div>
   )
 }

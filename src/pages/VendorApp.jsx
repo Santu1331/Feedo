@@ -11,6 +11,7 @@ import { listenNotifications, markNotificationRead } from '../firebase/services'
 import toast from 'react-hot-toast'
 import { useOrderAlert } from '../hooks/useOrderAlert'
 import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
+import VendorBill from '../components/VendorBill'
 
 const STATUS_NEXT  = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
 const STATUS_LABEL = { pending:'Accept Order', accepted:'Start Preparing', preparing:'Mark Ready', ready:'Out for Delivery', out_for_delivery:'Mark Delivered' }
@@ -72,6 +73,10 @@ export default function VendorApp() {
   const [storeEditData, setStoreEditData] = useState({})
   const [savingStoreInfo, setSavingStoreInfo] = useState(false)
 
+  // ── VENDOR BILL STATES ────────────────────────────────────────────────────
+  const [showVendorBill, setShowVendorBill] = useState(false)
+  const [vendorBillOrder, setVendorBillOrder] = useState(null)
+
   const [newOrderAlert, setNewOrderAlert] = useState(null)
   const [alertDismissed, setAlertDismissed] = useState(false)
   const [audioUnlocked, setAudioUnlocked] = useState(false)
@@ -90,9 +95,12 @@ export default function VendorApp() {
   }, [])
 
   const [deliveryCharge, setDeliveryCharge] = useState('')
-  // ── MIN ORDER AMOUNT STATE ────────────────────────────────────────────────
   const [minOrderAmount, setMinOrderAmount] = useState('')
   const [fssai, setFssai] = useState('')
+  // ── GST & UPI STATES ─────────────────────────────────────────────────────
+  const [gstNumber, setGstNumber] = useState('')
+  const [upiId, setUpiId] = useState('')
+  // ─────────────────────────────────────────────────────────────────────────
   const [openTime, setOpenTime] = useState('')
   const [closeTime, setCloseTime] = useState('')
   const [savingDetails, setSavingDetails] = useState(false)
@@ -147,9 +155,12 @@ export default function VendorApp() {
     setIsOpen(userData?.isOpen || false)
     if (userData?.customCategories) setCustomCategories(userData.customCategories)
     if (userData?.deliveryCharge !== undefined) setDeliveryCharge(String(userData.deliveryCharge ?? ''))
-    // ── LOAD MIN ORDER AMOUNT FROM FIRESTORE ──────────────────────────────
     if (userData?.minOrderAmount !== undefined) setMinOrderAmount(String(userData.minOrderAmount ?? ''))
     if (userData?.fssai) setFssai(userData.fssai)
+    // ── LOAD GST & UPI FROM FIRESTORE ─────────────────────────────────────
+    if (userData?.gstNumber !== undefined) setGstNumber(userData.gstNumber || '')
+    if (userData?.upiId !== undefined) setUpiId(userData.upiId || '')
+    // ─────────────────────────────────────────────────────────────────────
     if (userData?.openTime) setOpenTime(userData.openTime)
     if (userData?.closeTime) setCloseTime(userData.closeTime)
     if (userData?.location) { setVendorLocation(userData.location); setLocationName(userData.locationName || '') }
@@ -204,15 +215,28 @@ export default function VendorApp() {
     setLocationSearch(""); setLocationSuggestions([])
   }
 
-  // ── SAVE STORE DETAILS — now includes minOrderAmount ────────────────────
+  // ── SAVE STORE DETAILS — includes GST & UPI ───────────────────────────────
   const handleSaveDetails = async () => {
+    // Validate GST format if provided (15-char alphanumeric)
+    if (gstNumber.trim() && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber.trim().toUpperCase())) {
+      toast.error('Invalid GST number format. E.g. 22AAAAA0000A1Z5')
+      return
+    }
+    // Validate UPI format if provided
+    if (upiId.trim() && !/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(upiId.trim())) {
+      toast.error('Invalid UPI ID format. E.g. name@upi or 9876543210@paytm')
+      return
+    }
     setSavingDetails(true)
     try {
       await updateVendorStore(user.uid, {
         deliveryCharge: deliveryCharge === '' ? 0 : Number(deliveryCharge),
-        // ── SAVE MIN ORDER AMOUNT TO FIRESTORE ───────────────────────────
         minOrderAmount: minOrderAmount === '' ? 0 : Number(minOrderAmount),
         fssai: fssai.trim(),
+        // ── SAVE GST & UPI TO FIRESTORE ──────────────────────────────────
+        gstNumber: gstNumber.trim().toUpperCase(),
+        upiId: upiId.trim(),
+        // ─────────────────────────────────────────────────────────────────
         openTime: openTime.trim(),
         closeTime: closeTime.trim()
       })
@@ -603,6 +627,12 @@ export default function VendorApp() {
                         </a>
                       </div>
                     )}
+                    <button
+                      onClick={() => { setVendorBillOrder(selectedVendorOrder); setShowVendorBill(true) }}
+                      style={{ width:'100%', background:'#f9fafb', color:'#1f2937', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginTop:8, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+                    >
+                      🧾 View / Print Bill
+                    </button>
                   </div>
 
                   <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
@@ -723,6 +753,14 @@ export default function VendorApp() {
                   </div>
                 )}
                 {order.status === 'cancelled' && order.cancellationReason && <div style={{ marginTop:8, background:'#fff5f5', borderRadius:8, padding:'6px 10px', fontSize:11, color:'#991b1b' }}>🚫 {order.cancellationReason}</div>}
+                {order.status === 'delivered' && (
+                  <button
+                    onClick={e => { e.stopPropagation(); setVendorBillOrder(order); setShowVendorBill(true) }}
+                    style={{ marginTop:6, display:'flex', alignItems:'center', gap:6, background:'#f3f4f6', borderRadius:8, padding:'5px 10px', border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600, color:'#374151' }}
+                  >
+                    🧾 View Bill
+                  </button>
+                )}
               </div>
             ))}
           </>
@@ -1151,53 +1189,34 @@ export default function VendorApp() {
               </div>
             </div>
 
-            {/* ── STORE DETAILS — includes Min Order Amount ──────────────────── */}
+            {/* ── STORE DETAILS ──────────────────────────────────────────────── */}
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
               <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>🏪 Store Details</div>
 
               {/* Delivery Charge */}
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🚴 Delivery Charge (₹)</label>
-                <input
-                  type="number"
-                  placeholder="e.g. 20 (0 for free delivery)"
-                  value={deliveryCharge}
-                  onChange={e => setDeliveryCharge(e.target.value)}
-                  style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }}
-                />
+                <input type="number" placeholder="e.g. 20 (0 for free delivery)" value={deliveryCharge} onChange={e => setDeliveryCharge(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
               </div>
 
-              {/* ── MIN ORDER AMOUNT INPUT ────────────────────────────────────── */}
+              {/* Min Order Amount */}
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🛒 Minimum Order Amount (₹)</label>
-                <input
-                  type="number"
-                  placeholder="e.g. 100 (0 for no minimum)"
-                  value={minOrderAmount}
-                  onChange={e => setMinOrderAmount(e.target.value)}
-                  style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }}
-                />
-                {/* Helper note shown below the input */}
+                <input type="number" placeholder="e.g. 100 (0 for no minimum)" value={minOrderAmount} onChange={e => setMinOrderAmount(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
                 <div style={{ marginTop:6, display:'flex', alignItems:'flex-start', gap:6 }}>
                   <span style={{ fontSize:12, flexShrink:0 }}>💡</span>
                   <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>
-                    If set, customers must add at least ₹{minOrderAmount || '0'} worth of items before they can checkout.
-                    This will be shown on your restaurant card so customers know in advance.
-                    Set to 0 to remove the minimum.
+                    If set, customers must add at least ₹{minOrderAmount || '0'} worth of items before they can checkout. Set to 0 to remove the minimum.
                   </p>
                 </div>
               </div>
-
-              {/* Live Preview of how it looks to users */}
               {Number(minOrderAmount) > 0 && (
                 <div style={{ marginBottom:14, background:'#eff6ff', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe', display:'flex', alignItems:'center', gap:8 }}>
                   <span style={{ fontSize:15 }}>👁️</span>
                   <div>
                     <div style={{ fontSize:11, fontWeight:700, color:'#1e40af', marginBottom:2 }}>How users will see it:</div>
                     <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                      <span style={{ fontSize:11, background:'#dbeafe', color:'#1e40af', fontWeight:700, borderRadius:6, padding:'2px 8px' }}>
-                        🛒 Min. ₹{minOrderAmount}
-                      </span>
+                      <span style={{ fontSize:11, background:'#dbeafe', color:'#1e40af', fontWeight:700, borderRadius:6, padding:'2px 8px' }}>🛒 Min. ₹{minOrderAmount}</span>
                       <span style={{ fontSize:11, color:'#6b7280' }}>shown on restaurant card & menu</span>
                     </div>
                   </div>
@@ -1207,13 +1226,62 @@ export default function VendorApp() {
               {/* FSSAI */}
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>📋 FSSAI Licence Number</label>
+                <input type="text" placeholder="e.g. 10012345000123" value={fssai} onChange={e => setFssai(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
+              </div>
+
+              {/* ── GST NUMBER ────────────────────────────────────────────────── */}
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🏛️ GST Number</label>
                 <input
                   type="text"
-                  placeholder="e.g. 10012345000123"
-                  value={fssai}
-                  onChange={e => setFssai(e.target.value)}
+                  placeholder="e.g. 22AAAAA0000A1Z5"
+                  value={gstNumber}
+                  onChange={e => setGstNumber(e.target.value.toUpperCase())}
+                  maxLength={15}
+                  style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box', letterSpacing:1 }}
+                />
+                <div style={{ marginTop:5, display:'flex', alignItems:'flex-start', gap:6 }}>
+                  <span style={{ fontSize:12, flexShrink:0 }}>💡</span>
+                  <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>
+                    15-character GST Identification Number. It will appear on all customer bills and can be viewed by admins and customers.
+                  </p>
+                </div>
+                {gstNumber && (
+                  <div style={{ marginTop:6, display:'flex', alignItems:'center', gap:6 }}>
+                    <span style={{ fontSize:11, background: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber) ? '#d1fae5':'#fee2e2', color: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber) ? '#065f46':'#991b1b', fontWeight:700, borderRadius:6, padding:'2px 8px' }}>
+                      {/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber) ? '✅ Valid format' : `${gstNumber.length}/15 chars`}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* ── UPI ID ────────────────────────────────────────────────────── */}
+              <div style={{ marginBottom:14 }}>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>💳 UPI ID</label>
+                <input
+                  type="text"
+                  placeholder="e.g. storename@paytm or 9876543210@upi"
+                  value={upiId}
+                  onChange={e => setUpiId(e.target.value.trim())}
                   style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }}
                 />
+                <div style={{ marginTop:5, display:'flex', alignItems:'flex-start', gap:6 }}>
+                  <span style={{ fontSize:12, flexShrink:0 }}>💡</span>
+                  <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>
+                    Your UPI ID will be shown on customer bills so they can pay digitally. Supports PhonePe, Google Pay, Paytm, BHIM and all UPI apps.
+                  </p>
+                </div>
+                {/* Live UPI preview */}
+                {upiId && (
+                  <div style={{ marginTop:8, background:'#f0fdf4', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0', display:'flex', alignItems:'center', gap:10 }}>
+                    <span style={{ fontSize:22 }}>📱</span>
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, color:'#15803d', marginBottom:2 }}>UPI Payment Preview on Bill</div>
+                      <div style={{ fontSize:12, color:'#166534', fontWeight:600 }}>{upiId}</div>
+                      <div style={{ fontSize:10, color:'#6b7280', marginTop:1 }}>Pay via PhonePe · GPay · Paytm · BHIM</div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Opening Hours */}
@@ -1226,11 +1294,7 @@ export default function VendorApp() {
                 </div>
               </div>
 
-              <button
-                onClick={handleSaveDetails}
-                disabled={savingDetails}
-                style={{ width:'100%', background:savingDetails?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
-              >
+              <button onClick={handleSaveDetails} disabled={savingDetails} style={{ width:'100%', background:savingDetails?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
                 {savingDetails?'Saving...':'💾 Save Store Details'}
               </button>
             </div>
@@ -1288,6 +1352,15 @@ export default function VendorApp() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── VENDOR BILL MODAL ── */}
+      {showVendorBill && vendorBillOrder && (
+        <VendorBill
+          order={vendorBillOrder}
+          vendorData={userData}
+          onClose={() => { setShowVendorBill(false); setVendorBillOrder(null) }}
+        />
       )}
 
       <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
