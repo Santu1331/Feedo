@@ -12,6 +12,8 @@ import toast from 'react-hot-toast'
 import { useOrderAlert } from '../hooks/useOrderAlert'
 import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
 import VendorBill from '../components/VendorBill'
+import { doc, updateDoc } from 'firebase/firestore'
+import { db } from '../firebase/config'
 
 const STATUS_NEXT  = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
 const STATUS_LABEL = { pending:'Accept Order', accepted:'Start Preparing', preparing:'Mark Ready', ready:'Out for Delivery', out_for_delivery:'Mark Delivered' }
@@ -31,6 +33,213 @@ const ORDER_FILTERS = [
   { id:'delivered',        label:'Delivered',      emoji:'✔️' },
   { id:'cancelled',        label:'Cancelled',      emoji:'❌' },
 ]
+
+// ── RIDER LOCATION PANEL ─────────────────────────────────────────────────────
+function RiderLocationPanel({ order, onClose }) {
+  const [riderName, setRiderName] = useState(order.riderName || '')
+  const [riderPhone, setRiderPhone] = useState(order.riderPhone || '')
+  const [tracking, setTracking] = useState(false)
+  const [locationStatus, setLocationStatus] = useState('')
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [riderSaved, setRiderSaved] = useState(!!(order.riderName && order.riderPhone))
+  const watchIdRef = useRef(null)
+  const updateIntervalRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current)
+      if (updateIntervalRef.current) clearInterval(updateIntervalRef.current)
+    }
+  }, [])
+
+  const saveRiderInfo = async () => {
+    if (!riderName.trim()) return toast.error('Enter rider name')
+    if (!riderPhone.trim() || riderPhone.length < 10) return toast.error('Enter valid phone number')
+    try {
+      await updateDoc(doc(db, 'orders', order.id), {
+        riderName: riderName.trim(),
+        riderPhone: riderPhone.trim(),
+      })
+      setRiderSaved(true)
+      toast.success('Rider info saved! ✅')
+    } catch { toast.error('Failed to save rider info') }
+  }
+
+  const pushLocation = async (lat, lng) => {
+    try {
+      await updateDoc(doc(db, 'orders', order.id), {
+        riderLocation: { lat, lng },
+        riderLocationUpdatedAt: new Date().toISOString(),
+      })
+      setLastUpdated(new Date())
+      setLocationStatus(`📍 ${lat.toFixed(4)}, ${lng.toFixed(4)}`)
+    } catch { setLocationStatus('⚠️ Failed to update location') }
+  }
+
+  const startTracking = () => {
+    if (!navigator.geolocation) return toast.error('GPS not supported on this device')
+    if (!riderSaved) return toast.error('Save rider info first')
+    setTracking(true)
+    setLocationStatus('Getting location...')
+
+    // Push immediately then every 15 seconds
+    navigator.geolocation.getCurrentPosition(
+      (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude),
+      () => setLocationStatus('⚠️ Could not get location'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    )
+    toast.success('🛵 Live tracking started!')
+  }
+
+  const stopTracking = () => {
+    if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current)
+    if (updateIntervalRef.current) clearInterval(updateIntervalRef.current)
+    watchIdRef.current = null
+    setTracking(false)
+    setLocationStatus('Tracking stopped')
+    toast('Tracking stopped', { icon: '⏹️' })
+  }
+
+  const inp = {
+    width:'100%', padding:'10px 12px', borderWidth:'1px', borderStyle:'solid', borderColor:'#e5e7eb',
+    borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box'
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:2000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+      <div style={{ background:'#fff', borderRadius:'22px 22px 0 0', maxHeight:'90vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
+        {/* Header */}
+        <div style={{ background:'linear-gradient(135deg,#1a1a1a,#0f3460)', padding:'20px 20px 24px', borderRadius:'22px 22px 0 0', position:'relative', overflow:'hidden' }}>
+          <div style={{ position:'absolute', right:-10, top:-10, fontSize:70, opacity:0.07 }}>🛵</div>
+          <div style={{ display:'flex', justifyContent:'center', marginBottom:12 }}><div style={{ width:40, height:4, borderRadius:2, background:'rgba(255,255,255,0.3)' }} /></div>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+            <div>
+              <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', fontWeight:700, letterSpacing:1, marginBottom:4 }}>LIVE TRACKING</div>
+              <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>🛵 Rider Location</div>
+              <div style={{ fontSize:12, color:'rgba(255,255,255,0.7)', marginTop:4 }}>Order #{order.id.slice(-6).toUpperCase()}</div>
+            </div>
+            <button onClick={onClose} style={{ background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', width:34, height:34, borderRadius:'50%', fontSize:16, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+          </div>
+          {/* Live indicator */}
+          {tracking && (
+            <div style={{ marginTop:14, background:'rgba(74,222,128,0.2)', borderRadius:10, padding:'8px 12px', display:'flex', alignItems:'center', gap:8, borderWidth:1, borderStyle:'solid', borderColor:'rgba(74,222,128,0.4)' }}>
+              <div style={{ width:8, height:8, borderRadius:'50%', background:'#4ade80', animation:'livePulse 1s infinite' }} />
+              <span style={{ fontSize:12, color:'#4ade80', fontWeight:700 }}>LIVE — Customer can see rider location</span>
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding:'20px 20px 40px' }}>
+          {/* How it works */}
+          <div style={{ background:'#f0f9ff', borderRadius:12, padding:'12px 14px', marginBottom:18, borderWidth:1, borderStyle:'solid', borderColor:'#bae6fd', display:'flex', gap:10, alignItems:'flex-start' }}>
+            <span style={{ fontSize:20, flexShrink:0 }}>💡</span>
+            <div>
+              <div style={{ fontSize:12, fontWeight:700, color:'#0369a1', marginBottom:4 }}>How Live Tracking Works</div>
+              <div style={{ fontSize:11, color:'#0c4a6e', lineHeight:1.7 }}>
+                1. Save the delivery rider's info below<br/>
+                2. Open this panel on the <strong>rider's phone</strong><br/>
+                3. Tap <strong>"Start Live Tracking"</strong> — the customer's map updates automatically every few seconds
+              </div>
+            </div>
+          </div>
+
+          {/* Rider Info */}
+          <div style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+            <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:12 }}>👤 Rider Details</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              <div>
+                <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Rider Name *</label>
+                <input style={inp} placeholder="e.g. Rahul Patil" value={riderName} onChange={e => setRiderName(e.target.value)} disabled={riderSaved} />
+              </div>
+              <div>
+                <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Rider Phone *</label>
+                <input style={inp} type="tel" placeholder="10-digit mobile" value={riderPhone} onChange={e => setRiderPhone(e.target.value)} maxLength={10} disabled={riderSaved} />
+              </div>
+              {!riderSaved ? (
+                <button onClick={saveRiderInfo} style={{ background:'#1a1a1a', color:'#fff', border:'none', padding:'11px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+                  💾 Save Rider Info
+                </button>
+              ) : (
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    <span style={{ fontSize:11, background:'#d1fae5', color:'#065f46', fontWeight:700, borderRadius:6, padding:'3px 8px' }}>✅ Rider Saved</span>
+                  </div>
+                  <button onClick={() => setRiderSaved(false)} style={{ background:'none', border:'none', fontSize:11, color:'#6b7280', cursor:'pointer', fontFamily:'Poppins', textDecoration:'underline' }}>Edit</button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Location Status */}
+          {locationStatus && (
+            <div style={{ background: tracking ? '#f0fdf4' : '#f9fafb', borderRadius:10, padding:'10px 14px', marginBottom:14, borderWidth:1, borderStyle:'solid', borderColor: tracking ? '#bbf7d0' : '#e5e7eb', display:'flex', gap:8, alignItems:'center' }}>
+              <span style={{ fontSize:16 }}>{tracking ? '📡' : '📍'}</span>
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color: tracking ? '#15803d' : '#6b7280' }}>{tracking ? 'Current Location Sent' : 'Location'}</div>
+                <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{locationStatus}</div>
+                {lastUpdated && <div style={{ fontSize:10, color:'#d1d5db', marginTop:1 }}>Last updated: {lastUpdated.toLocaleTimeString()}</div>}
+              </div>
+            </div>
+          )}
+
+          {/* Start/Stop Tracking Button */}
+          {!tracking ? (
+            <button
+              onClick={startTracking}
+              disabled={!riderSaved}
+              style={{ width:'100%', background: riderSaved ? 'linear-gradient(135deg,#E24B4A,#c73232)' : '#e5e7eb', color: riderSaved ? '#fff' : '#9ca3af', border:'none', padding:'16px 0', borderRadius:14, fontSize:15, fontWeight:800, cursor: riderSaved ? 'pointer' : 'not-allowed', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow: riderSaved ? '0 6px 20px rgba(226,75,74,0.35)' : 'none', transition:'all 0.2s' }}
+            >
+              <span style={{ fontSize:22 }}>🛵</span>
+              Start Live Tracking
+            </button>
+          ) : (
+            <button
+              onClick={stopTracking}
+              style={{ width:'100%', background:'linear-gradient(135deg,#dc2626,#991b1b)', color:'#fff', border:'none', padding:'16px 0', borderRadius:14, fontSize:15, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:10, animation:'trackPulse 2s infinite' }}
+            >
+              <span style={{ fontSize:18 }}>⏹️</span>
+              Stop Tracking
+            </button>
+          )}
+
+          {/* Manual Push Button */}
+          {riderSaved && (
+            <button
+              onClick={() => {
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => { pushLocation(pos.coords.latitude, pos.coords.longitude); toast.success('Location pushed!') },
+                  () => toast.error('Could not get location'),
+                  { enableHighAccuracy: true, timeout: 8000 }
+                )
+              }}
+              style={{ width:'100%', background:'#f3f4f6', color:'#374151', border:'none', padding:'12px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+            >
+              📍 Push Current Location Once
+            </button>
+          )}
+
+          {/* Warning */}
+          <div style={{ marginTop:16, background:'#fffbeb', borderRadius:10, padding:'10px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', display:'flex', gap:8, alignItems:'flex-start' }}>
+            <span style={{ fontSize:14, flexShrink:0 }}>⚠️</span>
+            <div style={{ fontSize:11, color:'#92400e', lineHeight:1.6 }}>
+              Keep this panel open on the rider's phone while delivering. The tracking stops if this panel is closed or the browser is backgrounded.
+            </div>
+          </div>
+        </div>
+      </div>
+      <style>{`
+        @keyframes livePulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.6;transform:scale(1.3)} }
+        @keyframes trackPulse { 0%,100%{box-shadow:0 6px 20px rgba(220,38,38,0.4)} 50%{box-shadow:0 6px 28px rgba(220,38,38,0.7)} }
+      `}</style>
+    </div>
+  )
+}
 
 export default function VendorApp() {
   const { user, userData } = useAuth()
@@ -58,6 +267,10 @@ export default function VendorApp() {
   const [editingItem, setEditingItem] = useState(null)
   const [editItemData, setEditItemData] = useState({})
   const [savingEdit, setSavingEdit] = useState(false)
+
+  // ── RIDER TRACKING STATE ──────────────────────────────────────────────────
+  const [showRiderPanel, setShowRiderPanel] = useState(false)
+  const [riderPanelOrder, setRiderPanelOrder] = useState(null)
 
   // ── COMBO STATES ──────────────────────────────────────────────────────────
   const [showAddCombo, setShowAddCombo] = useState(false)
@@ -97,10 +310,8 @@ export default function VendorApp() {
   const [deliveryCharge, setDeliveryCharge] = useState('')
   const [minOrderAmount, setMinOrderAmount] = useState('')
   const [fssai, setFssai] = useState('')
-  // ── GST & UPI STATES ─────────────────────────────────────────────────────
   const [gstNumber, setGstNumber] = useState('')
   const [upiId, setUpiId] = useState('')
-  // ─────────────────────────────────────────────────────────────────────────
   const [openTime, setOpenTime] = useState('')
   const [closeTime, setCloseTime] = useState('')
   const [savingDetails, setSavingDetails] = useState(false)
@@ -157,19 +368,15 @@ export default function VendorApp() {
     if (userData?.deliveryCharge !== undefined) setDeliveryCharge(String(userData.deliveryCharge ?? ''))
     if (userData?.minOrderAmount !== undefined) setMinOrderAmount(String(userData.minOrderAmount ?? ''))
     if (userData?.fssai) setFssai(userData.fssai)
-    // ── LOAD GST & UPI FROM FIRESTORE ─────────────────────────────────────
     if (userData?.gstNumber !== undefined) setGstNumber(userData.gstNumber || '')
     if (userData?.upiId !== undefined) setUpiId(userData.upiId || '')
-    // ─────────────────────────────────────────────────────────────────────
     if (userData?.openTime) setOpenTime(userData.openTime)
     if (userData?.closeTime) setCloseTime(userData.closeTime)
     if (userData?.location) { setVendorLocation(userData.location); setLocationName(userData.locationName || '') }
 
     const u1 = getVendorOrders(user.uid, setOrders)
     const u2 = getMenuItems(user.uid, setMenuItems)
-    const u3 = getCombos(user.uid, (fetchedCombos) => {
-      setCombos(fetchedCombos)
-    })
+    const u3 = getCombos(user.uid, (fetchedCombos) => { setCombos(fetchedCombos) })
     return () => { u1(); u2(); u3() }
   }, [user, userData])
 
@@ -215,14 +422,11 @@ export default function VendorApp() {
     setLocationSearch(""); setLocationSuggestions([])
   }
 
-  // ── SAVE STORE DETAILS — includes GST & UPI ───────────────────────────────
   const handleSaveDetails = async () => {
-    // Validate GST format if provided (15-char alphanumeric)
     if (gstNumber.trim() && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber.trim().toUpperCase())) {
       toast.error('Invalid GST number format. E.g. 22AAAAA0000A1Z5')
       return
     }
-    // Validate UPI format if provided
     if (upiId.trim() && !/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(upiId.trim())) {
       toast.error('Invalid UPI ID format. E.g. name@upi or 9876543210@paytm')
       return
@@ -233,10 +437,8 @@ export default function VendorApp() {
         deliveryCharge: deliveryCharge === '' ? 0 : Number(deliveryCharge),
         minOrderAmount: minOrderAmount === '' ? 0 : Number(minOrderAmount),
         fssai: fssai.trim(),
-        // ── SAVE GST & UPI TO FIRESTORE ──────────────────────────────────
         gstNumber: gstNumber.trim().toUpperCase(),
         upiId: upiId.trim(),
-        // ─────────────────────────────────────────────────────────────────
         openTime: openTime.trim(),
         closeTime: closeTime.trim()
       })
@@ -369,22 +571,12 @@ export default function VendorApp() {
     setAddingCombo(true)
     try {
       await addCombo(user.uid, {
-        name: newCombo.name.trim(),
-        description: newCombo.description.trim(),
-        comboPrice: Number(newCombo.comboPrice),
-        originalPrice: comboOriginalPrice(newCombo.items),
-        items: newCombo.items,
-        isVeg: newCombo.isVeg,
-        available: true,
-        tag: newCombo.tag,
+        name: newCombo.name.trim(), description: newCombo.description.trim(),
+        comboPrice: Number(newCombo.comboPrice), originalPrice: comboOriginalPrice(newCombo.items),
+        items: newCombo.items, isVeg: newCombo.isVeg, available: true, tag: newCombo.tag,
       })
-      setNewCombo(EMPTY_COMBO)
-      setShowAddCombo(false)
-      toast.success('Combo created! 🍱')
-    } catch (err) {
-      console.error('Add combo error:', err)
-      toast.error('Failed to create combo. Try again.')
-    }
+      setNewCombo(EMPTY_COMBO); setShowAddCombo(false); toast.success('Combo created! 🍱')
+    } catch (err) { console.error('Add combo error:', err); toast.error('Failed to create combo. Try again.') }
     setAddingCombo(false)
   }
 
@@ -395,53 +587,28 @@ export default function VendorApp() {
     setSavingCombo(true)
     try {
       await updateCombo(user.uid, comboId, {
-        name: editComboData.name.trim(),
-        description: editComboData.description?.trim() || '',
-        comboPrice: Number(editComboData.comboPrice),
-        originalPrice: comboOriginalPrice(editComboData.items),
-        items: editComboData.items,
-        isVeg: editComboData.isVeg,
-        available: editComboData.available !== false,
-        tag: editComboData.tag || '',
+        name: editComboData.name.trim(), description: editComboData.description?.trim() || '',
+        comboPrice: Number(editComboData.comboPrice), originalPrice: comboOriginalPrice(editComboData.items),
+        items: editComboData.items, isVeg: editComboData.isVeg, available: editComboData.available !== false, tag: editComboData.tag || '',
       })
-      toast.success('Combo updated! ✅')
-      setEditingCombo(null)
-    } catch (err) {
-      console.error('Update combo error:', err)
-      toast.error('Failed to update combo.')
-    }
+      toast.success('Combo updated! ✅'); setEditingCombo(null)
+    } catch (err) { console.error('Update combo error:', err); toast.error('Failed to update combo.') }
     setSavingCombo(false)
   }
 
   const handleDeleteCombo = async (comboId) => {
     if (!window.confirm('Delete this combo? This cannot be undone.')) return
-    try {
-      await deleteCombo(user.uid, comboId)
-      toast.success('Combo deleted')
-    } catch (err) {
-      console.error('Delete combo error:', err)
-      toast.error('Failed to delete combo.')
-    }
+    try { await deleteCombo(user.uid, comboId); toast.success('Combo deleted') }
+    catch (err) { console.error('Delete combo error:', err); toast.error('Failed to delete combo.') }
   }
 
   const toggleComboAvailable = async (combo) => {
-    try {
-      await updateCombo(user.uid, combo.id, { available: !combo.available })
-    } catch (err) {
-      console.error('Toggle combo error:', err)
-      toast.error('Failed to update combo.')
-    }
+    try { await updateCombo(user.uid, combo.id, { available: !combo.available }) }
+    catch (err) { console.error('Toggle combo error:', err); toast.error('Failed to update combo.') }
   }
 
-  // ── STORE INFO EDIT ───────────────────────────────────────────────────────
   const handleOpenStoreEdit = () => {
-    setStoreEditData({
-      storeName: userData?.storeName || '',
-      phone: userData?.phone || '',
-      address: userData?.address || '',
-      category: userData?.category || '',
-      email: userData?.email || '',
-    })
+    setStoreEditData({ storeName: userData?.storeName || '', phone: userData?.phone || '', address: userData?.address || '', category: userData?.category || '', email: userData?.email || '' })
     setEditingStoreInfo(true)
   }
 
@@ -449,14 +616,8 @@ export default function VendorApp() {
     if (!storeEditData.storeName?.trim()) return toast.error('Store name is required')
     setSavingStoreInfo(true)
     try {
-      await updateVendorStore(user.uid, {
-        storeName: storeEditData.storeName.trim(),
-        phone: storeEditData.phone.trim(),
-        address: storeEditData.address.trim(),
-        category: storeEditData.category.trim(),
-      })
-      toast.success('Store info updated! ✅')
-      setEditingStoreInfo(false)
+      await updateVendorStore(user.uid, { storeName: storeEditData.storeName.trim(), phone: storeEditData.phone.trim(), address: storeEditData.address.trim(), category: storeEditData.category.trim() })
+      toast.success('Store info updated! ✅'); setEditingStoreInfo(false)
     } catch { toast.error('Failed to save. Try again.') }
     setSavingStoreInfo(false)
   }
@@ -635,6 +796,55 @@ export default function VendorApp() {
                     </button>
                   </div>
 
+                  {/* ── 🛵 LIVE TRACKING CARD — shows for out_for_delivery ── */}
+                  {selectedVendorOrder.status === 'out_for_delivery' && (
+                    <div style={{ background:'linear-gradient(135deg,#0f3460,#1a1a2e)', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 4px 20px rgba(15,52,96,0.35)', position:'relative', overflow:'hidden' }}>
+                      <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>🛵</div>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
+                        <div>
+                          <div style={{ fontSize:10, color:'rgba(255,255,255,0.6)', fontWeight:700, letterSpacing:1, marginBottom:4 }}>DELIVERY TRACKING</div>
+                          <div style={{ fontSize:15, fontWeight:800, color:'#fff' }}>🛵 Live Rider Tracking</div>
+                        </div>
+                        {selectedVendorOrder.riderName && (
+                          <div style={{ background:'rgba(74,222,128,0.2)', borderRadius:20, padding:'4px 10px', display:'flex', alignItems:'center', gap:5, borderWidth:1, borderStyle:'solid', borderColor:'rgba(74,222,128,0.3)' }}>
+                            <div style={{ width:6, height:6, borderRadius:'50%', background:'#4ade80', animation:'pulse 1s infinite' }} />
+                            <span style={{ fontSize:10, color:'#4ade80', fontWeight:700 }}>ACTIVE</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {selectedVendorOrder.riderName ? (
+                        <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:10, padding:'10px 12px', marginBottom:12 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                            <div style={{ width:38, height:38, borderRadius:10, background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                              <span style={{ fontSize:18 }}>🛵</span>
+                            </div>
+                            <div>
+                              <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{selectedVendorOrder.riderName}</div>
+                              <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)' }}>📱 {selectedVendorOrder.riderPhone}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ background:'rgba(255,255,255,0.06)', borderRadius:10, padding:'10px 12px', marginBottom:12 }}>
+                          <div style={{ fontSize:12, color:'rgba(255,255,255,0.6)', textAlign:'center' }}>⚠️ No rider assigned yet. Tap below to assign.</div>
+                        </div>
+                      )}
+
+                      <div style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginBottom:10, lineHeight:1.5 }}>
+                        Customer can see live location on their tracking map. Open this on the rider's phone to stream GPS.
+                      </div>
+
+                      <button
+                        onClick={() => { setRiderPanelOrder(selectedVendorOrder); setShowRiderPanel(true) }}
+                        style={{ width:'100%', background:'linear-gradient(135deg,#E24B4A,#c73232)', color:'#fff', border:'none', padding:'13px 0', borderRadius:12, fontSize:14, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:'0 4px 16px rgba(226,75,74,0.5)' }}
+                      >
+                        <span style={{ fontSize:20 }}>🛵</span>
+                        {selectedVendorOrder.riderName ? 'Manage Rider & Tracking' : 'Assign Rider & Start Tracking'}
+                      </button>
+                    </div>
+                  )}
+
                   <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
                     <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:12, textTransform:'uppercase' }}>Items Ordered</div>
                     {selectedVendorOrder.items?.map((item, i) => (
@@ -730,7 +940,7 @@ export default function VendorApp() {
             )}
 
             {filteredOrders.map(order => (
-              <div key={order.id} onClick={() => setSelectedVendorOrder(order)} style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor: order.status==='pending'?'#fecaca':order.status==='delivered'?'#bbf7d0':order.status==='cancelled'?'#fecaca':'#e5e7eb', borderRadius:12, padding:14, marginBottom:10, cursor:'pointer', opacity:order.status==='cancelled'?0.8:1 }}>
+              <div key={order.id} onClick={() => setSelectedVendorOrder(order)} style={{ background:'#fff', borderWidth:1, borderStyle:'solid', borderColor: order.status==='pending'?'#fecaca':order.status==='delivered'?'#bbf7d0':order.status==='cancelled'?'#fecaca': order.status==='out_for_delivery'?'#bfdbfe':'#e5e7eb', borderRadius:12, padding:14, marginBottom:10, cursor:'pointer', opacity:order.status==='cancelled'?0.8:1 }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                   <div>
                     <div style={{ fontSize:13, fontWeight:700 }}>#{order.id.slice(-6).toUpperCase()}</div>
@@ -738,12 +948,30 @@ export default function VendorApp() {
                     <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>📍 {order.address?.slice(0,40)}{order.address?.length>40?'...':''}</div>
                     {order.createdAt && <div style={{ fontSize:10, color:'#d1d5db', marginTop:2 }}>{order.createdAt?.toDate?.()?.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>}
                   </div>
-                  <span style={statusBadgeStyle(order.status)}>{order.status?.replace('_',' ').toUpperCase()}</span>
+                  <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
+                    <span style={statusBadgeStyle(order.status)}>{order.status?.replace('_',' ').toUpperCase()}</span>
+                    {/* 🛵 Live tracking quick badge */}
+                    {order.status === 'out_for_delivery' && order.riderName && (
+                      <div style={{ display:'flex', alignItems:'center', gap:4, background:'#eff6ff', borderRadius:10, padding:'2px 8px' }}>
+                        <div style={{ width:5, height:5, borderRadius:'50%', background:'#3b82f6', animation:'pulse 1s infinite' }} />
+                        <span style={{ fontSize:9, color:'#1d4ed8', fontWeight:700 }}>TRACKING ON</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div style={{ fontSize:12, color:'#6b7280', marginBottom:8 }}>{order.items?.map(i => `${i.qty}x ${i.name}`).join(' · ')}</div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ fontSize:16, fontWeight:800, color:'#E24B4A' }}>₹{order.total} <span style={{ fontSize:11, color:'#9ca3af', fontWeight:400 }}>COD</span></div>
-                  <span style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Tap for details →</span>
+                  {order.status === 'out_for_delivery' ? (
+                    <button
+                      onClick={e => { e.stopPropagation(); setRiderPanelOrder(order); setShowRiderPanel(true) }}
+                      style={{ display:'flex', alignItems:'center', gap:5, background:'#0f3460', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
+                    >
+                      🛵 Track Rider
+                    </button>
+                  ) : (
+                    <span style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Tap for details →</span>
+                  )}
                 </div>
                 {!['delivered','cancelled'].includes(order.status) && (
                   <div style={{ display:'flex', gap:8, marginTop:10 }} onClick={e => e.stopPropagation()}>
@@ -1124,18 +1352,9 @@ export default function VendorApp() {
                   <div style={{ background:'#fff5f5', borderRadius:8, padding:'8px 12px', fontSize:11, color:'#991b1b', marginBottom:4 }}>
                     ⚠️ Email and subscription plan cannot be changed here.
                   </div>
-                  <div>
-                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Store Name *</label>
-                    <input style={inp} placeholder="Your store name" value={storeEditData.storeName||''} onChange={e => setStoreEditData(p=>({...p,storeName:e.target.value}))} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Phone / WhatsApp</label>
-                    <input style={inp} type="tel" placeholder="10-digit mobile number" value={storeEditData.phone||''} onChange={e => setStoreEditData(p=>({...p,phone:e.target.value}))} maxLength={10} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Store Address</label>
-                    <textarea style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.5}} placeholder="Full address with landmark" value={storeEditData.address||''} onChange={e => setStoreEditData(p=>({...p,address:e.target.value}))} />
-                  </div>
+                  <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Store Name *</label><input style={inp} placeholder="Your store name" value={storeEditData.storeName||''} onChange={e => setStoreEditData(p=>({...p,storeName:e.target.value}))} /></div>
+                  <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Phone / WhatsApp</label><input style={inp} type="tel" placeholder="10-digit mobile number" value={storeEditData.phone||''} onChange={e => setStoreEditData(p=>({...p,phone:e.target.value}))} maxLength={10} /></div>
+                  <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Store Address</label><textarea style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.5}} placeholder="Full address with landmark" value={storeEditData.address||''} onChange={e => setStoreEditData(p=>({...p,address:e.target.value}))} /></div>
                   <div>
                     <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Food Category</label>
                     <select style={{...inp,cursor:'pointer'}} value={storeEditData.category||''} onChange={e => setStoreEditData(p=>({...p,category:e.target.value}))}>
@@ -1189,25 +1408,18 @@ export default function VendorApp() {
               </div>
             </div>
 
-            {/* ── STORE DETAILS ──────────────────────────────────────────────── */}
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
               <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>🏪 Store Details</div>
-
-              {/* Delivery Charge */}
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🚴 Delivery Charge (₹)</label>
                 <input type="number" placeholder="e.g. 20 (0 for free delivery)" value={deliveryCharge} onChange={e => setDeliveryCharge(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
               </div>
-
-              {/* Min Order Amount */}
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🛒 Minimum Order Amount (₹)</label>
                 <input type="number" placeholder="e.g. 100 (0 for no minimum)" value={minOrderAmount} onChange={e => setMinOrderAmount(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
                 <div style={{ marginTop:6, display:'flex', alignItems:'flex-start', gap:6 }}>
                   <span style={{ fontSize:12, flexShrink:0 }}>💡</span>
-                  <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>
-                    If set, customers must add at least ₹{minOrderAmount || '0'} worth of items before they can checkout. Set to 0 to remove the minimum.
-                  </p>
+                  <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>If set, customers must add at least ₹{minOrderAmount || '0'} worth of items before checkout. Set to 0 to remove.</p>
                 </div>
               </div>
               {Number(minOrderAmount) > 0 && (
@@ -1222,56 +1434,24 @@ export default function VendorApp() {
                   </div>
                 </div>
               )}
-
-              {/* FSSAI */}
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>📋 FSSAI Licence Number</label>
                 <input type="text" placeholder="e.g. 10012345000123" value={fssai} onChange={e => setFssai(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
               </div>
-
-              {/* ── GST NUMBER ────────────────────────────────────────────────── */}
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🏛️ GST Number</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 22AAAAA0000A1Z5"
-                  value={gstNumber}
-                  onChange={e => setGstNumber(e.target.value.toUpperCase())}
-                  maxLength={15}
-                  style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box', letterSpacing:1 }}
-                />
-                <div style={{ marginTop:5, display:'flex', alignItems:'flex-start', gap:6 }}>
-                  <span style={{ fontSize:12, flexShrink:0 }}>💡</span>
-                  <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>
-                    15-character GST Identification Number. It will appear on all customer bills and can be viewed by admins and customers.
-                  </p>
-                </div>
+                <input type="text" placeholder="e.g. 22AAAAA0000A1Z5" value={gstNumber} onChange={e => setGstNumber(e.target.value.toUpperCase())} maxLength={15} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box', letterSpacing:1 }} />
                 {gstNumber && (
-                  <div style={{ marginTop:6, display:'flex', alignItems:'center', gap:6 }}>
+                  <div style={{ marginTop:6 }}>
                     <span style={{ fontSize:11, background: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber) ? '#d1fae5':'#fee2e2', color: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber) ? '#065f46':'#991b1b', fontWeight:700, borderRadius:6, padding:'2px 8px' }}>
                       {/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber) ? '✅ Valid format' : `${gstNumber.length}/15 chars`}
                     </span>
                   </div>
                 )}
               </div>
-
-              {/* ── UPI ID ────────────────────────────────────────────────────── */}
               <div style={{ marginBottom:14 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>💳 UPI ID</label>
-                <input
-                  type="text"
-                  placeholder="e.g. storename@paytm or 9876543210@upi"
-                  value={upiId}
-                  onChange={e => setUpiId(e.target.value.trim())}
-                  style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }}
-                />
-                <div style={{ marginTop:5, display:'flex', alignItems:'flex-start', gap:6 }}>
-                  <span style={{ fontSize:12, flexShrink:0 }}>💡</span>
-                  <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>
-                    Your UPI ID will be shown on customer bills so they can pay digitally. Supports PhonePe, Google Pay, Paytm, BHIM and all UPI apps.
-                  </p>
-                </div>
-                {/* Live UPI preview */}
+                <input type="text" placeholder="e.g. storename@paytm or 9876543210@upi" value={upiId} onChange={e => setUpiId(e.target.value.trim())} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
                 {upiId && (
                   <div style={{ marginTop:8, background:'#f0fdf4', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0', display:'flex', alignItems:'center', gap:10 }}>
                     <span style={{ fontSize:22 }}>📱</span>
@@ -1283,8 +1463,6 @@ export default function VendorApp() {
                   </div>
                 )}
               </div>
-
-              {/* Opening Hours */}
               <div style={{ marginBottom:12 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🕐 Opening Hours</label>
                 <div style={{ display:'flex', gap:8, marginTop:4, alignItems:'center' }}>
@@ -1293,7 +1471,6 @@ export default function VendorApp() {
                   <input type="time" value={closeTime} onChange={e => setCloseTime(e.target.value)} style={{ flex:1, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none' }} />
                 </div>
               </div>
-
               <button onClick={handleSaveDetails} disabled={savingDetails} style={{ width:'100%', background:savingDetails?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
                 {savingDetails?'Saving...':'💾 Save Store Details'}
               </button>
@@ -1360,6 +1537,14 @@ export default function VendorApp() {
           order={vendorBillOrder}
           vendorData={userData}
           onClose={() => { setShowVendorBill(false); setVendorBillOrder(null) }}
+        />
+      )}
+
+      {/* ── 🛵 RIDER LOCATION PANEL ── */}
+      {showRiderPanel && riderPanelOrder && (
+        <RiderLocationPanel
+          order={riderPanelOrder}
+          onClose={() => { setShowRiderPanel(false); setRiderPanelOrder(null) }}
         />
       )}
 
