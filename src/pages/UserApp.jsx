@@ -20,7 +20,7 @@ function calcDeliveryCharge(distanceKm, vendorBaseCharge) {
   if (km <= 2) return 20
   if (km <= 3) return 30
   if (km <= 4) return 40
-  return 40 // should never reach — vendors beyond 4km are hidden
+  return 40
 }
 
 const MAX_DELIVERY_KM = 4
@@ -81,96 +81,12 @@ function useCancelCountdown(order) {
   return secondsLeft
 }
 
-// ─── Location Permission Gate ─────────────────────────────────────────────────
-function LocationPermissionGate({ onGranted }) {
-  const [requesting, setRequesting] = useState(false)
-
-  const handleRequest = async () => {
-    setRequesting(true)
-    try {
-      const pos = await new Promise((res, rej) =>
-        navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 })
-      )
-      onGranted(pos.coords.latitude, pos.coords.longitude)
-    } catch {
-      toast.error('Location access denied. Please enable GPS to order food.', { duration: 5000 })
-    }
-    setRequesting(false)
-  }
-
-  return (
-    <div style={{
-      position:'fixed', inset:0, background:'#fff', zIndex:2000,
-      display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-      fontFamily:'Poppins,sans-serif', padding:24, maxWidth:430, margin:'0 auto'
-    }}>
-      {/* Animated pin */}
-      <div style={{ position:'relative', width:120, height:120, marginBottom:28 }}>
-        <div style={{
-          width:80, height:80, borderRadius:'50%', background:'#fee2e2',
-          position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)',
-          animation:'locationPulse 2s ease-in-out infinite'
-        }} />
-        <div style={{
-          width:56, height:56, borderRadius:'50%', background:'#fecaca',
-          position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)',
-          animation:'locationPulse 2s ease-in-out infinite 0.3s'
-        }} />
-        <div style={{
-          width:52, height:52, borderRadius:'50%', background:'#E24B4A',
-          position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)',
-          display:'flex', alignItems:'center', justifyContent:'center', fontSize:26
-        }}>📍</div>
-      </div>
-      <style>{`
-        @keyframes locationPulse { 0%,100%{transform:translate(-50%,-50%) scale(1);opacity:1} 50%{transform:translate(-50%,-50%) scale(1.15);opacity:0.6} }
-      `}</style>
-      <div style={{ fontSize:22, fontWeight:800, color:'#1f2937', marginBottom:8, textAlign:'center', lineHeight:1.3 }}>
-        Enable Location to Order
-      </div>
-      <div style={{ fontSize:13, color:'#6b7280', textAlign:'center', lineHeight:1.7, marginBottom:8 }}>
-        FeedoZone uses your location to show nearby restaurants and calculate accurate delivery charges.
-      </div>
-      <div style={{ background:'#f9fafb', borderRadius:12, padding:'12px 16px', marginBottom:24, width:'100%', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
-        {[
-          { icon:'🏪', text:'See restaurants within 4 km' },
-          { icon:'💰', text:'Auto-calculate delivery charges' },
-          { icon:'🛵', text:'Accurate delivery estimates' },
-        ].map(row => (
-          <div key={row.text} style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 0' }}>
-            <span style={{ fontSize:18 }}>{row.icon}</span>
-            <span style={{ fontSize:13, color:'#374151' }}>{row.text}</span>
-          </div>
-        ))}
-      </div>
-      <button
-        onClick={handleRequest}
-        disabled={requesting}
-        style={{
-          width:'100%', background:requesting?'#f09595':'#E24B4A', color:'#fff',
-          border:'none', padding:'15px 0', borderRadius:14, fontSize:15, fontWeight:700,
-          cursor:requesting?'not-allowed':'pointer', fontFamily:'Poppins',
-          display:'flex', alignItems:'center', justifyContent:'center', gap:10,
-          boxShadow:'0 6px 20px rgba(226,75,74,0.35)'
-        }}
-      >
-        <span style={{ fontSize:20 }}>📍</span>
-        {requesting ? 'Detecting location...' : 'Allow Location Access'}
-      </button>
-      <div style={{ fontSize:11, color:'#9ca3af', marginTop:14, textAlign:'center', lineHeight:1.6 }}>
-        Your location is only used to find nearby restaurants.<br/>We never track you in background.
-      </div>
-    </div>
-  )
-}
-
 // ─── Map Modal ────────────────────────────────────────────────────────────────
 function MapModal({ userLat, userLng, vendors, onClose }) {
   const mapRef = useRef(null)
   const mapInstance = useRef(null)
 
   useEffect(() => {
-    // Load Leaflet dynamically
     if (mapInstance.current) return
     const link = document.createElement('link')
     link.rel = 'stylesheet'
@@ -189,7 +105,6 @@ function MapModal({ userLat, userLng, vendors, onClose }) {
         attribution:'© OpenStreetMap contributors'
       }).addTo(map)
 
-      // User marker
       const userIcon = L.divIcon({
         html:`<div style="width:36px;height:36px;border-radius:50%;background:#E24B4A;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 3px 12px rgba(226,75,74,0.5)">👤</div>`,
         className:'', iconSize:[36,36], iconAnchor:[18,18]
@@ -199,14 +114,12 @@ function MapModal({ userLat, userLng, vendors, onClose }) {
         .bindPopup('<b>📍 You are here</b>')
         .openPopup()
 
-      // 4km radius circle
       L.circle([userLat, userLng], {
         radius: MAX_DELIVERY_KM * 1000,
         color:'#E24B4A', fillColor:'#fee2e2', fillOpacity:0.08,
         weight:2, dashArray:'6,6'
       }).addTo(map)
 
-      // Vendor markers
       vendors.forEach(v => {
         if (!v.location?.lat || !v.location?.lng) return
         const dist = getDistance(userLat, userLng, v.location.lat, v.location.lng)
@@ -246,7 +159,6 @@ function MapModal({ userLat, userLng, vendors, onClose }) {
       <div style={{ flex:1, position:'relative' }}>
         <div ref={mapRef} style={{ width:'100%', height:'100%' }} />
       </div>
-      {/* Legend */}
       <div style={{ background:'#fff', padding:'12px 16px', display:'flex', gap:16, flexWrap:'wrap', flexShrink:0 }}>
         {[
           { color:'#E24B4A', label:'You' },
@@ -324,8 +236,8 @@ export default function UserApp() {
   const [locationSearch, setLocationSearch] = useState('')
   const [locationSuggestions, setLocationSuggestions] = useState([])
   const [searchingLocation, setSearchingLocation] = useState(false)
-  const [locationGranted, setLocationGranted] = useState(false)  // NEW
-  const [showMap, setShowMap] = useState(false)                  // NEW
+  const [locationGranted, setLocationGranted] = useState(true)  // ← always true, no gate
+  const [showMap, setShowMap] = useState(false)
 
   const [deliveryName, setDeliveryName] = useState('')
   const [deliveryPhone, setDeliveryPhone] = useState('')
@@ -341,39 +253,52 @@ export default function UserApp() {
 
   useNotifications(user?.uid, 'user')
 
-useEffect(() => {
-  if (!user?.uid) return
-
-  const saveToken = async (token) => {
-    if (token && typeof token === 'string' && token.startsWith('ExponentPushToken')) {
-      console.log('✅ Saving expo token for user:', user.uid)
-      await saveExpoPushToken(user.uid, token, 'user')
+  useEffect(() => {
+    if (!user?.uid) return
+    const saveToken = async (token) => {
+      if (token && typeof token === 'string' && token.startsWith('ExponentPushToken')) {
+        await saveExpoPushToken(user.uid, token, 'user')
+      }
     }
-  }
+    if (window.expoPushToken) saveToken(window.expoPushToken)
+    try {
+      const stored = localStorage.getItem('expoPushToken')
+      if (stored) saveToken(stored)
+    } catch(e) {}
+    const handleToken = (e) => saveToken(e.detail)
+    window.addEventListener('expoPushToken', handleToken)
+    return () => window.removeEventListener('expoPushToken', handleToken)
+  }, [user?.uid])
 
-  // Check window object
-  if (window.expoPushToken) saveToken(window.expoPushToken)
-
-  // Check localStorage (backup from new App.js)
-  try {
-    const stored = localStorage.getItem('expoPushToken')
-    if (stored) saveToken(stored)
-  } catch(e) {}
-
-  // Listen for future events
-  const handleToken = (e) => saveToken(e.detail)
-  window.addEventListener('expoPushToken', handleToken)
-  return () => window.removeEventListener('expoPushToken', handleToken)
-}, [user?.uid])
-
-  // ── Check if location already in localStorage ──
+  // ── Auto-detect location silently on mount (Zomato-style, no gate) ──
   useEffect(() => {
     const cached = localStorage.getItem('feedo_location')
     if (cached) {
       try {
         const { lat, lng, name } = JSON.parse(cached)
-        setUserLat(lat); setUserLng(lng); setLocationName(name); setLocationGranted(true)
+        setUserLat(lat); setUserLng(lng); setLocationName(name)
+        return // have cache, skip GPS
       } catch {}
+    }
+    // No cache — silently request GPS in background
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude: lat, longitude: lng } = pos.coords
+          setUserLat(lat); setUserLng(lng)
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+            const data = await res.json()
+            const addr = data.address || {}
+            const name = addr.suburb || addr.neighbourhood || addr.village || addr.town || addr.city || 'Your Location'
+            setLocationName(name)
+            localStorage.setItem('feedo_location', JSON.stringify({ lat, lng, name }))
+            if (user) await saveUserLocation(user.uid, lat, lng)
+          } catch { setLocationName('Your Location') }
+        },
+        () => { /* silently ignore denial */ },
+        { enableHighAccuracy: true, timeout: 10000 }
+      )
     }
   }, [])
 
@@ -434,9 +359,8 @@ useEffect(() => {
     } catch { return 'Your Location' }
   }
 
-  // ── Called when location permission granted ──
   const handleLocationGranted = async (lat, lng) => {
-    setUserLat(lat); setUserLng(lng); setLocationGranted(true)
+    setUserLat(lat); setUserLng(lng)
     const name = await reverseGeocode(lat, lng)
     setLocationName(name)
     localStorage.setItem('feedo_location', JSON.stringify({ lat, lng, name }))
@@ -472,10 +396,6 @@ useEffect(() => {
   }
 
   const openVendor = (v) => {
-    if (!locationGranted) {
-      toast.error('Please enable location first to browse restaurants', { icon: '📍', duration: 3000 })
-      return
-    }
     if (!v.isOpen) {
       toast.error(`${v.storeName} is currently closed${v.openTime ? `. Opens at ${v.openTime}` : ''}`, { icon: '🔒', duration: 3000 })
       return
@@ -485,11 +405,9 @@ useEffect(() => {
   }
 
   const addToCart = (item) => {
-    if (!locationGranted) { toast.error('Enable location to place orders', { icon: '📍' }); return }
     if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
     if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
 
-    // Compute distance-based delivery charge
     const dist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
       ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
       : null
@@ -505,7 +423,6 @@ useEffect(() => {
   }
 
   const addComboToCart = (combo) => {
-    if (!locationGranted) { toast.error('Enable location to place orders', { icon: '📍' }); return }
     if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
     if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
 
@@ -608,7 +525,6 @@ useEffect(() => {
   }
 
   const handlePlaceOrder = async () => {
-    if (!locationGranted) return toast.error('Enable your location to place an order', { icon: '📍' })
     if (!deliveryName.trim()) return toast.error('Enter your name')
     if (!deliveryPhone.trim()) return toast.error('Enter phone number')
     if (!deliveryAddress.trim() && !deliveryHostel.trim()) return toast.error('Enter delivery address')
@@ -684,10 +600,9 @@ useEffect(() => {
         ? getDistance(userLat, userLng, v.location.lat, v.location.lng)
         : null,
     }))
-    // ── HIDE vendors beyond 4km (Zomato-style) ──
     .filter(v => {
-      if (!locationGranted) return true  // if no location, show all (until gated)
-      if (v.distance === null) return true  // vendor has no coords, still show
+      if (!userLat || !userLng) return true   // no location yet, show all
+      if (v.distance === null) return true    // vendor has no coords, show
       return v.distance <= MAX_DELIVERY_KM
     })
     .sort((a, b) => {
@@ -703,15 +618,6 @@ useEffect(() => {
   }
 
   const unreadCount = notifications.length
-
-  // ── If location not granted, show permission gate BEFORE the app ──
-  if (!locationGranted) {
-    return (
-      <div style={S.shell}>
-        <LocationPermissionGate onGranted={handleLocationGranted} />
-      </div>
-    )
-  }
 
   const CancelConfirmModal = ({ order, onConfirm, onClose, loading }) => {
     const secs = useCancelCountdown(order)
@@ -848,7 +754,7 @@ useEffect(() => {
                 <span style={{ fontSize:10, opacity:0.75, lineHeight:1, letterSpacing:0.3 }}>DELIVERING TO</span>
                 <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                   <span style={{ fontSize:13, fontWeight:700, lineHeight:1.4, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:160 }}>
-                    {locationLoading ? 'Detecting...' : locationName || 'Select Location'}
+                    {locationLoading ? 'Detecting...' : locationName || 'Detecting location...'}
                   </span>
                   <span style={{ fontSize:10, opacity:0.8 }}>▾</span>
                 </div>
@@ -856,7 +762,6 @@ useEffect(() => {
             </div>
           </div>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-            {/* Map button */}
             <button onClick={() => setShowMap(true)} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', padding:'5px 10px', borderRadius:8, fontSize:14, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:4 }}>
               🗺️
             </button>
@@ -943,7 +848,6 @@ useEffect(() => {
         {tab==='home' && (
           <div style={{ background:'#fff', minHeight:'100%' }}>
 
-            {/* ── Delivery charge info banner ── */}
             <div style={{ background:'linear-gradient(90deg,#fff7ed,#fef3c7)', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#fed7aa', padding:'8px 16px', display:'flex', alignItems:'center', gap:10 }}>
               <span style={{ fontSize:16 }}>🚚</span>
               <div style={{ flex:1 }}>
@@ -1034,7 +938,6 @@ useEffect(() => {
                       <div style={{ fontSize:12, color:'#9ca3af', marginTop:3 }}>{v.category}</div>
                       <div style={{ display:'flex', flexWrap:'wrap', gap:10, marginTop:8, alignItems:'center' }}>
                         <span style={{ fontSize:12, color:'#9ca3af' }}>🕐 {v.prepTime||20}-{(v.prepTime||20)+15} min</span>
-                        {/* Dynamic delivery charge badge */}
                         <span style={{ fontSize:12, fontWeight:700, background:dynamicCharge===0?'#dcfce7':'#fef3c7', color:dynamicCharge===0?'#16a34a':'#92400e', borderRadius:6, padding:'2px 8px' }}>
                           {dynamicCharge===0 ? '🎉 Free delivery' : `🚚 ₹${dynamicCharge} delivery`}
                         </span>
@@ -1093,7 +996,6 @@ useEffect(() => {
 
               <div style={{ padding:'10px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
                 <span style={{ fontSize:12, color:'#6b7280' }}>🕐 {selectedVendor.prepTime||20}-{(selectedVendor.prepTime||20)+15} min</span>
-                {/* Dynamic delivery charge */}
                 <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px' }}>
                   🚚 {dynamicCharge === 0 ? 'Free delivery 🎉' : `₹${dynamicCharge} delivery`}
                 </span>
@@ -1369,7 +1271,6 @@ useEffect(() => {
           <div style={{ padding:16, background:'#fff', minHeight:'100%' }}>
             <div style={{ fontSize:15, fontWeight:600, marginBottom:12 }}>{t('Your Cart','तुमची कार्ट')} {cartVendor && `· ${cartVendor.storeName}`}</div>
 
-            {/* Distance-based delivery info in cart */}
             {cartVendor && cartVendor.distanceKm !== null && cartVendor.distanceKm !== undefined && (
               <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:10, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
                 <span style={{ fontSize:16 }}>🚚</span>
@@ -1559,10 +1460,9 @@ useEffect(() => {
               ))}
             </div>
 
-            {/* Location & Map section */}
             <div style={{ background:'#fff5f5', borderRadius:12, padding:'12px 14px', marginBottom:10, borderWidth:1, borderStyle:'solid', borderColor:'#fecaca' }}>
               <div style={{ fontSize:12, fontWeight:700, color:'#991b1b', marginBottom:8 }}>📍 Delivery Location</div>
-              <div style={{ fontSize:12, color:'#374151', marginBottom:10 }}>{locationName || 'Not set'}</div>
+              <div style={{ fontSize:12, color:'#374151', marginBottom:10 }}>{locationName || 'Detecting...'}</div>
               <div style={{ display:'flex', gap:8 }}>
                 <button onClick={() => setShowLocationPicker(true)} style={{ flex:1, background:'#E24B4A', color:'#fff', border:'none', padding:'9px 0', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>📍 Change Location</button>
                 <button onClick={() => setShowMap(true)} style={{ flex:1, background:'#fff', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca', padding:'9px 0', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>🗺️ View Map</button>
