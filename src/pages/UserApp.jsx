@@ -341,20 +341,26 @@ export default function UserApp() {
 
   useNotifications(user?.uid, 'user')
 
-// Save Expo push token when app provides it
 useEffect(() => {
-  const handleToken = async (e) => {
-    const token = e.detail
-    if (token && user?.uid) {
+  if (!user?.uid) return  // wait until user is actually loaded
+
+  const saveToken = async (token) => {
+    if (token && typeof token === 'string' && token.startsWith('ExponentPushToken')) {
+      console.log('✅ Saving expo token for user:', user.uid)
       await saveExpoPushToken(user.uid, token, 'user')
     }
   }
-  window.addEventListener('expoPushToken', handleToken)
-  if (window.expoPushToken && user?.uid) {
-    saveExpoPushToken(user.uid, window.expoPushToken, 'user')
+
+  // Check if token already available in window
+  if (window.expoPushToken) {
+    saveToken(window.expoPushToken)
   }
+
+  // Also listen for future token events
+  const handleToken = (e) => saveToken(e.detail)
+  window.addEventListener('expoPushToken', handleToken)
   return () => window.removeEventListener('expoPushToken', handleToken)
-}, [user])
+}, [user?.uid])  // ← depends on user.uid only, not full user object
 
   // ── Check if location already in localStorage ──
   useEffect(() => {
