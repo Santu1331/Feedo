@@ -21,7 +21,6 @@ export const uploadPhoto = (file, onProgress) => {
     formData.append('file', file)
     formData.append('upload_preset', CLOUDINARY_PRESET)
     formData.append('folder', 'feedozone')
-
     const xhr = new XMLHttpRequest()
     xhr.open('POST', CLOUDINARY_URL)
     xhr.upload.onprogress = (e) => {
@@ -109,7 +108,62 @@ export const saveUserLocation = async (uid, lat, lng) => {
   await updateDoc(doc(db, 'users', uid), { location: { lat, lng } })
 }
 
-// ── FCM NOTIFICATIONS ─────────────────────────────────────────────────────
+// ── EXPO PUSH NOTIFICATIONS ───────────────────────────────────────────────
+
+// Send Expo push notification directly from frontend
+export const sendExpoPushNotification = async ({ expoPushToken, title, body, data = {} }) => {
+  if (!expoPushToken) return
+  if (!expoPushToken.startsWith('ExponentPushToken')) return
+  try {
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: expoPushToken,
+        title,
+        body,
+        data,
+        sound: 'default',
+        priority: 'high',
+        channelId: 'default',
+        badge: 1,
+      }),
+    })
+  } catch (err) {
+    console.error('Expo push failed:', err)
+  }
+}
+
+// Save Expo push token for user or vendor
+export const saveExpoPushToken = async (uid, token, role = 'user') => {
+  if (!uid || !token) return
+  try {
+    const col = role === 'vendor' ? 'vendors' : 'users'
+    await updateDoc(doc(db, col, uid), {
+      expoPushToken: token,
+      tokenUpdatedAt: serverTimestamp()
+    })
+  } catch (err) {
+    console.error('Failed to save push token:', err)
+  }
+}
+
+// Get Expo push token for a user or vendor
+export const getExpoPushToken = async (uid, role = 'user') => {
+  if (!uid) return null
+  try {
+    const col = role === 'vendor' ? 'vendors' : 'users'
+    const snap = await getDoc(doc(db, col, uid))
+    return snap.exists() ? (snap.data()?.expoPushToken || null) : null
+  } catch {
+    return null
+  }
+}
+
+// ── FIRESTORE NOTIFICATIONS (in-app bell) ────────────────────────────────
 export const sendNotification = async (toUid, { title, body, data = {} }) => {
   try {
     await addDoc(collection(db, 'notifications'), {
@@ -198,16 +252,6 @@ export const deleteMenuItem = (vendorUid, itemId) =>
   deleteDoc(doc(db, 'vendors', vendorUid, 'menu', itemId))
 
 // ── COMBOS ────────────────────────────────────────────────────────────────
-// Stored at: vendors/{vendorUid}/combos/{comboId}
-// Each combo has: name, description, comboPrice, originalPrice,
-//                 items (array of {id, name, price, qty}),
-//                 isVeg, available, tag, createdAt
-
-/**
- * Listen to all combos for a vendor in real-time.
- * Use this in useEffect the same way getMenuItems is used.
- * Returns an unsubscribe function — call it on cleanup.
- */
 export const getCombos = (vendorUid, callback) =>
   onSnapshot(
     collection(db, 'vendors', vendorUid, 'combos'),
@@ -215,26 +259,14 @@ export const getCombos = (vendorUid, callback) =>
     err => { console.error('Combos error:', err.code); callback([]) }
   )
 
-/**
- * Add a new combo under this vendor.
- * Returns the new doc ref (use ref.id if you need the new combo's ID).
- */
 export const addCombo = (vendorUid, comboData) =>
   addDoc(collection(db, 'vendors', vendorUid, 'combos'), {
-    ...comboData,
-    available: true,
-    createdAt: serverTimestamp()
+    ...comboData, available: true, createdAt: serverTimestamp()
   })
 
-/**
- * Update any fields on an existing combo.
- */
 export const updateCombo = (vendorUid, comboId, data) =>
   updateDoc(doc(db, 'vendors', vendorUid, 'combos', comboId), data)
 
-/**
- * Permanently delete a combo.
- */
 export const deleteCombo = (vendorUid, comboId) =>
   deleteDoc(doc(db, 'vendors', vendorUid, 'combos', comboId))
 
@@ -243,11 +275,30 @@ export const placeOrder = async (orderData) => {
   const ref = await addDoc(collection(db, 'orders'), {
     ...orderData, status: 'pending', createdAt: serverTimestamp()
   })
+
+  // 🔔 In-app bell notification to vendor
   await sendNotification(orderData.vendorUid, {
     title: '🔔 New Order!',
     body: `${orderData.userName} ordered ₹${orderData.total} — ${orderData.items?.map(i=>`${i.qty}x ${i.name}`).join(', ')}`,
     data: { orderId: ref.id, type: 'new_order' }
   })
+
+  // 🔔 Expo push notification to vendor's phone
+  try {
+    const vendorToken = await getExpoPushToken(orderData.vendorUid, 'vendor')
+    if (vendorToken) {
+      const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
+      await sendExpoPushNotification({
+        expoPushToken: vendorToken,
+        title: '🔔 New Order Received!',
+        body: `₹${orderData.total} · ${itemsSummary.slice(0, 80)}`,
+        data: { orderId: ref.id, type: 'new_order', url: '/vendor' }
+      })
+    }
+  } catch (err) {
+    console.error('Vendor push notification failed:', err)
+  }
+
   return ref
 }
 
@@ -285,20 +336,39 @@ export const getAllOrders = (callback) =>
 
 export const updateOrderStatus = async (orderId, status, orderData = {}) => {
   await updateDoc(doc(db, 'orders', orderId), { status, updatedAt: serverTimestamp() })
+
+  const statusMessages = {
+    accepted:         { title: '✅ Order Accepted!',         body: `${orderData.vendorName} accepted your order 🎉` },
+    preparing:        { title: '👨‍🍳 Being Prepared!',        body: `${orderData.vendorName} is cooking your food 🍳` },
+    ready:            { title: '🎉 Order Ready!',             body: 'Your order is packed and ready for pickup!' },
+    out_for_delivery: { title: '🛵 Out for Delivery!',        body: 'Your order is on the way! Stay ready 🔔' },
+    delivered:        { title: '✅ Order Delivered!',         body: `Enjoy your meal! Rate ${orderData.vendorName} ⭐` },
+    cancelled:        { title: '❌ Order Cancelled',          body: orderData.cancellationReason || 'Your order was cancelled' },
+  }
+
   if (orderData.userUid) {
-    const statusMessages = {
-      accepted:         { title: '✅ Order Accepted!',        body: `${orderData.vendorName} accepted your order` },
-      preparing:        { title: '👨‍🍳 Preparing Your Order',  body: `${orderData.vendorName} is preparing your food` },
-      ready:            { title: '🎉 Order Ready!',            body: 'Your order is ready for delivery' },
-      out_for_delivery: { title: '🚴 Out for Delivery!',       body: 'Your order is on the way!' },
-      delivered:        { title: '✅ Order Delivered!',        body: `Enjoy your meal! Rate ${orderData.vendorName}` },
-      cancelled:        { title: '❌ Order Cancelled',         body: orderData.cancellationReason
-                            ? `Cancelled: ${orderData.cancellationReason}`
-                            : 'Your order was cancelled' },
-    }
     const msg = statusMessages[status]
     if (msg) {
-      await sendNotification(orderData.userUid, { ...msg, data: { orderId, type: 'order_status' } })
+      // 🔔 In-app bell notification
+      await sendNotification(orderData.userUid, {
+        ...msg,
+        data: { orderId, type: 'order_status' }
+      })
+
+      // 🔔 Expo push notification to user's phone
+      try {
+        const userToken = await getExpoPushToken(orderData.userUid, 'user')
+        if (userToken) {
+          await sendExpoPushNotification({
+            expoPushToken: userToken,
+            title: msg.title,
+            body: msg.body,
+            data: { orderId, type: 'order_status', url: '/orders' }
+          })
+        }
+      } catch (err) {
+        console.error('User push notification failed:', err)
+      }
     }
   }
 }

@@ -4,7 +4,7 @@ import {
   logoutUser, getAllVendors, getMenuItems, placeOrder, getUserOrders,
   getUserLocation, getDistance, saveUserLocation,
   listenNotifications, markNotificationRead, callVendor, notifyVendorWhatsApp,
-  getCombos
+  getCombos, saveExpoPushToken
 } from '../firebase/services'
 import { db } from '../firebase/config'
 import { useNotifications } from '../hooks/useNotifications'
@@ -340,6 +340,21 @@ export default function UserApp() {
   const t = (en, mr) => lang === 'mr' ? mr : en
 
   useNotifications(user?.uid, 'user')
+
+// Save Expo push token when app provides it
+useEffect(() => {
+  const handleToken = async (e) => {
+    const token = e.detail
+    if (token && user?.uid) {
+      await saveExpoPushToken(user.uid, token, 'user')
+    }
+  }
+  window.addEventListener('expoPushToken', handleToken)
+  if (window.expoPushToken && user?.uid) {
+    saveExpoPushToken(user.uid, window.expoPushToken, 'user')
+  }
+  return () => window.removeEventListener('expoPushToken', handleToken)
+}, [user])
 
   // ── Check if location already in localStorage ──
   useEffect(() => {

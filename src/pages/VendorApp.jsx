@@ -4,7 +4,7 @@ import {
   logoutUser, getVendorOrders, getMenuItems, updateOrderStatus,
   updateVendorStore, addMenuItem, updateMenuItem, deleteMenuItem,
   uploadVendorPhoto, uploadMenuItemPhoto,
-  getCombos, addCombo, updateCombo, deleteCombo
+  getCombos, addCombo, updateCombo, deleteCombo, saveExpoPushToken
 } from '../firebase/services'
 import { useNotifications } from '../hooks/useNotifications'
 import { listenNotifications, markNotificationRead } from '../firebase/services'
@@ -337,6 +337,20 @@ export default function VendorApp() {
   const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
 
   useNotifications(user?.uid, 'vendor')
+  // Save Expo push token when app provides it
+useEffect(() => {
+  const handleToken = async (e) => {
+    const token = e.detail
+    if (token && user?.uid) {
+      await saveExpoPushToken(user.uid, token, 'vendor')
+    }
+  }
+  window.addEventListener('expoPushToken', handleToken)
+  if (window.expoPushToken && user?.uid) {
+    saveExpoPushToken(user.uid, window.expoPushToken, 'vendor')
+  }
+  return () => window.removeEventListener('expoPushToken', handleToken)
+}, [user])
 
   useEffect(() => {
     if (!user) return
