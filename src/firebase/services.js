@@ -5,7 +5,7 @@ import {
 import {
   doc, setDoc, getDoc, collection, updateDoc,
   query, where, onSnapshot, serverTimestamp,
-  addDoc, deleteDoc
+  addDoc, deleteDoc, getDocs, orderBy, limit
 } from 'firebase/firestore'
 import { initializeApp } from 'firebase/app'
 import { auth, db } from './config'
@@ -109,8 +109,6 @@ export const saveUserLocation = async (uid, lat, lng) => {
 }
 
 // ── EXPO PUSH NOTIFICATIONS ───────────────────────────────────────────────
-
-// Send Expo push notification directly from frontend
 export const sendExpoPushNotification = async ({ expoPushToken, title, body, data = {} }) => {
   if (!expoPushToken) return
   if (!expoPushToken.startsWith('ExponentPushToken')) return
@@ -137,21 +135,19 @@ export const sendExpoPushNotification = async ({ expoPushToken, title, body, dat
   }
 }
 
-// Save Expo push token for user or vendor
 export const saveExpoPushToken = async (uid, token, role = 'user') => {
   if (!uid || !token) return
   try {
     const col = role === 'vendor' ? 'vendors' : 'users'
-    await updateDoc(doc(db, col, uid), {
+    await setDoc(doc(db, col, uid), {
       expoPushToken: token,
       tokenUpdatedAt: serverTimestamp()
-    })
+    }, { merge: true })
   } catch (err) {
     console.error('Failed to save push token:', err)
   }
 }
 
-// Get Expo push token for a user or vendor
 export const getExpoPushToken = async (uid, role = 'user') => {
   if (!uid) return null
   try {
@@ -338,12 +334,12 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
   await updateDoc(doc(db, 'orders', orderId), { status, updatedAt: serverTimestamp() })
 
   const statusMessages = {
-    accepted:         { title: '✅ Order Accepted!',         body: `${orderData.vendorName} accepted your order 🎉` },
-    preparing:        { title: '👨‍🍳 Being Prepared!',        body: `${orderData.vendorName} is cooking your food 🍳` },
-    ready:            { title: '🎉 Order Ready!',             body: 'Your order is packed and ready for pickup!' },
-    out_for_delivery: { title: '🛵 Out for Delivery!',        body: 'Your order is on the way! Stay ready 🔔' },
-    delivered:        { title: '✅ Order Delivered!',         body: `Enjoy your meal! Rate ${orderData.vendorName} ⭐` },
-    cancelled:        { title: '❌ Order Cancelled',          body: orderData.cancellationReason || 'Your order was cancelled' },
+    accepted:         { title: '✅ Order Accepted!',      body: `${orderData.vendorName} accepted your order 🎉` },
+    preparing:        { title: '👨‍🍳 Being Prepared!',     body: `${orderData.vendorName} is cooking your food 🍳` },
+    ready:            { title: '🎉 Order Ready!',          body: 'Your order is packed and ready for pickup!' },
+    out_for_delivery: { title: '🛵 Out for Delivery!',     body: 'Your order is on the way! Stay ready 🔔' },
+    delivered:        { title: '✅ Order Delivered!',      body: `Enjoy your meal! Rate ${orderData.vendorName} ⭐` },
+    cancelled:        { title: '❌ Order Cancelled',       body: orderData.cancellationReason || 'Your order was cancelled' },
   }
 
   if (orderData.userUid) {
@@ -372,3 +368,65 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
     }
   }
 }
+
+// ── BROADCAST NOTIFICATIONS (Founder → All Users) ─────────────────────────
+export const sendBroadcastNotification = async (title, body) => {
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'users'), where('role', '==', 'user'))
+    )
+
+    const tokens = []
+    snap.forEach(docSnap => {
+      const token = docSnap.data().expoPushToken
+      if (token && token.startsWith('ExponentPushToken')) {
+        tokens.push(token)
+      }
+    })
+
+    if (tokens.length === 0) {
+      console.warn('No user tokens found')
+      return 0
+    }
+
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(
+        tokens.map(token => ({
+          to: token,
+          title,
+          body,
+          sound: 'default',
+          priority: 'high',
+          channelId: 'default',
+          badge: 1,
+        }))
+      )
+    })
+
+    await addDoc(collection(db, 'broadcastHistory'), {
+      title,
+      body,
+      sentTo: tokens.length,
+      sentAt: serverTimestamp()
+    })
+
+    console.log(`✅ Broadcast sent to ${tokens.length} users`)
+    return tokens.length
+
+  } catch (err) {
+    console.error('Broadcast failed:', err)
+    return 0
+  }
+}
+
+export const getBroadcastHistory = (callback) =>
+  onSnapshot(
+    query(collection(db, 'broadcastHistory'), orderBy('sentAt', 'desc'), limit(20)),
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    err => { console.error('Broadcast history error:', err); callback([]) }
+  )

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
-import { logoutUser, getAllOrders, getAllVendors, founderCreateVendor, uploadPhoto, updateVendorStore } from '../firebase/services'
-import { doc, deleteDoc } from 'firebase/firestore'
+import { logoutUser, getAllOrders, getAllVendors, founderCreateVendor, uploadPhoto, updateVendorStore, sendExpoPushNotification, sendBroadcastNotification, getBroadcastHistory } from '../firebase/services'
+import { doc, deleteDoc, getDocs, query, where, collection, addDoc, serverTimestamp, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import toast from 'react-hot-toast'
 import { useOrderAlert } from '../hooks/useOrderAlert'
@@ -45,7 +45,6 @@ export default function FounderApp() {
   const [replyText, setReplyText] = useState('')
   const [sendingReply, setSendingReply] = useState(false)
 
-  // ── CHANGE 2: FounderBill states ──────────────────────────────────────────
   const [showFounderBill, setShowFounderBill] = useState(false)
   const [founderBillOrder, setFounderBillOrder] = useState(null)
 
@@ -70,81 +69,74 @@ export default function FounderApp() {
   const [searchingLoc, setSearchingLoc] = useState(false)
   const [detectingLoc, setDetectingLoc] = useState(false)
 
-  // ── BROADCAST STATES ──────────────────────────────────────────────────────
+  // ── BROADCAST STATES (WhatsApp/Email) ─────────────────────────────────
   const [broadcastMsg, setBroadcastMsg] = useState('')
   const [broadcastTitle, setBroadcastTitle] = useState('')
-  const [broadcastType, setBroadcastType] = useState('both') // 'whatsapp' | 'email' | 'both'
-  const [broadcastTarget, setBroadcastTarget] = useState('all') // 'all' | 'active' | 'inactive'
+  const [broadcastType, setBroadcastType] = useState('both')
+  const [broadcastTarget, setBroadcastTarget] = useState('all')
   const [broadcastTemplate, setBroadcastTemplate] = useState('')
   const [sendingBroadcast, setSendingBroadcast] = useState(false)
   const [broadcastProgress, setBroadcastProgress] = useState(0)
-  const [broadcastDone, setBroadcastDone] = useState(null) // { sent, failed, skipped }
+  const [broadcastDone, setBroadcastDone] = useState(null)
   const [broadcastHistory, setBroadcastHistory] = useState([])
   const [previewMode, setPreviewMode] = useState(false)
 
-  // Message templates
+  // ── PUSH NOTIFICATION STATES ──────────────────────────────────────────
+  const [pushTitle, setPushTitle] = useState('')
+  const [pushBody, setPushBody] = useState('')
+  const [pushTarget, setPushTarget] = useState('all') // 'all' | 'active' | 'inactive'
+  const [sendingPush, setSendingPush] = useState(false)
+  const [pushDone, setPushDone] = useState(null) // { sent, failed, noToken }
+  const [pushHistory, setPushHistory] = useState([])
+  const [pushProgress, setPushProgress] = useState(0)
+
+  const PUSH_PRESETS = [
+    { icon: '🌞', label: 'Lunch Time', title: '🍛 Hungry? It\'s Lunch Time!', body: 'Your favourite food is ready to order on FeedoZone! Order now 🚀' },
+    { icon: '🌙', label: 'Dinner Time', title: '🌙 Dinner Time on FeedoZone!', body: 'Skip cooking tonight! Your favourite vendors are open. Order now 🍽️' },
+    { icon: '🔥', label: 'Special Offer', title: '🔥 Special Offer Just for You!', body: 'Check out today\'s deals on FeedoZone. Limited time only! 🎁' },
+    { icon: '🎊', label: 'Weekend', title: '🎊 Happy Weekend!', body: 'Treat yourself this weekend! Order delicious food on FeedoZone 😋' },
+    { icon: '🆕', label: 'New Vendor', title: '🆕 New Restaurant on FeedoZone!', body: 'A new restaurant just joined us! Explore their menu and order today 🍽️' },
+    { icon: '⭐', label: 'Rate Us', title: '⭐ Enjoying FeedoZone?', body: 'Rate us on the Play Store and help us grow! It takes just 10 seconds 🙏' },
+  ]
+
   const TEMPLATES = [
-    {
-      id: 'new_restaurant',
-      label: '🍽️ New Restaurant',
-      title: '🎉 New Restaurant Just Added on FeedoZone!',
-      msg: `Hi {name}! 👋\n\nGreat news! A brand new restaurant has just joined FeedoZone near you! 🍽️\n\nExplore their fresh menu and place your first order today.\n\n👉 Open the FeedoZone app now and discover what's new!\n\nHappy eating! 😋\n— FeedoZone Team`
-    },
-    {
-      id: 'order_more',
-      label: '🛒 Order More',
-      title: '😋 We Miss You! Order Your Favourite Food Today',
-      msg: `Hi {name}! 🙏\n\nIt's been a while since your last order on FeedoZone! 😢\n\nYour favourite restaurants are waiting for you. Order now and enjoy delicious food delivered right to your door! 🚴\n\n🍱 Open FeedoZone and place an order today!\n\n— FeedoZone Team`
-    },
-    {
-      id: 'offer',
-      label: '🎁 Special Offer',
-      title: '🎁 Special Offer Just For You!',
-      msg: `Hi {name}! 🎉\n\nWe have a special offer waiting just for you on FeedoZone!\n\nDon't miss out — open the app now to see what's available near you! 🍕🍚🥘\n\nOrder today and enjoy the best food from Warananagar!\n\n— FeedoZone Team 🔥`
-    },
-    {
-      id: 'weekend',
-      label: '🎊 Weekend Special',
-      title: '🎊 Weekend is Here! Time to Order!',
-      msg: `Hi {name}! 😄\n\nHappy Weekend! 🎉\n\nSkip the cooking and treat yourself to something delicious from FeedoZone! 🍛\n\nNew dishes, same great taste. Open the app and order now! 🚀\n\n— FeedoZone Team`
-    },
-    {
-      id: 'custom',
-      label: '✏️ Custom Message',
-      title: '',
-      msg: ''
-    }
+    { id: 'new_restaurant', label: '🍽️ New Restaurant', title: '🎉 New Restaurant Just Added on FeedoZone!', msg: `Hi {name}! 👋\n\nGreat news! A brand new restaurant has just joined FeedoZone near you! 🍽️\n\nExplore their fresh menu and place your first order today.\n\n👉 Open the FeedoZone app now and discover what's new!\n\nHappy eating! 😋\n— FeedoZone Team` },
+    { id: 'order_more', label: '🛒 Order More', title: '😋 We Miss You! Order Your Favourite Food Today', msg: `Hi {name}! 🙏\n\nIt's been a while since your last order on FeedoZone! 😢\n\nYour favourite restaurants are waiting for you. Order now and enjoy delicious food delivered right to your door! 🚴\n\n🍱 Open FeedoZone and place an order today!\n\n— FeedoZone Team` },
+    { id: 'offer', label: '🎁 Special Offer', title: '🎁 Special Offer Just For You!', msg: `Hi {name}! 🎉\n\nWe have a special offer waiting just for you on FeedoZone!\n\nDon't miss out — open the app now to see what's available near you! 🍕🍚🥘\n\nOrder today and enjoy the best food from Warananagar!\n\n— FeedoZone Team 🔥` },
+    { id: 'weekend', label: '🎊 Weekend Special', title: '🎊 Weekend is Here! Time to Order!', msg: `Hi {name}! 😄\n\nHappy Weekend! 🎉\n\nSkip the cooking and treat yourself to something delicious from FeedoZone! 🍛\n\nNew dishes, same great taste. Open the app and order now! 🚀\n\n— FeedoZone Team` },
+    { id: 'custom', label: '✏️ Custom Message', title: '', msg: '' }
   ]
 
   useEffect(() => {
     const u1 = getAllOrders(setOrders)
     const u2 = getAllVendors(setVendors)
 
-    import('firebase/firestore').then(({ collection, onSnapshot, query, where }) => {
-      const q = query(collection(db, 'users'), where('role', '==', 'user'))
-      const unsub = onSnapshot(q, snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-      return unsub
+    const q = query(collection(db, 'users'), where('role', '==', 'user'))
+    const unsubUsers = onSnapshot(q, snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+
+    const unsubTickets = onSnapshot(collection(db, 'supportTickets'), snap => {
+      const tickets = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      tickets.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
+      setSupportTickets(tickets)
     })
 
-    import('firebase/firestore').then(({ collection, onSnapshot }) => {
-      onSnapshot(collection(db, 'supportTickets'), snap => {
-        const tickets = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        tickets.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
-        setSupportTickets(tickets)
+    // Load broadcast history (WhatsApp/Email)
+    try {
+      const bq = query(collection(db, 'broadcastHistory'), orderBy('sentAt', 'desc'), limit(20))
+      onSnapshot(bq, snap => {
+        setBroadcastHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       })
-    })
+    } catch (e) {}
 
-    // Load broadcast history
-    import('firebase/firestore').then(({ collection, onSnapshot, query, orderBy, limit }) => {
-      try {
-        const q = query(collection(db, 'broadcastHistory'), orderBy('sentAt', 'desc'), limit(20))
-        onSnapshot(q, snap => {
-          setBroadcastHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-        })
-      } catch (e) { /* collection may not exist yet */ }
-    })
+    // Load push notification history
+    try {
+      const pq = query(collection(db, 'pushHistory'), orderBy('sentAt', 'desc'), limit(20))
+      onSnapshot(pq, snap => {
+        setPushHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      })
+    } catch (e) {}
 
-    return () => { u1(); u2() }
+    return () => { u1(); u2(); unsubUsers(); unsubTickets() }
   }, [])
 
   useEffect(() => {
@@ -269,9 +261,9 @@ export default function FounderApp() {
     if (!replyText.trim()) return toast.error('Enter your reply')
     setSendingReply(true)
     try {
-      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore')
-      await updateDoc(doc(db, 'supportTickets', ticketId), {
-        founderReply: replyText.trim(), status, repliedAt: serverTimestamp()
+      const { doc: fDoc, updateDoc: fUpdate, serverTimestamp: fTs } = await import('firebase/firestore')
+      await fUpdate(fDoc(db, 'supportTickets', ticketId), {
+        founderReply: replyText.trim(), status, repliedAt: fTs()
       })
       setReplyText(''); setSelectedTicket(null)
       toast.success('Reply sent! ✅')
@@ -289,23 +281,111 @@ export default function FounderApp() {
     } catch { toast.error('Failed to delete order') }
   }
 
-  // ── GET BROADCAST TARGET USERS ────────────────────────────────────────────
+  // ── PUSH NOTIFICATION HANDLER ─────────────────────────────────────────
+  const handleSendPush = async () => {
+    if (!pushTitle.trim()) return toast.error('Enter a notification title')
+    if (!pushBody.trim()) return toast.error('Enter a notification message')
+
+    setSendingPush(true)
+    setPushProgress(0)
+    setPushDone(null)
+
+    try {
+      // Get target users based on filter
+      let targetUsers = users
+      if (pushTarget === 'active') {
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+        const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyDaysAgo).map(o => o.userUid))
+        targetUsers = users.filter(u => activeUids.has(u.id))
+      } else if (pushTarget === 'inactive') {
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+        const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyDaysAgo).map(o => o.userUid))
+        targetUsers = users.filter(u => !activeUids.has(u.id))
+      }
+
+      // Get users with valid push tokens
+      const usersWithTokens = targetUsers.filter(u => u.expoPushToken && u.expoPushToken.startsWith('ExponentPushToken'))
+      const noToken = targetUsers.length - usersWithTokens.length
+
+      if (usersWithTokens.length === 0) {
+        toast.error('No users have push tokens yet! Ask them to install & open the app.')
+        setSendingPush(false)
+        return
+      }
+
+      // Send in batches of 100 (Expo API limit)
+      const tokens = usersWithTokens.map(u => u.expoPushToken)
+      const batches = []
+      for (let i = 0; i < tokens.length; i += 100) {
+        batches.push(tokens.slice(i, i + 100))
+      }
+
+      let sent = 0
+      let failed = 0
+
+      for (let bi = 0; bi < batches.length; bi++) {
+        const batch = batches[bi]
+        try {
+          const res = await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify(batch.map(token => ({
+              to: token,
+              title: pushTitle,
+              body: pushBody,
+              sound: 'default',
+              priority: 'high',
+              channelId: 'default',
+              badge: 1,
+            })))
+          })
+          const result = await res.json()
+          // Count successes and failures from Expo response
+          if (result.data) {
+            result.data.forEach(r => {
+              if (r.status === 'ok') sent++
+              else failed++
+            })
+          } else {
+            sent += batch.length
+          }
+        } catch {
+          failed += batch.length
+        }
+        setPushProgress(Math.round(((bi + 1) / batches.length) * 100))
+      }
+
+      // Save to pushHistory in Firestore
+      await addDoc(collection(db, 'pushHistory'), {
+        title: pushTitle,
+        body: pushBody,
+        target: pushTarget,
+        totalUsers: targetUsers.length,
+        sent,
+        failed,
+        noToken,
+        sentAt: serverTimestamp(),
+        sentBy: user?.email || 'founder'
+      })
+
+      setPushDone({ sent, failed, noToken, total: targetUsers.length })
+      toast.success(`✅ Push sent to ${sent} users!`)
+
+    } catch (err) {
+      console.error('Push broadcast failed:', err)
+      toast.error('Push failed: ' + err.message)
+    }
+
+    setSendingPush(false)
+  }
+
+  // ── GET BROADCAST TARGET USERS ────────────────────────────────────────
   const getBroadcastUsers = () => {
     if (broadcastTarget === 'all') return users
-
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    const activeUids = new Set(
-      orders
-        .filter(o => o.createdAt?.toDate?.() > thirtyDaysAgo)
-        .map(o => o.userUid)
-    )
-
-    if (broadcastTarget === 'active') {
-      return users.filter(u => activeUids.has(u.id))
-    }
-    if (broadcastTarget === 'inactive') {
-      return users.filter(u => !activeUids.has(u.id))
-    }
+    const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyDaysAgo).map(o => o.userUid))
+    if (broadcastTarget === 'active') return users.filter(u => activeUids.has(u.id))
+    if (broadcastTarget === 'inactive') return users.filter(u => !activeUids.has(u.id))
     return users
   }
 
@@ -317,17 +397,8 @@ export default function FounderApp() {
     return `https://wa.me/${fullNumber}?text=${encoded}`
   }
 
-  const sendEmailToUser = (email, subject, message) => {
-    const encoded = encodeURIComponent(message.replace(/{name}/g, 'there'))
-    return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encoded}`
-  }
-
-  // ── HANDLE BROADCAST ─────────────────────────────────────────────────────
   const handleBroadcast = async () => {
     const targetUsers = getBroadcastUsers()
-    const phoneUsers = targetUsers.filter(u => u.mobile || u.phone)
-    const emailUsers = targetUsers.filter(u => u.email)
-
     if (!broadcastMsg.trim()) return toast.error('Please write a message first')
     if (targetUsers.length === 0) return toast.error('No users found to send to')
 
@@ -342,7 +413,6 @@ export default function FounderApp() {
     let skipped = 0
 
     try {
-      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
       await addDoc(collection(db, 'broadcastHistory'), {
         title: broadcastTitle || 'Broadcast',
         message: broadcastMsg,
@@ -366,9 +436,7 @@ export default function FounderApp() {
             }, i * 800)
           })
           sent += wpUsers.length
-          if (wpUsers.length > 3) {
-            toast(`📱 Opened 3 WhatsApp chats. ${wpUsers.length - 3} more saved below.`, { duration: 5000 })
-          }
+          if (wpUsers.length > 3) toast(`📱 Opened 3 WhatsApp chats. ${wpUsers.length - 3} more saved below.`, { duration: 5000 })
         }
       }
 
@@ -379,9 +447,7 @@ export default function FounderApp() {
         } else {
           const bccList = emUsers.slice(0, 50).map(u => u.email).join(',')
           const personalised = broadcastMsg.replace(/{name}/g, 'there')
-          const subject = encodeURIComponent(broadcastTitle || 'Message from FeedoZone')
-          const body = encodeURIComponent(personalised)
-          const mailtoUrl = `mailto:?bcc=${encodeURIComponent(bccList)}&subject=${subject}&body=${body}`
+          const mailtoUrl = `mailto:?bcc=${encodeURIComponent(bccList)}&subject=${encodeURIComponent(broadcastTitle || 'Message from FeedoZone')}&body=${encodeURIComponent(personalised)}`
           window.open(mailtoUrl, '_blank')
           sent += emUsers.length
         }
@@ -389,13 +455,11 @@ export default function FounderApp() {
 
       setBroadcastProgress(100)
       setBroadcastDone({
-        sent,
-        skipped,
+        sent, skipped,
         wpCount: sendViaWP ? targetUsers.filter(u => u.mobile || u.phone).length : 0,
         emailCount: sendViaEmail ? targetUsers.filter(u => u.email).length : 0,
       })
       toast.success(`✅ Broadcast sent to ${sent} users!`)
-
     } catch (err) {
       console.error(err)
       toast.error('Broadcast failed: ' + err.message)
@@ -404,7 +468,7 @@ export default function FounderApp() {
     setSendingBroadcast(false)
   }
 
-  // ── EXPORT ────────────────────────────────────────────────────────────────
+  // ── EXPORT ────────────────────────────────────────────────────────────
   const exportToExcel = (type) => {
     let data = []
     let filename = ''
@@ -432,10 +496,8 @@ export default function FounderApp() {
 
     if (data.length === 0) return toast.error('No orders found for selected period!')
 
-    // ── CHANGE 5: Added 'Bill No' as first header ──
     const headers = ['Bill No','Order Date','Order Time','Customer Name','Customer Phone','Vendor','Items','Subtotal','Delivery Fee','Total','Payment','Status','Address']
     const rows = data.map(o => [
-      // ── CHANGE 5: Added bill number as first column ──
       (o.billNo || 'FZ-'+(o.id?.slice(-6)||'').toUpperCase()),
       formatDate(o), formatTime(o), o.userName||'', o.userPhone||'', o.vendorName||'',
       o.items?.map(i=>i.qty+'x '+i.name).join(' | ')||'',
@@ -485,23 +547,28 @@ export default function FounderApp() {
 
   const getMostOrdered = () => {
     const counts = {}
-    orders.forEach(o => {
-      o.items?.forEach(item => {
-        counts[item.name] = (counts[item.name] || 0) + item.qty
-      })
-    })
+    orders.forEach(o => { o.items?.forEach(item => { counts[item.name] = (counts[item.name] || 0) + item.qty }) })
     return Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([name,qty])=>({name,qty}))
   }
 
   const inp = {
     width:'100%', padding:'11px 13px',
     borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb',
-    borderRadius:9, fontSize:13,
-    fontFamily:'Poppins,sans-serif', outline:'none',
-    marginTop:4, boxSizing:'border-box'
+    borderRadius:9, fontSize:13, fontFamily:'Poppins,sans-serif',
+    outline:'none', marginTop:4, boxSizing:'border-box'
   }
 
   const targetUsers = getBroadcastUsers()
+
+  // Push target user counts
+  const getPushTargetCount = (t) => {
+    if (t === 'all') return users.length
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyDaysAgo).map(o => o.userUid))
+    if (t === 'active') return users.filter(u => activeUids.has(u.id)).length
+    return users.filter(u => !activeUids.has(u.id)).length
+  }
+  const usersWithTokenCount = users.filter(u => u.expoPushToken && u.expoPushToken.startsWith('ExponentPushToken')).length
 
   return (
     <div style={{ maxWidth:430, margin:'0 auto', background:'#fff', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' }}>
@@ -540,6 +607,7 @@ export default function FounderApp() {
           { id:'orders',     label:`Orders (${todayOrders.length})` },
           { id:'vendors',    label:`Vendors (${vendors.length})` },
           { id:'addvendor',  label:'+ Add Vendor' },
+          { id:'push',       label:`🔔 Push${usersWithTokenCount > 0 ? ` (${usersWithTokenCount})` : ''}` },
           { id:'broadcast',  label:`📣 Broadcast${users.length > 0 ? ` (${users.length})` : ''}` },
           { id:'support',    label:`💬 Support${supportTickets.filter(t=>t.status==='open').length>0?` (${supportTickets.filter(t=>t.status==='open').length})`:''}` },
           { id:'analytics',  label:'📊 Analytics' }
@@ -618,10 +686,238 @@ export default function FounderApp() {
           </>
         )}
 
-        {/* ── BROADCAST TAB ── */}
+        {/* ── PUSH NOTIFICATIONS TAB ── */}
+        {tab==='push' && (
+          <>
+            {/* Header card */}
+            <div style={{ background:'linear-gradient(135deg,#0f172a,#1e1b4b)', borderRadius:14, padding:16, marginBottom:16, position:'relative', overflow:'hidden' }}>
+              <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>🔔</div>
+              <div style={{ fontSize:10, color:'#818cf8', fontWeight:700, letterSpacing:1.5, marginBottom:4, textTransform:'uppercase' }}>Zomato-style Notifications</div>
+              <div style={{ fontSize:17, fontWeight:800, color:'#fff', marginBottom:4 }}>Push Notifications</div>
+              <div style={{ fontSize:12, color:'#94a3b8', lineHeight:1.5 }}>Send instant push notifications directly to users' phones — even when the app is closed. Like Zomato, Swiggy!</div>
+              <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', textAlign:'center', flex:1 }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>{users.length}</div>
+                  <div style={{ fontSize:10, color:'#94a3b8' }}>Total Users</div>
+                </div>
+                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', textAlign:'center', flex:1 }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:'#34d399' }}>{usersWithTokenCount}</div>
+                  <div style={{ fontSize:10, color:'#94a3b8' }}>Can Receive</div>
+                </div>
+                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', textAlign:'center', flex:1 }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:'#f59e0b' }}>{users.length - usersWithTokenCount}</div>
+                  <div style={{ fontSize:10, color:'#94a3b8' }}>No Token Yet</div>
+                </div>
+              </div>
+            </div>
+
+            {/* No tokens warning */}
+            {usersWithTokenCount === 0 && (
+              <div style={{ background:'#fef3c7', borderRadius:12, padding:14, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#92400e', marginBottom:6 }}>⚠️ No Push Tokens Yet</div>
+                <div style={{ fontSize:12, color:'#92400e', lineHeight:1.6 }}>
+                  Users need to install your APK and allow notifications. Once they do, their token saves automatically and you can push notifications to them!
+                </div>
+              </div>
+            )}
+
+            {/* Success result */}
+            {pushDone && (
+              <div style={{ background:'#f0fdf4', borderRadius:12, padding:16, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#166534', marginBottom:10 }}>✅ Push Notification Sent!</div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <div style={{ background:'#fff', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+                    <div style={{ fontSize:18, fontWeight:700, color:'#16a34a' }}>{pushDone.sent}</div>
+                    <div style={{ fontSize:10, color:'#6b7280' }}>Delivered</div>
+                  </div>
+                  <div style={{ background:'#fff', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+                    <div style={{ fontSize:18, fontWeight:700, color:'#f59e0b' }}>{pushDone.noToken}</div>
+                    <div style={{ fontSize:10, color:'#6b7280' }}>No Token</div>
+                  </div>
+                  {pushDone.failed > 0 && (
+                    <div style={{ background:'#fff', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca' }}>
+                      <div style={{ fontSize:18, fontWeight:700, color:'#dc2626' }}>{pushDone.failed}</div>
+                      <div style={{ fontSize:10, color:'#6b7280' }}>Failed</div>
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => setPushDone(null)} style={{ width:'100%', background:'transparent', color:'#16a34a', borderWidth:1, borderStyle:'solid', borderColor:'#86efac', padding:'9px 0', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginTop:10 }}>
+                  Send Another
+                </button>
+              </div>
+            )}
+
+            {/* Step 1: Quick Presets */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ background:'#E24B4A', color:'#fff', borderRadius:'50%', width:20, height:20, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>1</span>
+                Quick Presets
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+                {PUSH_PRESETS.map(p => (
+                  <button key={p.label} onClick={() => { setPushTitle(p.title); setPushBody(p.body) }}
+                    style={{ padding:'10px 8px', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', borderWidth:1.5, borderStyle:'solid',
+                      borderColor: pushTitle===p.title ? '#E24B4A' : '#e5e7eb',
+                      background: pushTitle===p.title ? '#fff5f5' : '#fff',
+                      textAlign:'center'
+                    }}>
+                    <div style={{ fontSize:20, marginBottom:3 }}>{p.icon}</div>
+                    <div style={{ fontSize:10, fontWeight:700, color: pushTitle===p.title ? '#E24B4A' : '#374151' }}>{p.label}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Step 2: Target Audience */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ background:'#E24B4A', color:'#fff', borderRadius:'50%', width:20, height:20, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>2</span>
+                Target Audience
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                {[
+                  { id:'all', label:'All Users', icon:'👥' },
+                  { id:'active', label:'Active (30d)', icon:'🔥' },
+                  { id:'inactive', label:'Inactive', icon:'😴' },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setPushTarget(t.id)} style={{
+                    flex:1, padding:'10px 8px', borderRadius:10, cursor:'pointer', fontFamily:'Poppins',
+                    borderWidth:1.5, borderStyle:'solid',
+                    borderColor: pushTarget===t.id ? '#E24B4A' : '#e5e7eb',
+                    background: pushTarget===t.id ? '#fff5f5' : '#fff',
+                    textAlign:'center'
+                  }}>
+                    <div style={{ fontSize:18, marginBottom:2 }}>{t.icon}</div>
+                    <div style={{ fontSize:11, fontWeight:700, color: pushTarget===t.id ? '#E24B4A' : '#1f2937' }}>{t.label}</div>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{getPushTargetCount(t.id)} users</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Step 3: Write Message */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ background:'#E24B4A', color:'#fff', borderRadius:'50%', width:20, height:20, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>3</span>
+                Write Notification
+              </div>
+              <div style={{ marginBottom:8 }}>
+                <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Title (bold text users see first)</label>
+                <input style={inp} placeholder="e.g. 🍛 Lunch Time! Order now on FeedoZone" value={pushTitle} onChange={e => setPushTitle(e.target.value)} />
+                <div style={{ fontSize:10, color: pushTitle.length > 65 ? '#dc2626' : '#9ca3af', textAlign:'right', marginTop:2 }}>
+                  {pushTitle.length}/65 {pushTitle.length > 65 ? '— too long!' : ''}
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Message body</label>
+                <textarea value={pushBody} onChange={e => setPushBody(e.target.value)}
+                  placeholder="e.g. Your favourite vendors are waiting. Order delicious food now! 🚀"
+                  rows={3}
+                  style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'vertical', boxSizing:'border-box', lineHeight:1.6, color:'#1f2937', marginTop:4 }}
+                />
+                <div style={{ fontSize:10, color: pushBody.length > 200 ? '#dc2626' : '#9ca3af', textAlign:'right', marginTop:2 }}>
+                  {pushBody.length}/200 {pushBody.length > 200 ? '— keep it short!' : ''}
+                </div>
+              </div>
+            </div>
+
+            {/* Phone Preview */}
+            {(pushTitle || pushBody) && (
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:'#6b7280', marginBottom:8 }}>📱 Phone Preview</div>
+                <div style={{ background:'#1f2937', borderRadius:16, padding:14, position:'relative' }}>
+                  <div style={{ background:'#374151', borderRadius:12, padding:'10px 12px' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                      <div style={{ width:28, height:28, background:'#E24B4A', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        <span style={{ fontSize:14 }}>🍽️</span>
+                      </div>
+                      <div>
+                        <div style={{ fontSize:11, fontWeight:700, color:'#fff' }}>FeedoZone</div>
+                        <div style={{ fontSize:10, color:'#9ca3af' }}>now</div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#fff', marginBottom:3 }}>{pushTitle || 'Your notification title'}</div>
+                    <div style={{ fontSize:11, color:'#d1d5db', lineHeight:1.4 }}>{pushBody || 'Your notification message...'}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Send Button */}
+            <div style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#1f2937' }}>Ready to push?</div>
+                  <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>
+                    Sending to <strong>{getPushTargetCount(pushTarget)} users</strong> · <strong style={{ color:'#34d399' }}>{Math.min(usersWithTokenCount, getPushTargetCount(pushTarget))} can receive</strong>
+                  </div>
+                </div>
+                <div style={{ background:'#dbeafe', borderRadius:20, padding:'4px 10px' }}>
+                  <span style={{ fontSize:11, fontWeight:700, color:'#1e40af' }}>Instant delivery</span>
+                </div>
+              </div>
+
+              {sendingPush && (
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ background:'#e5e7eb', borderRadius:8, overflow:'hidden', height:8, marginBottom:6 }}>
+                    <div style={{ height:'100%', background:'#E24B4A', width:`${pushProgress}%`, transition:'width 0.3s', borderRadius:8 }} />
+                  </div>
+                  <div style={{ fontSize:11, color:'#6b7280', textAlign:'center' }}>Sending... {pushProgress}%</div>
+                </div>
+              )}
+
+              <button
+                onClick={handleSendPush}
+                disabled={sendingPush || !pushTitle.trim() || !pushBody.trim()}
+                style={{
+                  width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:10,
+                  padding:'14px 0',
+                  background: (sendingPush || !pushTitle.trim() || !pushBody.trim()) ? '#d1d5db' : 'linear-gradient(135deg,#E24B4A,#c73232)',
+                  color:'#fff', border:'none', borderRadius:11, fontSize:14, fontWeight:700,
+                  cursor: (sendingPush || !pushTitle.trim() || !pushBody.trim()) ? 'not-allowed' : 'pointer',
+                  fontFamily:'Poppins'
+                }}
+              >
+                <span style={{ fontSize:20 }}>🔔</span>
+                {sendingPush ? `Sending... ${pushProgress}%` : `Send Push Notification to ${getPushTargetCount(pushTarget)} Users`}
+              </button>
+
+              <div style={{ marginTop:10, padding:'8px 12px', background:'#eff6ff', borderRadius:8, borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
+                <div style={{ fontSize:11, color:'#1e40af', lineHeight:1.6 }}>
+                  ✅ <strong>Instant:</strong> Delivered in seconds, even when app is closed<br/>
+                  ✅ <strong>Free:</strong> Uses Expo push service, no cost<br/>
+                  ✅ <strong>Automatic:</strong> New users get tokens automatically on install
+                </div>
+              </div>
+            </div>
+
+            {/* Push History */}
+            {pushHistory.length > 0 && (
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:10 }}>📋 Recent Push Notifications</div>
+                {pushHistory.slice(0,8).map(p => (
+                  <div key={p.id} style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:8, borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:4 }}>
+                      <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', flex:1, marginRight:8 }}>{p.title}</div>
+                      <div style={{ background:'#dcfce7', borderRadius:10, padding:'2px 8px', flexShrink:0 }}>
+                        <span style={{ fontSize:10, fontWeight:700, color:'#16a34a' }}>✅ {p.sent || 0} sent</span>
+                      </div>
+                    </div>
+                    <div style={{ fontSize:11, color:'#6b7280', marginBottom:4 }}>{p.body}</div>
+                    <div style={{ fontSize:10, color:'#9ca3af' }}>
+                      {p.target} users · {p.sentAt?.toDate?.()?.toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})||''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── BROADCAST TAB (WhatsApp / Email) ── */}
         {tab==='broadcast' && (
           <>
-            {/* ── HEADER CARD ── */}
+            {/* Header card */}
             <div style={{ background:'linear-gradient(135deg,#1a1a1a,#2d1a00)', borderRadius:14, padding:'16px', marginBottom:16, position:'relative', overflow:'hidden' }}>
               <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>📣</div>
               <div style={{ fontSize:10, color:'#fbbf24', fontWeight:700, letterSpacing:1.5, marginBottom:4, textTransform:'uppercase' }}>Customer Retention</div>
@@ -643,7 +939,7 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* ── SUCCESS RESULT ── */}
+            {/* Success result */}
             {broadcastDone && (
               <div style={{ background:'#f0fdf4', borderRadius:12, padding:16, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
                 <div style={{ fontSize:24, marginBottom:8 }}>✅</div>
@@ -668,7 +964,7 @@ export default function FounderApp() {
               </div>
             )}
 
-            {/* ── STEP 1: CHOOSE TEMPLATE ── */}
+            {/* Step 1: Choose Template */}
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
                 <span style={{ background:'#E24B4A', color:'#fff', borderRadius:'50%', width:20, height:20, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>1</span>
@@ -679,13 +975,8 @@ export default function FounderApp() {
                   <button key={t.id}
                     onClick={() => {
                       setBroadcastTemplate(t.id)
-                      if (t.id !== 'custom') {
-                        setBroadcastMsg(t.msg)
-                        setBroadcastTitle(t.title)
-                      } else {
-                        setBroadcastMsg('')
-                        setBroadcastTitle('')
-                      }
+                      if (t.id !== 'custom') { setBroadcastMsg(t.msg); setBroadcastTitle(t.title) }
+                      else { setBroadcastMsg(''); setBroadcastTitle('') }
                     }}
                     style={{
                       flexShrink:0, padding:'8px 14px', borderRadius:20, cursor:'pointer', fontFamily:'Poppins',
@@ -701,7 +992,7 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* ── STEP 2: TARGET AUDIENCE ── */}
+            {/* Step 2: Target Audience */}
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
                 <span style={{ background:'#E24B4A', color:'#fff', borderRadius:'50%', width:20, height:20, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>2</span>
@@ -710,8 +1001,8 @@ export default function FounderApp() {
               <div style={{ display:'flex', gap:8 }}>
                 {[
                   { id:'all', label:'All Users', count: users.length, icon:'👥' },
-                  { id:'active', label:'Active (30d)', count: (() => { const thirtyDaysAgo = new Date(Date.now()-30*24*60*60*1000); const activeUids = new Set(orders.filter(o=>o.createdAt?.toDate?.()>thirtyDaysAgo).map(o=>o.userUid)); return users.filter(u=>activeUids.has(u.id)).length })(), icon:'🔥' },
-                  { id:'inactive', label:'Inactive', count: (() => { const thirtyDaysAgo = new Date(Date.now()-30*24*60*60*1000); const activeUids = new Set(orders.filter(o=>o.createdAt?.toDate?.()>thirtyDaysAgo).map(o=>o.userUid)); return users.filter(u=>!activeUids.has(u.id)).length })(), icon:'😴' },
+                  { id:'active', label:'Active (30d)', count: getPushTargetCount('active'), icon:'🔥' },
+                  { id:'inactive', label:'Inactive', count: getPushTargetCount('inactive'), icon:'😴' },
                 ].map(t => (
                   <button key={t.id} onClick={() => setBroadcastTarget(t.id)} style={{
                     flex:1, padding:'10px 8px', borderRadius:10, cursor:'pointer', fontFamily:'Poppins',
@@ -728,7 +1019,7 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* ── STEP 3: SEND VIA ── */}
+            {/* Step 3: Send Via */}
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
                 <span style={{ background:'#E24B4A', color:'#fff', borderRadius:'50%', width:20, height:20, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>3</span>
@@ -755,50 +1046,34 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* ── STEP 4: WRITE MESSAGE ── */}
+            {/* Step 4: Write Message */}
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
                 <span style={{ background:'#E24B4A', color:'#fff', borderRadius:'50%', width:20, height:20, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>4</span>
                 Write Your Message
               </div>
-
               <div style={{ marginBottom:8 }}>
                 <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Subject / Title (used as email subject)</label>
-                <input
-                  style={inp}
-                  placeholder="e.g. 🎉 New restaurant on FeedoZone!"
-                  value={broadcastTitle}
-                  onChange={e => setBroadcastTitle(e.target.value)}
-                />
+                <input style={inp} placeholder="e.g. 🎉 New restaurant on FeedoZone!" value={broadcastTitle} onChange={e => setBroadcastTitle(e.target.value)} />
               </div>
-
-              <textarea
-                value={broadcastMsg}
-                onChange={e => setBroadcastMsg(e.target.value)}
+              <textarea value={broadcastMsg} onChange={e => setBroadcastMsg(e.target.value)}
                 placeholder="Write your message here...&#10;&#10;Tip: Use {name} to personalize — it gets replaced with each user's name!"
                 rows={8}
                 style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'vertical', boxSizing:'border-box', lineHeight:1.7, color:'#1f2937' }}
               />
-
               <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:6, padding:'7px 10px', background:'#fef3c7', borderRadius:8 }}>
                 <span style={{ fontSize:13 }}>💡</span>
-                <span style={{ fontSize:11, color:'#92400e' }}>
-                  Write <strong>{'{name}'}</strong> in your message — it gets replaced with each user's real name automatically!
-                </span>
+                <span style={{ fontSize:11, color:'#92400e' }}>Write <strong>{'{name}'}</strong> — it gets replaced with each user's real name automatically!</span>
               </div>
-
               <div style={{ fontSize:11, color: broadcastMsg.length > 1000 ? '#dc2626' : '#9ca3af', marginTop:4, textAlign:'right' }}>
                 {broadcastMsg.length} characters {broadcastMsg.length > 1000 ? '(too long for WhatsApp!)' : ''}
               </div>
             </div>
 
-            {/* ── PREVIEW ── */}
+            {/* Preview */}
             {broadcastMsg && (
               <div style={{ marginBottom:14 }}>
-                <button
-                  onClick={() => setPreviewMode(p => !p)}
-                  style={{ width:'100%', padding:'9px 0', background:'#f3f4f6', color:'#374151', border:'none', borderRadius:10, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom: previewMode ? 8 : 0 }}
-                >
+                <button onClick={() => setPreviewMode(p => !p)} style={{ width:'100%', padding:'9px 0', background:'#f3f4f6', color:'#374151', border:'none', borderRadius:10, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom: previewMode ? 8 : 0 }}>
                   {previewMode ? '▲ Hide Preview' : '👁️ Preview Message'}
                 </button>
                 {previewMode && (
@@ -817,7 +1092,7 @@ export default function FounderApp() {
               </div>
             )}
 
-            {/* ── SEND BUTTON ── */}
+            {/* Send Button */}
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
                 <div>
@@ -827,9 +1102,7 @@ export default function FounderApp() {
                   </div>
                 </div>
                 <div style={{ background: targetUsers.length > 0 ? '#dcfce7' : '#fee2e2', borderRadius:20, padding:'4px 10px' }}>
-                  <span style={{ fontSize:11, fontWeight:700, color: targetUsers.length > 0 ? '#16a34a' : '#dc2626' }}>
-                    {targetUsers.length} recipients
-                  </span>
+                  <span style={{ fontSize:11, fontWeight:700, color: targetUsers.length > 0 ? '#16a34a' : '#dc2626' }}>{targetUsers.length} recipients</span>
                 </div>
               </div>
 
@@ -844,33 +1117,23 @@ export default function FounderApp() {
 
               <div style={{ display:'flex', gap:8 }}>
                 {(broadcastType === 'whatsapp' || broadcastType === 'both') && (
-                  <button
-                    onClick={handleBroadcast}
-                    disabled={sendingBroadcast || !broadcastMsg.trim() || targetUsers.length === 0}
-                    style={{
-                      flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8,
-                      padding:'13px 0', background: (!broadcastMsg.trim() || sendingBroadcast) ? '#d1d5db' : '#25D366',
+                  <button onClick={handleBroadcast} disabled={sendingBroadcast || !broadcastMsg.trim() || targetUsers.length === 0}
+                    style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'13px 0',
+                      background: (!broadcastMsg.trim() || sendingBroadcast) ? '#d1d5db' : '#25D366',
                       color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700,
-                      cursor: (!broadcastMsg.trim() || sendingBroadcast) ? 'not-allowed' : 'pointer',
-                      fontFamily:'Poppins'
-                    }}
-                  >
+                      cursor: (!broadcastMsg.trim() || sendingBroadcast) ? 'not-allowed' : 'pointer', fontFamily:'Poppins'
+                    }}>
                     <span style={{ fontSize:16 }}>💬</span>
                     {sendingBroadcast ? 'Sending...' : `WhatsApp (${targetUsers.filter(u=>u.mobile||u.phone).length})`}
                   </button>
                 )}
                 {(broadcastType === 'email' || broadcastType === 'both') && (
-                  <button
-                    onClick={handleBroadcast}
-                    disabled={sendingBroadcast || !broadcastMsg.trim() || targetUsers.length === 0}
-                    style={{
-                      flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8,
-                      padding:'13px 0', background: (!broadcastMsg.trim() || sendingBroadcast) ? '#d1d5db' : '#3b82f6',
+                  <button onClick={handleBroadcast} disabled={sendingBroadcast || !broadcastMsg.trim() || targetUsers.length === 0}
+                    style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'13px 0',
+                      background: (!broadcastMsg.trim() || sendingBroadcast) ? '#d1d5db' : '#3b82f6',
                       color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700,
-                      cursor: (!broadcastMsg.trim() || sendingBroadcast) ? 'not-allowed' : 'pointer',
-                      fontFamily:'Poppins'
-                    }}
-                  >
+                      cursor: (!broadcastMsg.trim() || sendingBroadcast) ? 'not-allowed' : 'pointer', fontFamily:'Poppins'
+                    }}>
                     <span style={{ fontSize:16 }}>📧</span>
                     {sendingBroadcast ? 'Sending...' : `Email (${targetUsers.filter(u=>u.email).length})`}
                   </button>
@@ -879,13 +1142,13 @@ export default function FounderApp() {
 
               <div style={{ marginTop:10, padding:'8px 12px', background:'#fffbeb', borderRadius:8, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
                 <div style={{ fontSize:11, color:'#92400e', lineHeight:1.6 }}>
-                  <strong>📱 WhatsApp:</strong> Opens chat windows for each user (up to 3 at once). For bulk sending, integrate WhatsApp Business API (Wati/Twilio).<br/>
-                  <strong>📧 Email:</strong> Opens your email client with BCC to all users. Works immediately for up to 50 users.
+                  <strong>📱 WhatsApp:</strong> Opens chat windows for each user (up to 3 at once).<br/>
+                  <strong>📧 Email:</strong> Opens your email client with BCC to all users (up to 50).
                 </div>
               </div>
             </div>
 
-            {/* ── BROADCAST HISTORY ── */}
+            {/* Broadcast History */}
             {broadcastHistory.length > 0 && (
               <div style={{ marginBottom:16 }}>
                 <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:10 }}>📋 Recent Broadcasts</div>
@@ -909,23 +1172,18 @@ export default function FounderApp() {
               </div>
             )}
 
-            {/* ALL USER PHONE LIST (for manual WhatsApp) */}
+            {/* All User Contact List */}
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', marginBottom:16 }}>
               <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:10 }}>📱 All User Contacts ({users.length})</div>
               <div style={{ fontSize:11, color:'#6b7280', marginBottom:10, lineHeight:1.5 }}>
-                Send WhatsApp individually by tapping a user, or copy all numbers for bulk messaging tools.
+                Send WhatsApp individually or copy all numbers for bulk messaging.
               </div>
-
-              <button
-                onClick={() => {
-                  const nums = users.filter(u=>u.mobile||u.phone).map(u=>'91'+(u.mobile||u.phone).replace(/\D/g,'')).join('\n')
-                  navigator.clipboard?.writeText(nums).then(() => toast.success('All numbers copied!')).catch(() => toast.error('Copy failed'))
-                }}
-                style={{ width:'100%', padding:'9px 0', background:'#fff', color:'#25D366', borderWidth:1.5, borderStyle:'solid', borderColor:'#86efac', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10 }}
-              >
+              <button onClick={() => {
+                const nums = users.filter(u=>u.mobile||u.phone).map(u=>'91'+(u.mobile||u.phone).replace(/\D/g,'')).join('\n')
+                navigator.clipboard?.writeText(nums).then(() => toast.success('All numbers copied!')).catch(() => toast.error('Copy failed'))
+              }} style={{ width:'100%', padding:'9px 0', background:'#fff', color:'#25D366', borderWidth:1.5, borderStyle:'solid', borderColor:'#86efac', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10 }}>
                 📋 Copy All WhatsApp Numbers
               </button>
-
               {users.slice(0,20).map((u, i) => (
                 <div key={u.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottomWidth: i < Math.min(users.length,20)-1 ? 1 : 0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
                   <div style={{ width:32, height:32, borderRadius:'50%', background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -936,21 +1194,16 @@ export default function FounderApp() {
                     <div style={{ fontSize:11, color:'#9ca3af' }}>{u.mobile||u.phone||'No number'}</div>
                   </div>
                   {(u.mobile || u.phone) && (
-                    <a
-                      href={`https://wa.me/91${(u.mobile||u.phone).replace(/\D/g,'')}?text=${encodeURIComponent(broadcastMsg.replace(/{name}/g,u.name||'there')||'Hi '+u.name+'! Order from FeedoZone today 🍽️')}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 10px', background:'#25D366', borderRadius:8, textDecoration:'none', flexShrink:0 }}
-                    >
+                    <a href={`https://wa.me/91${(u.mobile||u.phone).replace(/\D/g,'')}?text=${encodeURIComponent(broadcastMsg.replace(/{name}/g,u.name||'there')||'Hi '+u.name+'! Order from FeedoZone today 🍽️')}`}
+                      target="_blank" rel="noreferrer"
+                      style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 10px', background:'#25D366', borderRadius:8, textDecoration:'none', flexShrink:0 }}>
                       <span style={{ fontSize:13 }}>💬</span>
                       <span style={{ fontSize:11, fontWeight:600, color:'#fff', fontFamily:'Poppins' }}>WA</span>
                     </a>
                   )}
                   {u.email && (
-                    <a
-                      href={`mailto:${u.email}?subject=${encodeURIComponent(broadcastTitle||'Message from FeedoZone')}&body=${encodeURIComponent(broadcastMsg.replace(/{name}/g,u.name||'there')||'Hi from FeedoZone!')}`}
-                      style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 10px', background:'#3b82f6', borderRadius:8, textDecoration:'none', flexShrink:0 }}
-                    >
+                    <a href={`mailto:${u.email}?subject=${encodeURIComponent(broadcastTitle||'Message from FeedoZone')}&body=${encodeURIComponent(broadcastMsg.replace(/{name}/g,u.name||'there')||'Hi from FeedoZone!')}`}
+                      style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 10px', background:'#3b82f6', borderRadius:8, textDecoration:'none', flexShrink:0 }}>
                       <span style={{ fontSize:13 }}>📧</span>
                       <span style={{ fontSize:11, fontWeight:600, color:'#fff', fontFamily:'Poppins' }}>Email</span>
                     </a>
@@ -958,9 +1211,7 @@ export default function FounderApp() {
                 </div>
               ))}
               {users.length > 20 && (
-                <div style={{ textAlign:'center', paddingTop:10, fontSize:11, color:'#9ca3af' }}>
-                  +{users.length-20} more users · use bulk send above
-                </div>
+                <div style={{ textAlign:'center', paddingTop:10, fontSize:11, color:'#9ca3af' }}>+{users.length-20} more users · use bulk send above</div>
               )}
             </div>
           </>
@@ -969,7 +1220,6 @@ export default function FounderApp() {
         {/* ── ORDERS ── */}
         {tab==='orders' && (
           <>
-            {/* ── ORDER DETAIL MODAL ── */}
             {selectedOrder && (
               <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
                 onClick={e => { if(e.target===e.currentTarget) setSelectedOrder(null) }}>
@@ -1010,15 +1260,10 @@ export default function FounderApp() {
                     <span style={{ fontSize:14, fontWeight:700 }}>Total</span>
                     <span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{selectedOrder.total}</span>
                   </div>
-
-                  {/* ── CHANGE 4: View Full Bill button above Delete ── */}
-                  <button
-                    onClick={() => { setFounderBillOrder(selectedOrder); setShowFounderBill(true) }}
-                    style={{ width:'100%', marginTop:8, background:'#111', color:'#fff', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:8, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
-                  >
+                  <button onClick={() => { setFounderBillOrder(selectedOrder); setShowFounderBill(true) }}
+                    style={{ width:'100%', marginTop:8, background:'#111', color:'#fff', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:8, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
                     🧾 View Full Bill
                   </button>
-
                   <button onClick={(e) => handleDeleteOrder(selectedOrder.id, e)} style={{ width:'100%', marginTop:6, background:'#fee2e2', color:'#dc2626', border:'none', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
                     🗑️ Delete This Order
                   </button>
@@ -1050,11 +1295,8 @@ export default function FounderApp() {
               <div key={o.id} onClick={() => setSelectedOrder(o)} style={{ display:'flex', gap:8, alignItems:'center', padding:'10px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', cursor:'pointer' }}>
                 <div style={{ display:'flex', flexDirection:'column', gap:3, minWidth:42, alignItems:'flex-start' }}>
                   <div style={{ fontSize:11, color:'#9ca3af' }}>{o.createdAt?.toDate?.()?.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})||'--'}</div>
-                  {/* ── CHANGE 3: Bill chip in order list row ── */}
-                  <button
-                    onClick={e => { e.stopPropagation(); setFounderBillOrder(o); setShowFounderBill(true) }}
-                    style={{ fontSize:10, fontWeight:700, background:'#E24B4A', color:'#fff', border:'none', borderRadius:6, padding:'2px 7px', cursor:'pointer', fontFamily:'Poppins', flexShrink:0 }}
-                  >
+                  <button onClick={e => { e.stopPropagation(); setFounderBillOrder(o); setShowFounderBill(true) }}
+                    style={{ fontSize:10, fontWeight:700, background:'#E24B4A', color:'#fff', border:'none', borderRadius:6, padding:'2px 7px', cursor:'pointer', fontFamily:'Poppins', flexShrink:0 }}>
                     🧾 {'FZ-'+(o.billNo?.slice(-6) || o.id?.slice(-6).toUpperCase())}
                   </button>
                 </div>
@@ -1168,6 +1410,12 @@ export default function FounderApp() {
                   </div>
                   <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8 }}>{v.email} · {v.category}</div>
                   <div style={{ fontSize:11, color:'#6b7280', marginBottom:8 }}>🚴 Delivery: {v.deliveryCharge===0?'Free':('₹'+(v.deliveryCharge??30))} · 📞 {v.phone||'—'}</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+                    <div style={{ width:8, height:8, borderRadius:'50%', background: v.expoPushToken ? '#16a34a' : '#d1d5db' }} />
+                    <span style={{ fontSize:11, color: v.expoPushToken ? '#16a34a' : '#9ca3af' }}>
+                      {v.expoPushToken ? '✅ Push token saved' : 'No push token yet'}
+                    </span>
+                  </div>
                   <button onClick={() => handleDeleteVendor(v.id, v.storeName)} style={{ width:'100%', background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:8, padding:'8px 0', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>🗑️ Delete Vendor</button>
                 </div>
               </div>
@@ -1198,7 +1446,7 @@ export default function FounderApp() {
                     {icon:'⏳',label:'Pending',val:orders.filter(o=>o.status==='pending').length,bg:'#fffbeb'},
                     {icon:'👥',label:'Total Users',val:users.length,bg:'#eff6ff'},
                     {icon:'🔥',label:'Active (30d)',val:activeUsers,bg:'#fff7ed'},
-                    {icon:'🏪',label:'Active Vendors',val:vendors.filter(v=>v.isOpen).length,bg:'#f0fdf4'},
+                    {icon:'🔔',label:'Push Enabled',val:usersWithTokenCount,bg:'#f0fdf4'},
                   ].map(s => (
                     <div key={s.label} style={{ background:s.bg, borderRadius:12, padding:14, borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6' }}>
                       <div style={{ fontSize:22, marginBottom:6 }}>{s.icon}</div>
@@ -1271,7 +1519,7 @@ export default function FounderApp() {
                   return (
                     <div key={v.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f9fafb' }}>
                       <div style={{ width:36, height:36, borderRadius:9, overflow:'hidden', background:'#fee2e2', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                        {v.photo?<img src={v.photo} style={{ width:'100%', height:'100%', objectFit:'cover' }} />:<span>🏪</span>}
+                        {v.photo?<img src={v.photo} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" />:<span>🏪</span>}
                       </div>
                       <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:600 }}>{v.storeName}</div><div style={{ fontSize:11, color:'#6b7280' }}>{vOrders.length} orders · ₹{vRevenue.toLocaleString()}</div></div>
                       <div style={{ background:v.isOpen?'#dcfce7':'#fee2e2', borderRadius:20, padding:'3px 8px' }}><span style={{ fontSize:10, fontWeight:600, color:v.isOpen?'#16a34a':'#dc2626' }}>{v.isOpen?'Open':'Closed'}</span></div>
@@ -1367,7 +1615,7 @@ export default function FounderApp() {
 
       </div>
 
-      {/* ── CHANGE 6: FounderBill modal rendered at root level ── */}
+      {/* FounderBill modal */}
       {showFounderBill && founderBillOrder && (
         <FounderBill
           order={founderBillOrder}
