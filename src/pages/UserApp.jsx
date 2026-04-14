@@ -342,7 +342,7 @@ export default function UserApp() {
   useNotifications(user?.uid, 'user')
 
 useEffect(() => {
-  if (!user?.uid) return  // wait until user is actually loaded
+  if (!user?.uid) return
 
   const saveToken = async (token) => {
     if (token && typeof token === 'string' && token.startsWith('ExponentPushToken')) {
@@ -351,16 +351,20 @@ useEffect(() => {
     }
   }
 
-  // Check if token already available in window
-  if (window.expoPushToken) {
-    saveToken(window.expoPushToken)
-  }
+  // Check window object
+  if (window.expoPushToken) saveToken(window.expoPushToken)
 
-  // Also listen for future token events
+  // Check localStorage (backup from new App.js)
+  try {
+    const stored = localStorage.getItem('expoPushToken')
+    if (stored) saveToken(stored)
+  } catch(e) {}
+
+  // Listen for future events
   const handleToken = (e) => saveToken(e.detail)
   window.addEventListener('expoPushToken', handleToken)
   return () => window.removeEventListener('expoPushToken', handleToken)
-}, [user?.uid])  // ← depends on user.uid only, not full user object
+}, [user?.uid])
 
   // ── Check if location already in localStorage ──
   useEffect(() => {
