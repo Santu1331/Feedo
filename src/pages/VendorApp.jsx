@@ -339,18 +339,27 @@ export default function VendorApp() {
   useNotifications(user?.uid, 'vendor')
   // Save Expo push token when app provides it
 useEffect(() => {
-  const handleToken = async (e) => {
-    const token = e.detail
-    if (token && user?.uid) {
+  if (!user?.uid) return
+
+  const saveToken = async (token) => {
+    if (token && typeof token === 'string' && token.startsWith('ExponentPushToken')) {
       await saveExpoPushToken(user.uid, token, 'vendor')
     }
   }
+
+  // Check window object
+  if (window.expoPushToken) saveToken(window.expoPushToken)
+
+  // Check localStorage (backup)
+  try {
+    const stored = localStorage.getItem('expoPushToken')
+    if (stored) saveToken(stored)
+  } catch(e) {}
+
+  const handleToken = (e) => saveToken(e.detail)
   window.addEventListener('expoPushToken', handleToken)
-  if (window.expoPushToken && user?.uid) {
-    saveExpoPushToken(user.uid, window.expoPushToken, 'vendor')
-  }
   return () => window.removeEventListener('expoPushToken', handleToken)
-}, [user])
+}, [user?.uid])
 
   useEffect(() => {
     if (!user) return
