@@ -389,14 +389,15 @@ export const sendBroadcastNotification = async (title, body) => {
       return 0
     }
 
-    await fetch('https://exp.host/--/api/v2/push/send', {
+    // ✅ FIXED: Use /api/send-push instead of calling Expo directly
+    await fetch('/api/send-push', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(
-        tokens.map(token => ({
+      body: JSON.stringify({
+        notifications: tokens.map(token => ({
           to: token,
           title,
           body,
@@ -405,7 +406,7 @@ export const sendBroadcastNotification = async (title, body) => {
           channelId: 'default',
           badge: 1,
         }))
-      )
+      })
     })
 
     await addDoc(collection(db, 'broadcastHistory'), {
