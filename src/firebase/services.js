@@ -372,6 +372,13 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
 // ── BROADCAST NOTIFICATIONS (Founder → All Users) ─────────────────────────
 export const sendBroadcastNotification = async (title, body) => {
   try {
+    // ✅ Check if user is logged in first
+    const currentUser = auth.currentUser
+    if (!currentUser) {
+      console.error('Not logged in — cannot broadcast')
+      return 0
+    }
+
     const snap = await getDocs(
       query(collection(db, 'users'), where('role', '==', 'user'))
     )
