@@ -281,7 +281,7 @@ export default function FounderApp() {
     } catch { toast.error('Failed to delete order') }
   }
 
-  // ── PUSH NOTIFICATION HANDLER ─────────────────────────────────────────
+  // ── PUSH NOTIFICATION HANDLER (CORS fix: proxied via /api/send-push) ──
   const handleSendPush = async () => {
     if (!pushTitle.trim()) return toast.error('Enter a notification title')
     if (!pushBody.trim()) return toast.error('Enter a notification message')
@@ -326,10 +326,11 @@ export default function FounderApp() {
       for (let bi = 0; bi < batches.length; bi++) {
         const batch = batches[bi]
         try {
-          const res = await fetch('https://exp.host/--/api/v2/push/send', {
+          // ✅ CORS FIX: call our Vercel proxy instead of exp.host directly
+          const res = await fetch('/api/send-push', {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-            body: JSON.stringify(batch.map(token => ({
+            body: JSON.stringify({ notifications: batch.map(token => ({
               to: token,
               title: pushTitle,
               body: pushBody,
@@ -337,7 +338,7 @@ export default function FounderApp() {
               priority: 'high',
               channelId: 'default',
               badge: 1,
-            })))
+            }))})
           })
           const result = await res.json()
           // Count successes and failures from Expo response
