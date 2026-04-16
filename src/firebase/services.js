@@ -109,27 +109,27 @@ export const saveUserLocation = async (uid, lat, lng) => {
 }
 
 // ── EXPO PUSH NOTIFICATIONS ───────────────────────────────────────────────
+// ✅ FIXED: Calls Expo directly — no /api/send-push needed
 export const sendExpoPushNotification = async ({ expoPushToken, title, body, data = {} }) => {
   if (!expoPushToken) return
   if (!expoPushToken.startsWith('ExponentPushToken')) return
   try {
-    await fetch('/api/send-push', {
+    await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
+        'Accept-Encoding': 'gzip, deflate',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        notifications: [{
-          to: expoPushToken,
-          title,
-          body,
-          data,
-          sound: 'default',
-          priority: 'high',
-          channelId: 'default',
-          badge: 1,
-        }]
+        to: expoPushToken,
+        title,
+        body,
+        data,
+        sound: 'default',
+        priority: 'high',
+        channelId: 'default',
+        badge: 1,
       }),
     })
   } catch (err) {
@@ -372,6 +372,7 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
 }
 
 // ── BROADCAST NOTIFICATIONS (Founder → All Users) ─────────────────────────
+// ✅ FIXED: Calls Expo directly — no /api/send-push needed
 export const sendBroadcastNotification = async (title, body) => {
   try {
     const snap = await getDocs(
@@ -391,15 +392,16 @@ export const sendBroadcastNotification = async (title, body) => {
       return 0
     }
 
-    // ✅ FIXED: Use /api/send-push instead of calling Expo directly
-    await fetch('/api/send-push', {
+    // ✅ Call Expo directly — works on localhost + production
+    await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
+        'Accept-Encoding': 'gzip, deflate',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        notifications: tokens.map(token => ({
+      body: JSON.stringify(
+        tokens.map(token => ({
           to: token,
           title,
           body,
@@ -408,7 +410,7 @@ export const sendBroadcastNotification = async (title, body) => {
           channelId: 'default',
           badge: 1,
         }))
-      })
+      )
     })
 
     await addDoc(collection(db, 'broadcastHistory'), {
