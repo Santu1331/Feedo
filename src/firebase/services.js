@@ -113,21 +113,23 @@ export const sendExpoPushNotification = async ({ expoPushToken, title, body, dat
   if (!expoPushToken) return
   if (!expoPushToken.startsWith('ExponentPushToken')) return
   try {
-    await fetch('https://exp.host/--/api/v2/push/send', {
+    await fetch('/api/send-push', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        to: expoPushToken,
-        title,
-        body,
-        data,
-        sound: 'default',
-        priority: 'high',
-        channelId: 'default',
-        badge: 1,
+        notifications: [{
+          to: expoPushToken,
+          title,
+          body,
+          data,
+          sound: 'default',
+          priority: 'high',
+          channelId: 'default',
+          badge: 1,
+        }]
       }),
     })
   } catch (err) {
@@ -372,13 +374,6 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
 // ── BROADCAST NOTIFICATIONS (Founder → All Users) ─────────────────────────
 export const sendBroadcastNotification = async (title, body) => {
   try {
-    // ✅ Check if user is logged in first
-    const currentUser = auth.currentUser
-    if (!currentUser) {
-      console.error('Not logged in — cannot broadcast')
-      return 0
-    }
-
     const snap = await getDocs(
       query(collection(db, 'users'), where('role', '==', 'user'))
     )

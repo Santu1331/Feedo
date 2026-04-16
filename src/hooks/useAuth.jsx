@@ -1,7 +1,7 @@
 // src/hooks/useAuth.jsx
 import { createContext, useContext, useEffect, useState } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../firebase/config'
 
 const AuthContext = createContext(null)
@@ -15,11 +15,12 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const saveToken = async (token, uid) => {
       if (!token || !uid) return
+      if (!token.startsWith('ExponentPushToken')) return
       try {
-        await updateDoc(doc(db, 'users', uid), {
+        await setDoc(doc(db, 'users', uid), {
           expoPushToken: token,
-          tokenUpdatedAt: new Date().toISOString()
-        })
+          tokenUpdatedAt: serverTimestamp()
+        }, { merge: true })
         console.log('✅ Push token saved to Firestore:', token)
       } catch (err) {
         console.error('Error saving push token:', err)
@@ -71,10 +72,10 @@ export const AuthProvider = ({ children }) => {
             // Save pending token if user just logged in
             if (window._pendingPushToken) {
               try {
-                await updateDoc(doc(db, 'users', firebaseUser.uid), {
+                await setDoc(doc(db, 'users', firebaseUser.uid), {
                   expoPushToken: window._pendingPushToken,
-                  tokenUpdatedAt: new Date().toISOString()
-                })
+                  tokenUpdatedAt: serverTimestamp()
+                }, { merge: true })
                 console.log('✅ Pending push token saved after login')
                 window._pendingPushToken = null
               } catch (err) {
