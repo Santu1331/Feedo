@@ -375,10 +375,7 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
 // ✅ FIXED: Calls Expo directly — no /api/send-push needed
 export const sendBroadcastNotification = async (title, body) => {
   try {
-    const snap = await getDocs(
-      query(collection(db, 'users'), where('role', '==', 'user'))
-    )
-
+    const snap = await getDocs(collection(db, 'users'))
     const tokens = []
     snap.forEach(docSnap => {
       const token = docSnap.data().expoPushToken
