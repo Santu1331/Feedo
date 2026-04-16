@@ -1,3 +1,16 @@
+import { initializeApp, cert, getApps } from 'firebase-admin/app'
+import { getFirestore } from 'firebase-admin/firestore'
+
+if (!getApps().length) {
+  initializeApp({
+    credential: cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    })
+  })
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
 
@@ -7,33 +20,22 @@ export default async function handler(req, res) {
   }
 
   try {
-    const projectId = 'feedozone'
+    const db = getFirestore()
+    const vendorSnap = await db.collection('vendors').get()
 
-    // Fetch vendors with auth bypass using ?key= (public API key)
-    // First get vendors
-    const vendorUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/vendors`
-    const vendorRes = await fetch(vendorUrl)
-
-    if (!vendorRes.ok) {
-      const text = await vendorRes.text()
-      return res.status(500).json({ error: 'Firestore fetch failed', details: text })
-    }
-
-    const vendorData = await vendorRes.json()
-
-    if (!vendorData.documents) {
+    if (vendorSnap.empty) {
       return res.status(200).json({ message: 'No vendors found', sent: 0 })
     }
 
     const notifications = []
 
-    for (const vendorDoc of vendorData.documents) {
-      const fields = vendorDoc.fields || {}
-      const token = fields.expoPushToken?.stringValue
-      const isOpen = fields.isOpen?.booleanValue
+    vendorSnap.forEach(doc => {
+      const data = doc.data()
+      const token = data.expoPushToken
+      const isOpen = data.isOpen
 
-      if (!token || !token.startsWith('ExponentPushToken')) continue
-      if (!isOpen) continue
+      if (!token || !token.startsWith('ExponentPushToken')) return
+      if (!isOpen) return
 
       notifications.push({
         to: token,
@@ -43,13 +45,13 @@ export default async function handler(req, res) {
         priority: 'high',
         channelId: 'default',
       })
-    }
+    })
 
     if (notifications.length === 0) {
-      return res.status(200).json({ 
-        message: 'No open vendors with tokens', 
+      return res.status(200).json({
+        message: 'No open vendors with tokens',
         sent: 0,
-        totalVendors: vendorData.documents.length
+        totalVendors: vendorSnap.size
       })
     }
 
