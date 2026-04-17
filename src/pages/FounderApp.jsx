@@ -111,7 +111,7 @@ export default function FounderApp() {
     const u1 = getAllOrders(setOrders)
     const u2 = getAllVendors(setVendors)
 
-    const q = query(collection(db, 'users'), where('role', '==', 'user'))
+    const q = collection(db, 'users')
     const unsubUsers = onSnapshot(q, snap => setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
 
     const unsubTickets = onSnapshot(collection(db, 'supportTickets'), snap => {
@@ -327,7 +327,7 @@ export default function FounderApp() {
         const batch = batches[bi]
         try {
           // ✅ CORS FIX: call our Vercel proxy instead of exp.host directly
-          const res = await fetch('/api/send-push', {
+          const res = await fetch('https://feedo-ruddy.vercel.app/api/send-push', {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
             body: JSON.stringify({ notifications: batch.map(token => ({
