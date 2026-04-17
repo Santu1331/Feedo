@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     }
 
     // Forward to Expo push service
-    const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {
+    const res = await fetch('https://feedo-ruddy.vercel.app/api/send-push', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
