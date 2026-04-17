@@ -270,6 +270,18 @@ export default function UserApp() {
     return () => window.removeEventListener('expoPushToken', handleToken)
   }, [user?.uid])
 
+  // ← ADD THIS RIGHT HERE ↓
+  useEffect(() => {
+    if (!user?.uid) return
+    const token = window.expoPushToken || localStorage.getItem('expoPushToken')
+    if (token && token.startsWith('ExponentPushToken')) {
+      saveExpoPushToken(user.uid, token, 'user')
+      console.log('✅ Token saved on login:', token)
+    }
+  }, [user?.uid])
+
+  
+
   // ── Auto-detect location silently on mount (Zomato-style, no gate) ──
   useEffect(() => {
     const cached = localStorage.getItem('feedo_location')
