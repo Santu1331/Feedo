@@ -109,7 +109,6 @@ export const saveUserLocation = async (uid, lat, lng) => {
 }
 
 // ── EXPO PUSH NOTIFICATIONS ───────────────────────────────────────────────
-// ✅ FIXED: Calls Expo directly — no /api/send-push needed
 export const sendExpoPushNotification = async ({ expoPushToken, title, body, data = {} }) => {
   if (!expoPushToken) return
   if (!expoPushToken.startsWith('ExponentPushToken')) return
@@ -205,7 +204,7 @@ export const founderCreateVendor = async (founderUid, vendorData) => {
     address: address || '', phone: phone || '',
     plan: plan || '₹500/month', category: category || 'Thali',
     isOpen: false, prepTime: 20, subscriptionStatus: 'active',
-    rating: 4.5, totalOrders: 0, photo: '', banner: '',
+    rating: 4.5, totalOrders: 0, totalReviews: 0, photo: '', banner: '',
     location: vendorData.location || null,
     locationName: vendorData.locationName || '',
     deliveryCharge: vendorData.deliveryCharge ?? 0,
@@ -271,7 +270,7 @@ export const deleteCombo = (vendorUid, comboId) =>
 // ── ORDERS ────────────────────────────────────────────────────────────────
 export const placeOrder = async (orderData) => {
   const ref = await addDoc(collection(db, 'orders'), {
-    ...orderData, status: 'pending', createdAt: serverTimestamp()
+    ...orderData, status: 'pending', reviewed: false, createdAt: serverTimestamp()
   })
 
   // 🔔 In-app bell notification to vendor
@@ -371,8 +370,95 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
   }
 }
 
+// ── REVIEWS ───────────────────────────────────────────────────────────────
+
+/**
+ * Submit a review for a delivered order.
+ * - Saves review under vendors/{vendorUid}/reviews/{orderId}
+ *   (using orderId as doc ID prevents duplicate reviews for same order)
+ * - Marks the order as reviewed so "Rate Now" button hides
+ * - Recalculates vendor's average rating and totalReviews count
+ */
+export const submitReview = async (orderId, vendorUid, userUid, userName, rating, comment = '') => {
+  try {
+    // 1. Save review — use orderId as document ID to prevent duplicates
+    await setDoc(doc(db, 'vendors', vendorUid, 'reviews', orderId), {
+      orderId,
+      userUid,
+      userName: userName || 'Anonymous',
+      rating: Number(rating),
+      comment: comment.trim(),
+      createdAt: serverTimestamp(),
+    })
+
+    // 2. Mark order as reviewed — hides "Rate Now" button
+    await updateDoc(doc(db, 'orders', orderId), {
+      reviewed: true,
+      reviewedAt: serverTimestamp(),
+    })
+
+    // 3. Recalculate vendor average rating from all reviews
+    const reviewsSnap = await getDocs(collection(db, 'vendors', vendorUid, 'reviews'))
+    const allRatings = reviewsSnap.docs.map(d => Number(d.data().rating)).filter(r => !isNaN(r))
+    const avgRating = allRatings.length
+      ? parseFloat((allRatings.reduce((sum, r) => sum + r, 0) / allRatings.length).toFixed(1))
+      : 0
+
+    // 4. Update vendor's rating and totalReviews in both collections
+    const ratingUpdate = { rating: avgRating, totalReviews: allRatings.length }
+    await updateDoc(doc(db, 'vendors', vendorUid), ratingUpdate)
+    try { await updateDoc(doc(db, 'users', vendorUid), ratingUpdate) } catch(e) {}
+
+    return true
+  } catch (err) {
+    console.error('Submit review error:', err)
+    throw err  // re-throw so UI can catch and show error message
+  }
+}
+
+/**
+ * Listen to all reviews for a vendor in real-time (newest first).
+ * Use this on vendor profile/detail page to show star ratings.
+ */
+export const getVendorReviews = (vendorUid, callback) =>
+  onSnapshot(
+    query(
+      collection(db, 'vendors', vendorUid, 'reviews'),
+      orderBy('createdAt', 'desc')
+    ),
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    err => { console.error('Reviews listen error:', err); callback([]) }
+  )
+
+/**
+ * Fetch reviews once (non-realtime). Useful for summary stats.
+ */
+export const fetchVendorReviews = async (vendorUid) => {
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'vendors', vendorUid, 'reviews'), orderBy('createdAt', 'desc'))
+    )
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  } catch (err) {
+    console.error('Fetch reviews error:', err)
+    return []
+  }
+}
+
+/**
+ * Check if a specific order has already been reviewed.
+ * Use this to show/hide the "Rate Now" button.
+ */
+export const hasReviewed = async (orderId, vendorUid) => {
+  try {
+    const snap = await getDoc(doc(db, 'vendors', vendorUid, 'reviews', orderId))
+    return snap.exists()
+  } catch {
+    return false
+  }
+}
+
 // ── BROADCAST NOTIFICATIONS (Founder → All Users) ─────────────────────────
-// ✅ FIXED: Calls Expo directly — no /api/send-push needed
 export const sendBroadcastNotification = async (title, body) => {
   try {
     const snap = await getDocs(collection(db, 'users'))
@@ -389,7 +475,6 @@ export const sendBroadcastNotification = async (title, body) => {
       return 0
     }
 
-    // ✅ Call Expo directly — works on localhost + production
     await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: {
