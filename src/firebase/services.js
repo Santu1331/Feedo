@@ -7,7 +7,7 @@ import {
   query, where, onSnapshot, serverTimestamp,
   addDoc, deleteDoc, getDocs, orderBy, limit
 } from 'firebase/firestore'
-import { initializeApp } from 'firebase/app'
+import { initializeApp, deleteApp } from 'firebase/app'   // ✅ FIX 1: added deleteApp
 import { auth, db } from './config'
 
 // ── CLOUDINARY CONFIG ─────────────────────────────────────────────────────
@@ -190,31 +190,83 @@ export const getUserRole = async (uid) => {
 }
 
 // ── FOUNDER: CREATE VENDOR ────────────────────────────────────────────────
+// ✅ FIX 2: Full error handling + deleteApp to prevent memory leak
+// ✅ FIX 3: Friendly error messages for all Firebase Auth error codes
+// ✅ FIX 4: secondaryApp is always cleaned up even if something fails
 export const founderCreateVendor = async (founderUid, vendorData) => {
   const { email, password, storeName, address, phone, plan, category } = vendorData
+
+  // ✅ Validate required fields before hitting Firebase
+  if (!email || !password || !storeName) {
+    throw new Error('Email, password, and store name are required.')
+  }
+  if (password.length < 6) {
+    throw new Error('Password must be at least 6 characters.')
+  }
+
   const secondaryApp  = initializeApp(auth.app.options, 'secondary-' + Date.now())
   const secondaryAuth = getAuth(secondaryApp)
-  const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password)
-  const vendorUid = cred.user.uid
-  await updateProfile(cred.user, { displayName: storeName })
-  await signOut(secondaryAuth)
 
-  const vendorDoc = {
-    uid: vendorUid, role: 'vendor', email, storeName,
-    address: address || '', phone: phone || '',
-    plan: plan || '₹500/month', category: category || 'Thali',
-    isOpen: false, prepTime: 20, subscriptionStatus: 'active',
-    rating: 4.5, totalOrders: 0, totalReviews: 0, photo: '', banner: '',
-    location: vendorData.location || null,
-    locationName: vendorData.locationName || '',
-    deliveryCharge: vendorData.deliveryCharge ?? 0,
-    fssai: vendorData.fssai || '',
-    openTime: vendorData.openTime || '',
-    closeTime: vendorData.closeTime || '',
-    createdBy: founderUid, createdAt: serverTimestamp()
+  let vendorUid
+  try {
+    // ✅ FIX: Wrapped in try/catch to handle EMAIL_EXISTS and other auth errors
+    const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password)
+    vendorUid = cred.user.uid
+    await updateProfile(cred.user, { displayName: storeName })
+    await signOut(secondaryAuth)
+  } catch (err) {
+    // ✅ FIX: Always clean up secondary app even on failure
+    try { await deleteApp(secondaryApp) } catch (_) {}
+
+    // ✅ FIX: Map Firebase error codes to human-readable messages
+    const errorMessages = {
+      'auth/email-already-in-use': 'This email is already registered. Please use a different email or delete the existing account from Firebase Console.',
+      'auth/invalid-email':        'The email address is not valid. Please check and try again.',
+      'auth/weak-password':        'Password is too weak. Use at least 6 characters.',
+      'auth/operation-not-allowed':'Email/Password sign-in is disabled. Enable it in Firebase Console → Authentication → Sign-in method.',
+      'auth/network-request-failed': 'Network error. Please check your internet connection and try again.',
+    }
+    throw new Error(errorMessages[err.code] || `Failed to create vendor account: ${err.message}`)
   }
-  await setDoc(doc(db, 'users', vendorUid), vendorDoc)
-  await setDoc(doc(db, 'vendors', vendorUid), vendorDoc)
+
+  // ✅ FIX: Clean up secondary app after successful auth creation
+  try { await deleteApp(secondaryApp) } catch (_) {}
+
+  // ✅ Write Firestore docs for vendor
+  const vendorDoc = {
+    uid: vendorUid,
+    role: 'vendor',
+    email,
+    storeName,
+    address:          address || '',
+    phone:            phone || '',
+    plan:             plan || '₹500/month',
+    category:         category || 'Thali',
+    isOpen:           false,
+    prepTime:         20,
+    subscriptionStatus: 'active',
+    rating:           4.5,
+    totalOrders:      0,
+    photo:            '',
+    banner:           '',
+    location:         vendorData.location || null,
+    locationName:     vendorData.locationName || '',
+    deliveryCharge:   vendorData.deliveryCharge ?? 0,
+    fssai:            vendorData.fssai || '',
+    openTime:         vendorData.openTime || '',
+    closeTime:        vendorData.closeTime || '',
+    createdBy:        founderUid,
+    createdAt:        serverTimestamp()
+  }
+
+  try {
+    await setDoc(doc(db, 'users', vendorUid), vendorDoc)
+    await setDoc(doc(db, 'vendors', vendorUid), vendorDoc)
+  } catch (err) {
+    // ✅ FIX: Catch Firestore write failures separately with clear message
+    throw new Error(`Vendor account created in Auth but failed to save to database: ${err.message}. Please contact support.`)
+  }
+
   return vendorUid
 }
 
@@ -270,7 +322,7 @@ export const deleteCombo = (vendorUid, comboId) =>
 // ── ORDERS ────────────────────────────────────────────────────────────────
 export const placeOrder = async (orderData) => {
   const ref = await addDoc(collection(db, 'orders'), {
-    ...orderData, status: 'pending', reviewed: false, createdAt: serverTimestamp()
+    ...orderData, status: 'pending', createdAt: serverTimestamp()
   })
 
   // 🔔 In-app bell notification to vendor
@@ -367,94 +419,6 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
         console.error('User push notification failed:', err)
       }
     }
-  }
-}
-
-// ── REVIEWS ───────────────────────────────────────────────────────────────
-
-/**
- * Submit a review for a delivered order.
- * - Saves review under vendors/{vendorUid}/reviews/{orderId}
- *   (using orderId as doc ID prevents duplicate reviews for same order)
- * - Marks the order as reviewed so "Rate Now" button hides
- * - Recalculates vendor's average rating and totalReviews count
- */
-export const submitReview = async (orderId, vendorUid, userUid, userName, rating, comment = '') => {
-  try {
-    // 1. Save review — use orderId as document ID to prevent duplicates
-    await setDoc(doc(db, 'vendors', vendorUid, 'reviews', orderId), {
-      orderId,
-      userUid,
-      userName: userName || 'Anonymous',
-      rating: Number(rating),
-      comment: comment.trim(),
-      createdAt: serverTimestamp(),
-    })
-
-    // 2. Mark order as reviewed — hides "Rate Now" button
-    await updateDoc(doc(db, 'orders', orderId), {
-      reviewed: true,
-      reviewedAt: serverTimestamp(),
-    })
-
-    // 3. Recalculate vendor average rating from all reviews
-    const reviewsSnap = await getDocs(collection(db, 'vendors', vendorUid, 'reviews'))
-    const allRatings = reviewsSnap.docs.map(d => Number(d.data().rating)).filter(r => !isNaN(r))
-    const avgRating = allRatings.length
-      ? parseFloat((allRatings.reduce((sum, r) => sum + r, 0) / allRatings.length).toFixed(1))
-      : 0
-
-    // 4. Update vendor's rating and totalReviews in both collections
-    const ratingUpdate = { rating: avgRating, totalReviews: allRatings.length }
-    await updateDoc(doc(db, 'vendors', vendorUid), ratingUpdate)
-    try { await updateDoc(doc(db, 'users', vendorUid), ratingUpdate) } catch(e) {}
-
-    return true
-  } catch (err) {
-    console.error('Submit review error:', err)
-    throw err  // re-throw so UI can catch and show error message
-  }
-}
-
-/**
- * Listen to all reviews for a vendor in real-time (newest first).
- * Use this on vendor profile/detail page to show star ratings.
- */
-export const getVendorReviews = (vendorUid, callback) =>
-  onSnapshot(
-    query(
-      collection(db, 'vendors', vendorUid, 'reviews'),
-      orderBy('createdAt', 'desc')
-    ),
-    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-    err => { console.error('Reviews listen error:', err); callback([]) }
-  )
-
-/**
- * Fetch reviews once (non-realtime). Useful for summary stats.
- */
-export const fetchVendorReviews = async (vendorUid) => {
-  try {
-    const snap = await getDocs(
-      query(collection(db, 'vendors', vendorUid, 'reviews'), orderBy('createdAt', 'desc'))
-    )
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
-  } catch (err) {
-    console.error('Fetch reviews error:', err)
-    return []
-  }
-}
-
-/**
- * Check if a specific order has already been reviewed.
- * Use this to show/hide the "Rate Now" button.
- */
-export const hasReviewed = async (orderId, vendorUid) => {
-  try {
-    const snap = await getDoc(doc(db, 'vendors', vendorUid, 'reviews', orderId))
-    return snap.exists()
-  } catch {
-    return false
   }
 }
 
