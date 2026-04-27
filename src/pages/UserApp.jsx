@@ -12,15 +12,21 @@ import UserBill from '../components/UserBill'
 import LiveOrderTracking from '../components/LiveOrderTracking'
 import toast from 'react-hot-toast'
 
-// ─── Distance-based delivery charge (per km slab, max 4km) ───────────────────
-function calcDeliveryCharge(distanceKm, vendorBaseCharge) {
-  if (distanceKm === null || distanceKm === undefined) return Number(vendorBaseCharge ?? 0)
-  const km = parseFloat(distanceKm)
-  if (km <= 1) return 10
-  if (km <= 2) return 20
-  if (km <= 3) return 30
-  if (km <= 4) return 40
-  return 40
+// ─── Delivery charge: vendor fixed OR distance-based ─────────────────────────
+// If vendor has distanceBasedDelivery = true → use km slabs
+// Otherwise → always use vendor's fixed deliveryCharge
+function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
+  if (useDistanceBased) {
+    if (distanceKm === null || distanceKm === undefined) return Number(vendorBaseCharge ?? 0)
+    const km = parseFloat(distanceKm)
+    if (km <= 1) return 10
+    if (km <= 2) return 20
+    if (km <= 3) return 30
+    if (km <= 4) return 40
+    return 40
+  }
+  // Fixed charge — ignore distance
+  return Number(vendorBaseCharge ?? 0)
 }
 
 const MAX_DELIVERY_KM = 4
@@ -124,7 +130,8 @@ function MapModal({ userLat, userLng, vendors, onClose }) {
         if (!v.location?.lat || !v.location?.lng) return
         const dist = getDistance(userLat, userLng, v.location.lat, v.location.lng)
         if (dist > MAX_DELIVERY_KM) return
-        const charge = calcDeliveryCharge(dist)
+        // ✅ Pass distanceBasedDelivery flag to map popup charge too
+        const charge = calcDeliveryCharge(dist, v.deliveryCharge, v.distanceBasedDelivery)
         const color = v.isOpen ? '#16a34a' : '#6b7280'
         const vendorIcon = L.divIcon({
           html:`<div style="background:${color};border:2.5px solid #fff;border-radius:10px;padding:5px 8px;font-size:11px;font-weight:700;color:#fff;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.2);font-family:Poppins,sans-serif">
@@ -139,7 +146,7 @@ function MapModal({ userLat, userLng, vendors, onClose }) {
               <b style="font-size:13px">${v.storeName}</b><br/>
               <span style="font-size:11px;color:#6b7280">${v.category}</span><br/>
               <span style="font-size:11px;color:${v.isOpen?'#16a34a':'#dc2626'};font-weight:600">${v.isOpen?'● Open':'● Closed'}</span><br/>
-              <span style="font-size:11px">📍 ${dist.toFixed(1)} km · 🚚 ₹${charge} delivery</span>
+              <span style="font-size:11px">📍 ${dist.toFixed(1)} km · 🚚 ${charge===0?'Free':'₹'+charge} delivery</span>
             </div>
           `)
       })
@@ -175,7 +182,7 @@ function MapModal({ userLat, userLng, vendors, onClose }) {
           <span style={{ fontSize:11, color:'#374151' }}>{MAX_DELIVERY_KM}km limit</span>
         </div>
         <div style={{ marginLeft:'auto', fontSize:11, color:'#6b7280' }}>
-          🚚 1km=₹10 · 2km=₹20 · 3km=₹30 · 4km=₹40
+          🚚 Charges vary by vendor
         </div>
       </div>
     </div>
@@ -236,7 +243,7 @@ export default function UserApp() {
   const [locationSearch, setLocationSearch] = useState('')
   const [locationSuggestions, setLocationSuggestions] = useState([])
   const [searchingLocation, setSearchingLocation] = useState(false)
-  const [locationGranted, setLocationGranted] = useState(true)  // ← always true, no gate
+  const [locationGranted, setLocationGranted] = useState(true)
   const [showMap, setShowMap] = useState(false)
 
   const [deliveryName, setDeliveryName] = useState('')
@@ -270,7 +277,6 @@ export default function UserApp() {
     return () => window.removeEventListener('expoPushToken', handleToken)
   }, [user?.uid])
 
-  // ← ADD THIS RIGHT HERE ↓
   useEffect(() => {
     if (!user?.uid) return
     const token = window.expoPushToken || localStorage.getItem('expoPushToken')
@@ -280,19 +286,16 @@ export default function UserApp() {
     }
   }, [user?.uid])
 
-  
-
-  // ── Auto-detect location silently on mount (Zomato-style, no gate) ──
+  // ── Auto-detect location silently on mount ──
   useEffect(() => {
     const cached = localStorage.getItem('feedo_location')
     if (cached) {
       try {
         const { lat, lng, name } = JSON.parse(cached)
         setUserLat(lat); setUserLng(lng); setLocationName(name)
-        return // have cache, skip GPS
+        return
       } catch {}
     }
-    // No cache — silently request GPS in background
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
@@ -308,7 +311,7 @@ export default function UserApp() {
             if (user) await saveUserLocation(user.uid, lat, lng)
           } catch { setLocationName('Your Location') }
         },
-        () => { /* silently ignore denial */ },
+        () => {},
         { enableHighAccuracy: true, timeout: 10000 }
       )
     }
@@ -423,7 +426,8 @@ export default function UserApp() {
     const dist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
       ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
       : null
-    const dynamicCharge = calcDeliveryCharge(dist, selectedVendor.deliveryCharge)
+    // ✅ Pass distanceBasedDelivery flag
+    const dynamicCharge = calcDeliveryCharge(dist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
 
     setCartVendor({ ...selectedVendor, deliveryCharge: dynamicCharge, distanceKm: dist })
     setCart(prev => {
@@ -441,7 +445,8 @@ export default function UserApp() {
     const dist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
       ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
       : null
-    const dynamicCharge = calcDeliveryCharge(dist, selectedVendor.deliveryCharge)
+    // ✅ Pass distanceBasedDelivery flag
+    const dynamicCharge = calcDeliveryCharge(dist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
 
     setCartVendor({ ...selectedVendor, deliveryCharge: dynamicCharge, distanceKm: dist })
     const comboCartId = 'combo_' + combo.id
@@ -598,7 +603,7 @@ export default function UserApp() {
     } catch { setReviews([]) }
   }
 
-  // ── Filter vendors: only within 4km if location is set ──
+  // ── Filter vendors ──
   const filteredVendors = vendors
     .filter(v => {
       const matchCat = catFilter === 'All' || v.category === catFilter || (catFilter !== 'All' && v.customCategories?.includes(catFilter))
@@ -613,8 +618,8 @@ export default function UserApp() {
         : null,
     }))
     .filter(v => {
-      if (!userLat || !userLng) return true   // no location yet, show all
-      if (v.distance === null) return true    // vendor has no coords, show
+      if (!userLat || !userLng) return true
+      if (v.distance === null) return true
       return v.distance <= MAX_DELIVERY_KM
     })
     .sort((a, b) => {
@@ -860,11 +865,12 @@ export default function UserApp() {
         {tab==='home' && (
           <div style={{ background:'#fff', minHeight:'100%' }}>
 
+            {/* ✅ Updated banner — no longer says "distance-based" since it varies by vendor */}
             <div style={{ background:'linear-gradient(90deg,#fff7ed,#fef3c7)', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#fed7aa', padding:'8px 16px', display:'flex', alignItems:'center', gap:10 }}>
               <span style={{ fontSize:16 }}>🚚</span>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>Distance-based delivery charges</div>
-                <div style={{ fontSize:10, color:'#a16207' }}>1km=₹10 · 2km=₹20 · 3km=₹30 · 4km=₹40 · Max {MAX_DELIVERY_KM}km</div>
+                <div style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>Delivery charges vary by restaurant</div>
+                <div style={{ fontSize:10, color:'#a16207' }}>Fixed or distance-based · Max {MAX_DELIVERY_KM}km delivery</div>
               </div>
               <button onClick={() => setShowMap(true)} style={{ background:'#E24B4A', border:'none', color:'#fff', padding:'5px 10px', borderRadius:8, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>
                 🗺️ Map
@@ -914,7 +920,8 @@ export default function UserApp() {
             <div style={{ padding:'0 16px' }}>
               {filteredVendors.map(v => {
                 const vMinOrder = Number(v.minOrderAmount ?? 0)
-                const dynamicCharge = calcDeliveryCharge(v.distance, v.deliveryCharge)
+                // ✅ Vendor-first delivery charge
+                const dynamicCharge = calcDeliveryCharge(v.distance, v.deliveryCharge, v.distanceBasedDelivery)
                 return (
                   <div key={v.id} onClick={() => openVendor(v)}
                     style={{ background:'#fff', borderRadius:16, overflow:'hidden', marginBottom:16, cursor:v.isOpen?'pointer':'not-allowed', boxShadow:'0 2px 12px rgba(0,0,0,0.08)', borderWidth:1, borderStyle:'solid', borderColor:v.isOpen?'#f3f4f6':'#fecaca', opacity:v.isOpen?1:0.6 }}>
@@ -938,7 +945,7 @@ export default function UserApp() {
                           <span>📍</span>
                           <span>{v.distance < 1 ? `${Math.round(v.distance*1000)}m` : `${v.distance.toFixed(1)}km`}</span>
                           <span style={{ opacity:0.6 }}>·</span>
-                          <span style={{ color:'#fbbf24' }}>₹{dynamicCharge} delivery</span>
+                          <span style={{ color:'#fbbf24' }}>{dynamicCharge===0?'Free delivery':'₹'+dynamicCharge+' delivery'}</span>
                         </div>
                       )}
                     </div>
@@ -953,6 +960,12 @@ export default function UserApp() {
                         <span style={{ fontSize:12, fontWeight:700, background:dynamicCharge===0?'#dcfce7':'#fef3c7', color:dynamicCharge===0?'#16a34a':'#92400e', borderRadius:6, padding:'2px 8px' }}>
                           {dynamicCharge===0 ? '🎉 Free delivery' : `🚚 ₹${dynamicCharge} delivery`}
                         </span>
+                        {/* ✅ Show badge if vendor uses distance-based pricing */}
+                        {v.distanceBasedDelivery && v.distance !== null && (
+                          <span style={{ fontSize:10, fontWeight:600, background:'#eff6ff', color:'#3b82f6', borderRadius:6, padding:'2px 7px' }}>
+                            📍 Distance-based
+                          </span>
+                        )}
                         {vMinOrder > 0 && (
                           <span style={{ fontSize:11, fontWeight:700, background:'#dbeafe', color:'#1e40af', borderRadius:6, padding:'2px 7px', display:'inline-flex', alignItems:'center', gap:3 }}>
                             🛒 Min. ₹{vMinOrder}
@@ -993,7 +1006,8 @@ export default function UserApp() {
           const vendorDist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
             ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
             : null
-          const dynamicCharge = calcDeliveryCharge(vendorDist, selectedVendor.deliveryCharge)
+          // ✅ Pass distanceBasedDelivery flag
+          const dynamicCharge = calcDeliveryCharge(vendorDist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
 
           return (
             <div style={{ background:'#fff', minHeight:'100%' }}>
@@ -1011,6 +1025,12 @@ export default function UserApp() {
                 <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px' }}>
                   🚚 {dynamicCharge === 0 ? 'Free delivery 🎉' : `₹${dynamicCharge} delivery`}
                 </span>
+                {/* ✅ Show distance-based badge in vendor menu too */}
+                {selectedVendor.distanceBasedDelivery && vendorDist !== null && (
+                  <span style={{ fontSize:10, fontWeight:600, background:'#eff6ff', color:'#3b82f6', borderRadius:6, padding:'2px 7px' }}>
+                    📍 Distance-based
+                  </span>
+                )}
                 {vendorDist !== null && (
                   <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>
                     📍 {vendorDist < 1 ? `${Math.round(vendorDist*1000)}m away` : `${vendorDist.toFixed(1)}km away`}
@@ -1180,6 +1200,22 @@ export default function UserApp() {
                   )}
                 </div>
 
+                {/* ✅ Delivery charge type info row */}
+                <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'center' }}>
+                  <div style={{ width:38, height:38, borderRadius:10, background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>🚚</span></div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginBottom:3, fontWeight:500 }}>DELIVERY CHARGE</div>
+                    <div style={{ fontSize:13, color:'#1f2937', fontWeight:500 }}>
+                      {selectedVendor.distanceBasedDelivery
+                        ? `Distance-based · You pay ₹${dynamicCharge}${vendorDist !== null ? ` for ${vendorDist.toFixed(1)}km` : ''}`
+                        : dynamicCharge === 0
+                          ? 'Free delivery for all orders! 🎉'
+                          : `Fixed ₹${dynamicCharge} for all orders`
+                      }
+                    </div>
+                  </div>
+                </div>
+
                 {selectedVendor.address && (
                   <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'flex-start' }}>
                     <div style={{ width:38, height:38, borderRadius:10, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>📍</span></div>
@@ -1287,9 +1323,17 @@ export default function UserApp() {
               <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:10, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
                 <span style={{ fontSize:16 }}>🚚</span>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>Distance-based delivery charge</div>
+                  {/* ✅ Show correct label based on charge type */}
+                  <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>
+                    {cartVendor.distanceBasedDelivery ? 'Distance-based delivery charge' : 'Delivery charge'}
+                  </div>
                   <div style={{ fontSize:11, color:'#a16207' }}>
-                    {cartVendor.distanceKm.toFixed(1)}km away · ₹{deliveryFee} delivery charge
+                    {cartVendor.distanceBasedDelivery
+                      ? `${cartVendor.distanceKm.toFixed(1)}km away · ₹${deliveryFee} delivery charge`
+                      : deliveryFee === 0
+                        ? 'Free delivery for all orders 🎉'
+                        : `Fixed ₹${deliveryFee} delivery charge`
+                    }
                   </div>
                 </div>
               </div>
@@ -1338,7 +1382,9 @@ export default function UserApp() {
                 <div style={{ background:'#f9fafb', borderRadius:10, padding:12, margin:'12px 0' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                    <span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee {cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}</span>
+                    <span style={{ fontSize:12, color:'#6b7280' }}>
+                      Delivery fee {cartVendor?.distanceBasedDelivery && cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}
+                    </span>
                     <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
                   </div>
                   <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:600 }}>Total</span><span style={{ fontSize:14, fontWeight:600 }}>₹{cartTotal+deliveryFee}</span></div>
@@ -1373,7 +1419,9 @@ export default function UserApp() {
                 <div style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:12 }}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
-                    <span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee {cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}</span>
+                    <span style={{ fontSize:12, color:'#6b7280' }}>
+                      Delivery fee {cartVendor?.distanceBasedDelivery && cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}
+                    </span>
                     <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
                   </div>
                   <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:700 }}>Total</span><span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{cartTotal+deliveryFee}</span></div>
@@ -1599,7 +1647,7 @@ export default function UserApp() {
                 { title:'2. Eligibility', body:'You must be 18 years or older, or have parental / guardian consent to use FeedoZone.' },
                 { title:'3. Location Requirement', body:'FeedoZone requires location access to show nearby restaurants and calculate delivery charges. Restaurants beyond 4km are not available for delivery.' },
                 { title:'4. Orders & Payments', body:'All orders placed are subject to restaurant availability and acceptance. Payment is currently Cash on Delivery (COD) only.' },
-                { title:'5. Delivery Charges', body:'Delivery charges are distance-based: ₹10 up to 1km, ₹20 up to 2km, ₹30 up to 3km, ₹40 up to 4km.' },
+                { title:'5. Delivery Charges', body:'Delivery charges are set by each restaurant — either a fixed fee or distance-based (₹10/1km, ₹20/2km, ₹30/3km, ₹40/4km).' },
                 { title:'6. Cancellation Policy', body:'Users may cancel orders within 5 minutes of placing them. Cancellations after 5 minutes are not permitted through the app.' },
                 { title:'7. User Responsibilities', body:'You are responsible for providing accurate delivery details, including address and contact number.' },
                 { title:'8. Prohibited Conduct', body:'Users must not misuse the platform, place fraudulent orders, or abuse vendors or delivery personnel.' },

@@ -12,7 +12,7 @@ import toast from 'react-hot-toast'
 import { useOrderAlert } from '../hooks/useOrderAlert'
 import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
 import VendorBill from '../components/VendorBill'
-import { doc, updateDoc } from 'firebase/firestore'
+import { doc, updateDoc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase/config'
 
 const STATUS_NEXT  = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
@@ -33,6 +33,353 @@ const ORDER_FILTERS = [
   { id:'delivered',        label:'Delivered',      emoji:'✔️' },
   { id:'cancelled',        label:'Cancelled',      emoji:'❌' },
 ]
+
+// ── GEOCODE HELPER ────────────────────────────────────────────────────────────
+async function geocodeAddress(address) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=in`)
+    const data = await res.json()
+    if (data && data.length > 0) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
+    return null
+  } catch { return null }
+}
+
+function haversineDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2)
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+}
+
+// ── MINI CUSTOMER MAP (embedded in order detail) ──────────────────────────────
+function MiniCustomerMap({ order, onExpand }) {
+  const mapRef = useRef(null)
+  const mapInstanceRef = useRef(null)
+  const [customerCoords, setCustomerCoords] = useState(null)
+  const [riderCoords, setRiderCoords] = useState(order.riderLocation || null)
+  const [distance, setDistance] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const customerMarkerRef = useRef(null)
+  const riderMarkerRef = useRef(null)
+  const routeLineRef = useRef(null)
+  const leafletLoadedRef = useRef(false)
+
+  // Live listen to rider location from Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'orders', order.id), (snap) => {
+      const data = snap.data()
+      if (data?.riderLocation) setRiderCoords(data.riderLocation)
+    })
+    return unsub
+  }, [order.id])
+
+  // Resolve customer location
+  useEffect(() => {
+    async function resolve() {
+      setLoading(true)
+      // 1. Try live GPS from order
+      if (order.customerLocation?.lat) {
+        setCustomerCoords(order.customerLocation)
+        setLoading(false)
+        return
+      }
+      // 2. Geocode delivery address
+      if (order.address) {
+        const coords = await geocodeAddress(order.address)
+        if (coords) { setCustomerCoords(coords); setLoading(false); return }
+      }
+      setLoading(false)
+    }
+    resolve()
+  }, [order])
+
+  // Load Leaflet and initialize map
+  useEffect(() => {
+    if (!customerCoords) return
+    if (leafletLoadedRef.current) { initMap(); return }
+
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+    document.head.appendChild(link)
+
+    const script = document.createElement('script')
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+    script.onload = () => { leafletLoadedRef.current = true; initMap() }
+    document.head.appendChild(script)
+  }, [customerCoords])
+
+  const initMap = () => {
+    if (!mapRef.current || !customerCoords || !window.L) return
+    if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null }
+
+    const L = window.L
+    const center = riderCoords
+      ? [(customerCoords.lat + riderCoords.lat) / 2, (customerCoords.lng + riderCoords.lng) / 2]
+      : [customerCoords.lat, customerCoords.lng]
+
+    const map = L.map(mapRef.current, { zoomControl: false, attributionControl: false, dragging: false, scrollWheelZoom: false, touchZoom: false, doubleClickZoom: false })
+    mapInstanceRef.current = map
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+
+    const customerIcon = L.divIcon({ html: '<div style="font-size:22px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))">🏠</div>', className:'', iconSize:[24,24], iconAnchor:[12,12] })
+    customerMarkerRef.current = L.marker([customerCoords.lat, customerCoords.lng], { icon: customerIcon }).addTo(map)
+
+    if (riderCoords) {
+      const riderIcon = L.divIcon({ html: '<div style="font-size:22px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))">🛵</div>', className:'', iconSize:[24,24], iconAnchor:[12,12] })
+      riderMarkerRef.current = L.marker([riderCoords.lat, riderCoords.lng], { icon: riderIcon }).addTo(map)
+      routeLineRef.current = L.polyline([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]], { color:'#E24B4A', weight:2.5, dashArray:'6,6', opacity:0.85 }).addTo(map)
+      const dist = haversineDistance(customerCoords.lat, customerCoords.lng, riderCoords.lat, riderCoords.lng)
+      setDistance(dist)
+      const bounds = L.latLngBounds([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]])
+      map.fitBounds(bounds, { padding:[24,24] })
+    } else {
+      map.setView([customerCoords.lat, customerCoords.lng], 15)
+    }
+  }
+
+  // Update rider marker when riderCoords changes
+  useEffect(() => {
+    if (!mapInstanceRef.current || !riderCoords || !customerCoords || !window.L) return
+    const L = window.L
+    if (riderMarkerRef.current) {
+      riderMarkerRef.current.setLatLng([riderCoords.lat, riderCoords.lng])
+    } else {
+      const riderIcon = L.divIcon({ html: '<div style="font-size:22px">🛵</div>', className:'', iconSize:[24,24], iconAnchor:[12,12] })
+      riderMarkerRef.current = L.marker([riderCoords.lat, riderCoords.lng], { icon: riderIcon }).addTo(mapInstanceRef.current)
+    }
+    if (routeLineRef.current) {
+      routeLineRef.current.setLatLngs([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]])
+    } else {
+      routeLineRef.current = L.polyline([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]], { color:'#E24B4A', weight:2.5, dashArray:'6,6', opacity:0.85 }).addTo(mapInstanceRef.current)
+    }
+    const dist = haversineDistance(customerCoords.lat, customerCoords.lng, riderCoords.lat, riderCoords.lng)
+    setDistance(dist)
+    const bounds = L.latLngBounds([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]])
+    mapInstanceRef.current.fitBounds(bounds, { padding:[24,24] })
+  }, [riderCoords])
+
+  useEffect(() => { return () => { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null } } }, [])
+
+  const eta = distance ? Math.round((distance / 25) * 60) : null
+
+  return (
+    <div style={{ background:'#fff', borderRadius:14, overflow:'hidden', marginBottom:12, boxShadow:'0 2px 12px rgba(0,0,0,0.1)', borderWidth:1, borderStyle:'solid', borderColor:'#e0f2fe' }}>
+      {/* Header bar */}
+      <div style={{ background:'linear-gradient(135deg,#0369a1,#0f3460)', padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <div style={{ width:8, height:8, borderRadius:'50%', background:'#4ade80', animation:'livePulse 1.2s infinite' }} />
+          <span style={{ fontSize:12, fontWeight:700, color:'#fff' }}>🗺️ Customer Location</span>
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          {distance && <span style={{ fontSize:11, color:'#7dd3fc', fontWeight:600 }}>{distance.toFixed(1)} km · ~{eta} min</span>}
+          <button onClick={onExpand} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', fontSize:10, fontWeight:700, borderRadius:6, padding:'4px 9px', cursor:'pointer', fontFamily:'Poppins', letterSpacing:0.5 }}>⛶ FULLSCREEN</button>
+        </div>
+      </div>
+      {/* Map */}
+      <div style={{ position:'relative', height:170 }}>
+        {loading && (
+          <div style={{ position:'absolute', inset:0, background:'#f0f9ff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, zIndex:5 }}>
+            <div style={{ fontSize:28 }}>🗺️</div>
+            <div style={{ fontSize:12, color:'#0369a1', fontWeight:600 }}>Locating customer...</div>
+          </div>
+        )}
+        {!loading && !customerCoords && (
+          <div style={{ position:'absolute', inset:0, background:'#f9fafb', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6 }}>
+            <div style={{ fontSize:28 }}>📍</div>
+            <div style={{ fontSize:12, color:'#6b7280', textAlign:'center', padding:'0 20px' }}>Could not locate customer address on map</div>
+          </div>
+        )}
+        <div ref={mapRef} style={{ width:'100%', height:'100%' }} />
+        {/* Legend */}
+        {customerCoords && (
+          <div style={{ position:'absolute', bottom:8, left:8, background:'rgba(255,255,255,0.92)', borderRadius:8, padding:'5px 10px', display:'flex', gap:10, fontSize:11, fontWeight:600, color:'#374151', backdropFilter:'blur(4px)', zIndex:999 }}>
+            <span>🏠 Customer</span>
+            {riderCoords && <span>🛵 Rider</span>}
+          </div>
+        )}
+        {/* Navigate button */}
+        {customerCoords && (
+          <a
+            href={`https://www.google.com/maps/dir/?api=1&destination=${customerCoords.lat},${customerCoords.lng}`}
+            target="_blank" rel="noreferrer"
+            style={{ position:'absolute', bottom:8, right:8, background:'#E24B4A', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:700, color:'#fff', textDecoration:'none', zIndex:999, display:'flex', alignItems:'center', gap:4 }}
+          >
+            🧭 Navigate
+          </a>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── CUSTOMER LOCATION PANEL (fullscreen) ──────────────────────────────────────
+function CustomerLocationPanel({ order, onClose }) {
+  const mapRef = useRef(null)
+  const mapInstanceRef = useRef(null)
+  const [customerCoords, setCustomerCoords] = useState(null)
+  const [riderCoords, setRiderCoords] = useState(order.riderLocation || null)
+  const [distance, setDistance] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const customerMarkerRef = useRef(null)
+  const riderMarkerRef = useRef(null)
+  const routeLineRef = useRef(null)
+  const leafletLoadedRef = useRef(false)
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'orders', order.id), (snap) => {
+      const data = snap.data()
+      if (data?.riderLocation) setRiderCoords(data.riderLocation)
+    })
+    return unsub
+  }, [order.id])
+
+  useEffect(() => {
+    async function resolve() {
+      setLoading(true)
+      if (order.customerLocation?.lat) { setCustomerCoords(order.customerLocation); setLoading(false); return }
+      if (order.address) {
+        const coords = await geocodeAddress(order.address)
+        if (coords) { setCustomerCoords(coords); setLoading(false); return }
+      }
+      setLoading(false)
+    }
+    resolve()
+  }, [order])
+
+  useEffect(() => {
+    if (!customerCoords) return
+    if (leafletLoadedRef.current) { initMap(); return }
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+    document.head.appendChild(link)
+    const script = document.createElement('script')
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+    script.onload = () => { leafletLoadedRef.current = true; initMap() }
+    document.head.appendChild(script)
+    if (window.L) { leafletLoadedRef.current = true; initMap() }
+  }, [customerCoords])
+
+  const initMap = () => {
+    if (!mapRef.current || !customerCoords || !window.L) return
+    if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null }
+    const L = window.L
+    const map = L.map(mapRef.current, { zoomControl: true, attributionControl: false })
+    mapInstanceRef.current = map
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+    const customerIcon = L.divIcon({ html: '<div style="font-size:28px;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.5))">🏠</div>', className:'', iconSize:[30,30], iconAnchor:[15,15] })
+    customerMarkerRef.current = L.marker([customerCoords.lat, customerCoords.lng], { icon: customerIcon }).addTo(map).bindPopup(`<b>📍 Customer</b><br>${order.userName}<br>${order.address}`)
+    if (riderCoords) {
+      const riderIcon = L.divIcon({ html: '<div style="font-size:28px;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.5))">🛵</div>', className:'', iconSize:[30,30], iconAnchor:[15,15] })
+      riderMarkerRef.current = L.marker([riderCoords.lat, riderCoords.lng], { icon: riderIcon }).addTo(map).bindPopup(`<b>🛵 Rider</b><br>${order.riderName || 'Delivery rider'}`)
+      routeLineRef.current = L.polyline([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]], { color:'#E24B4A', weight:3.5, dashArray:'8,8', opacity:0.9 }).addTo(map)
+      const dist = haversineDistance(customerCoords.lat, customerCoords.lng, riderCoords.lat, riderCoords.lng)
+      setDistance(dist)
+      const bounds = L.latLngBounds([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]])
+      map.fitBounds(bounds, { padding:[50,50] })
+    } else {
+      map.setView([customerCoords.lat, customerCoords.lng], 15)
+    }
+  }
+
+  useEffect(() => {
+    if (!mapInstanceRef.current || !riderCoords || !customerCoords || !window.L) return
+    const L = window.L
+    if (riderMarkerRef.current) {
+      riderMarkerRef.current.setLatLng([riderCoords.lat, riderCoords.lng])
+    } else {
+      const riderIcon = L.divIcon({ html: '<div style="font-size:28px">🛵</div>', className:'', iconSize:[30,30], iconAnchor:[15,15] })
+      riderMarkerRef.current = L.marker([riderCoords.lat, riderCoords.lng], { icon: riderIcon }).addTo(mapInstanceRef.current)
+    }
+    if (routeLineRef.current) {
+      routeLineRef.current.setLatLngs([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]])
+    } else {
+      routeLineRef.current = L.polyline([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]], { color:'#E24B4A', weight:3.5, dashArray:'8,8', opacity:0.9 }).addTo(mapInstanceRef.current)
+    }
+    const dist = haversineDistance(customerCoords.lat, customerCoords.lng, riderCoords.lat, riderCoords.lng)
+    setDistance(dist)
+    const bounds = L.latLngBounds([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]])
+    mapInstanceRef.current.fitBounds(bounds, { padding:[50,50] })
+  }, [riderCoords])
+
+  useEffect(() => { return () => { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null } } }, [])
+
+  const eta = distance ? Math.round((distance / 25) * 60) : null
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:3000, display:'flex', flexDirection:'column', background:'#0f1923', fontFamily:'Poppins,sans-serif' }}>
+      {/* Header */}
+      <div style={{ background:'linear-gradient(135deg,#0f3460,#1a1a2e)', padding:'16px 16px 18px', position:'relative', overflow:'hidden', flexShrink:0 }}>
+        <div style={{ position:'absolute', right:-10, top:-10, fontSize:80, opacity:0.06 }}>🗺️</div>
+        <div style={{ display:'flex', justifyContent:'center', marginBottom:10 }}><div style={{ width:36, height:4, borderRadius:2, background:'rgba(255,255,255,0.25)' }} /></div>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+          <div>
+            <div style={{ fontSize:10, color:'rgba(255,255,255,0.55)', fontWeight:700, letterSpacing:1.2, marginBottom:4 }}>DELIVERY TRACKING</div>
+            <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>🗺️ Customer Location</div>
+            <div style={{ fontSize:12, color:'rgba(255,255,255,0.65)', marginTop:4 }}>Order #{order.id.slice(-6).toUpperCase()} · {order.userName}</div>
+          </div>
+          <button onClick={onClose} style={{ background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', width:36, height:36, borderRadius:'50%', fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+        </div>
+        {/* Stats row */}
+        <div style={{ display:'flex', gap:10, marginTop:14 }}>
+          {[
+            { icon:'📍', label:'Address', val: order.address?.slice(0,28) + (order.address?.length > 28 ? '…' : '') || 'N/A' },
+            { icon:'📏', label:'Distance', val: distance ? `${distance.toFixed(1)} km` : '—' },
+            { icon:'⏱️', label:'ETA', val: eta ? `~${eta} min` : '—' },
+          ].map(s => (
+            <div key={s.label} style={{ flex:1, background:'rgba(255,255,255,0.08)', borderRadius:10, padding:'8px 10px', borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,255,255,0.1)' }}>
+              <div style={{ fontSize:14 }}>{s.icon}</div>
+              <div style={{ fontSize:9, color:'rgba(255,255,255,0.5)', fontWeight:600, marginTop:2, letterSpacing:0.5 }}>{s.label.toUpperCase()}</div>
+              <div style={{ fontSize:11, color:'#fff', fontWeight:700, marginTop:1, lineHeight:1.3 }}>{s.val}</div>
+            </div>
+          ))}
+        </div>
+        {/* Live badge */}
+        {riderCoords && (
+          <div style={{ marginTop:12, background:'rgba(74,222,128,0.15)', borderRadius:8, padding:'7px 12px', display:'flex', alignItems:'center', gap:8, borderWidth:1, borderStyle:'solid', borderColor:'rgba(74,222,128,0.3)' }}>
+            <div style={{ width:8, height:8, borderRadius:'50%', background:'#4ade80', animation:'livePulse 1.2s infinite' }} />
+            <span style={{ fontSize:11, color:'#4ade80', fontWeight:700 }}>LIVE — Rider location updating in real-time</span>
+          </div>
+        )}
+      </div>
+      {/* Map area */}
+      <div style={{ flex:1, position:'relative', minHeight:0 }}>
+        {loading && (
+          <div style={{ position:'absolute', inset:0, background:'#0f1923', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:10, zIndex:5 }}>
+            <div style={{ fontSize:48 }}>🗺️</div>
+            <div style={{ fontSize:14, color:'#7dd3fc', fontWeight:700 }}>Locating customer...</div>
+            <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)' }}>Geocoding delivery address</div>
+          </div>
+        )}
+        {!loading && !customerCoords && (
+          <div style={{ position:'absolute', inset:0, background:'#0f1923', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:10 }}>
+            <div style={{ fontSize:48 }}>📍</div>
+            <div style={{ fontSize:14, color:'#f87171', fontWeight:700 }}>Location Not Found</div>
+            <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)', textAlign:'center', padding:'0 30px' }}>Could not locate the delivery address on the map</div>
+          </div>
+        )}
+        <div ref={mapRef} style={{ width:'100%', height:'100%' }} />
+      </div>
+      {/* Bottom action bar */}
+      <div style={{ background:'#1a1a2e', padding:'14px 16px 20px', flexShrink:0, display:'flex', gap:10 }}>
+        {customerCoords && (
+          <a
+            href={`https://www.google.com/maps/dir/?api=1&destination=${customerCoords.lat},${customerCoords.lng}`}
+            target="_blank" rel="noreferrer"
+            style={{ flex:1, background:'linear-gradient(135deg,#E24B4A,#c73232)', color:'#fff', borderRadius:12, padding:'13px 0', fontSize:14, fontWeight:800, textDecoration:'none', display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:'0 4px 16px rgba(226,75,74,0.45)' }}
+          >
+            <span style={{ fontSize:18 }}>🧭</span> Navigate with Google Maps
+          </a>
+        )}
+        <button onClick={onClose} style={{ background:'rgba(255,255,255,0.1)', border:'none', color:'#fff', borderRadius:12, padding:'13px 16px', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>Close</button>
+      </div>
+      <style>{`@keyframes livePulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.4)} }`}</style>
+    </div>
+  )
+}
 
 // ── RIDER LOCATION PANEL ─────────────────────────────────────────────────────
 function RiderLocationPanel({ order, onClose }) {
@@ -56,10 +403,7 @@ function RiderLocationPanel({ order, onClose }) {
     if (!riderName.trim()) return toast.error('Enter rider name')
     if (!riderPhone.trim() || riderPhone.length < 10) return toast.error('Enter valid phone number')
     try {
-      await updateDoc(doc(db, 'orders', order.id), {
-        riderName: riderName.trim(),
-        riderPhone: riderPhone.trim(),
-      })
+      await updateDoc(doc(db, 'orders', order.id), { riderName: riderName.trim(), riderPhone: riderPhone.trim() })
       setRiderSaved(true)
       toast.success('Rider info saved! ✅')
     } catch { toast.error('Failed to save rider info') }
@@ -67,10 +411,7 @@ function RiderLocationPanel({ order, onClose }) {
 
   const pushLocation = async (lat, lng) => {
     try {
-      await updateDoc(doc(db, 'orders', order.id), {
-        riderLocation: { lat, lng },
-        riderLocationUpdatedAt: new Date().toISOString(),
-      })
+      await updateDoc(doc(db, 'orders', order.id), { riderLocation: { lat, lng }, riderLocationUpdatedAt: new Date().toISOString() })
       setLastUpdated(new Date())
       setLocationStatus(`📍 ${lat.toFixed(4)}, ${lng.toFixed(4)}`)
     } catch { setLocationStatus('⚠️ Failed to update location') }
@@ -81,14 +422,11 @@ function RiderLocationPanel({ order, onClose }) {
     if (!riderSaved) return toast.error('Save rider info first')
     setTracking(true)
     setLocationStatus('Getting location...')
-
-    // Push immediately then every 15 seconds
     navigator.geolocation.getCurrentPosition(
       (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude),
       () => setLocationStatus('⚠️ Could not get location'),
       { enableHighAccuracy: true, timeout: 10000 }
     )
-
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude),
       () => {},
@@ -114,7 +452,6 @@ function RiderLocationPanel({ order, onClose }) {
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:2000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
       <div style={{ background:'#fff', borderRadius:'22px 22px 0 0', maxHeight:'90vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
-        {/* Header */}
         <div style={{ background:'linear-gradient(135deg,#1a1a1a,#0f3460)', padding:'20px 20px 24px', borderRadius:'22px 22px 0 0', position:'relative', overflow:'hidden' }}>
           <div style={{ position:'absolute', right:-10, top:-10, fontSize:70, opacity:0.07 }}>🛵</div>
           <div style={{ display:'flex', justifyContent:'center', marginBottom:12 }}><div style={{ width:40, height:4, borderRadius:2, background:'rgba(255,255,255,0.3)' }} /></div>
@@ -126,7 +463,6 @@ function RiderLocationPanel({ order, onClose }) {
             </div>
             <button onClick={onClose} style={{ background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', width:34, height:34, borderRadius:'50%', fontSize:16, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
           </div>
-          {/* Live indicator */}
           {tracking && (
             <div style={{ marginTop:14, background:'rgba(74,222,128,0.2)', borderRadius:10, padding:'8px 12px', display:'flex', alignItems:'center', gap:8, borderWidth:1, borderStyle:'solid', borderColor:'rgba(74,222,128,0.4)' }}>
               <div style={{ width:8, height:8, borderRadius:'50%', background:'#4ade80', animation:'livePulse 1s infinite' }} />
@@ -136,7 +472,6 @@ function RiderLocationPanel({ order, onClose }) {
         </div>
 
         <div style={{ padding:'20px 20px 40px' }}>
-          {/* How it works */}
           <div style={{ background:'#f0f9ff', borderRadius:12, padding:'12px 14px', marginBottom:18, borderWidth:1, borderStyle:'solid', borderColor:'#bae6fd', display:'flex', gap:10, alignItems:'flex-start' }}>
             <span style={{ fontSize:20, flexShrink:0 }}>💡</span>
             <div>
@@ -144,12 +479,11 @@ function RiderLocationPanel({ order, onClose }) {
               <div style={{ fontSize:11, color:'#0c4a6e', lineHeight:1.7 }}>
                 1. Save the delivery rider's info below<br/>
                 2. Open this panel on the <strong>rider's phone</strong><br/>
-                3. Tap <strong>"Start Live Tracking"</strong> — the customer's map updates automatically every few seconds
+                3. Tap <strong>"Start Live Tracking"</strong> — the customer's map updates automatically
               </div>
             </div>
           </div>
 
-          {/* Rider Info */}
           <div style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
             <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:12 }}>👤 Rider Details</div>
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
@@ -167,16 +501,13 @@ function RiderLocationPanel({ order, onClose }) {
                 </button>
               ) : (
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                    <span style={{ fontSize:11, background:'#d1fae5', color:'#065f46', fontWeight:700, borderRadius:6, padding:'3px 8px' }}>✅ Rider Saved</span>
-                  </div>
+                  <span style={{ fontSize:11, background:'#d1fae5', color:'#065f46', fontWeight:700, borderRadius:6, padding:'3px 8px' }}>✅ Rider Saved</span>
                   <button onClick={() => setRiderSaved(false)} style={{ background:'none', border:'none', fontSize:11, color:'#6b7280', cursor:'pointer', fontFamily:'Poppins', textDecoration:'underline' }}>Edit</button>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Location Status */}
           {locationStatus && (
             <div style={{ background: tracking ? '#f0fdf4' : '#f9fafb', borderRadius:10, padding:'10px 14px', marginBottom:14, borderWidth:1, borderStyle:'solid', borderColor: tracking ? '#bbf7d0' : '#e5e7eb', display:'flex', gap:8, alignItems:'center' }}>
               <span style={{ fontSize:16 }}>{tracking ? '📡' : '📍'}</span>
@@ -188,48 +519,31 @@ function RiderLocationPanel({ order, onClose }) {
             </div>
           )}
 
-          {/* Start/Stop Tracking Button */}
           {!tracking ? (
-            <button
-              onClick={startTracking}
-              disabled={!riderSaved}
-              style={{ width:'100%', background: riderSaved ? 'linear-gradient(135deg,#E24B4A,#c73232)' : '#e5e7eb', color: riderSaved ? '#fff' : '#9ca3af', border:'none', padding:'16px 0', borderRadius:14, fontSize:15, fontWeight:800, cursor: riderSaved ? 'pointer' : 'not-allowed', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow: riderSaved ? '0 6px 20px rgba(226,75,74,0.35)' : 'none', transition:'all 0.2s' }}
-            >
-              <span style={{ fontSize:22 }}>🛵</span>
-              Start Live Tracking
+            <button onClick={startTracking} disabled={!riderSaved} style={{ width:'100%', background: riderSaved ? 'linear-gradient(135deg,#E24B4A,#c73232)' : '#e5e7eb', color: riderSaved ? '#fff' : '#9ca3af', border:'none', padding:'16px 0', borderRadius:14, fontSize:15, fontWeight:800, cursor: riderSaved ? 'pointer' : 'not-allowed', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow: riderSaved ? '0 6px 20px rgba(226,75,74,0.35)' : 'none', transition:'all 0.2s' }}>
+              <span style={{ fontSize:22 }}>🛵</span> Start Live Tracking
             </button>
           ) : (
-            <button
-              onClick={stopTracking}
-              style={{ width:'100%', background:'linear-gradient(135deg,#dc2626,#991b1b)', color:'#fff', border:'none', padding:'16px 0', borderRadius:14, fontSize:15, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:10, animation:'trackPulse 2s infinite' }}
-            >
-              <span style={{ fontSize:18 }}>⏹️</span>
-              Stop Tracking
+            <button onClick={stopTracking} style={{ width:'100%', background:'linear-gradient(135deg,#dc2626,#991b1b)', color:'#fff', border:'none', padding:'16px 0', borderRadius:14, fontSize:15, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:10, animation:'trackPulse 2s infinite' }}>
+              <span style={{ fontSize:18 }}>⏹️</span> Stop Tracking
             </button>
           )}
 
-          {/* Manual Push Button */}
           {riderSaved && (
-            <button
-              onClick={() => {
-                navigator.geolocation.getCurrentPosition(
-                  (pos) => { pushLocation(pos.coords.latitude, pos.coords.longitude); toast.success('Location pushed!') },
-                  () => toast.error('Could not get location'),
-                  { enableHighAccuracy: true, timeout: 8000 }
-                )
-              }}
-              style={{ width:'100%', background:'#f3f4f6', color:'#374151', border:'none', padding:'12px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
-            >
+            <button onClick={() => {
+              navigator.geolocation.getCurrentPosition(
+                (pos) => { pushLocation(pos.coords.latitude, pos.coords.longitude); toast.success('Location pushed!') },
+                () => toast.error('Could not get location'),
+                { enableHighAccuracy: true, timeout: 8000 }
+              )
+            }} style={{ width:'100%', background:'#f3f4f6', color:'#374151', border:'none', padding:'12px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
               📍 Push Current Location Once
             </button>
           )}
 
-          {/* Warning */}
           <div style={{ marginTop:16, background:'#fffbeb', borderRadius:10, padding:'10px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', display:'flex', gap:8, alignItems:'flex-start' }}>
             <span style={{ fontSize:14, flexShrink:0 }}>⚠️</span>
-            <div style={{ fontSize:11, color:'#92400e', lineHeight:1.6 }}>
-              Keep this panel open on the rider's phone while delivering. The tracking stops if this panel is closed or the browser is backgrounded.
-            </div>
+            <div style={{ fontSize:11, color:'#92400e', lineHeight:1.6 }}>Keep this panel open on the rider's phone while delivering.</div>
           </div>
         </div>
       </div>
@@ -272,6 +586,10 @@ export default function VendorApp() {
   const [showRiderPanel, setShowRiderPanel] = useState(false)
   const [riderPanelOrder, setRiderPanelOrder] = useState(null)
 
+  // ── CUSTOMER LOCATION STATE ───────────────────────────────────────────────
+  const [showCustomerMap, setShowCustomerMap] = useState(false)
+  const [customerMapOrder, setCustomerMapOrder] = useState(null)
+
   // ── COMBO STATES ──────────────────────────────────────────────────────────
   const [showAddCombo, setShowAddCombo] = useState(false)
   const [newCombo, setNewCombo] = useState(EMPTY_COMBO)
@@ -301,13 +619,11 @@ export default function VendorApp() {
     const unlock = () => { unlockAudio(); setAudioUnlocked(true) }
     document.addEventListener('click', unlock, { once: true })
     document.addEventListener('touchstart', unlock, { once: true })
-    return () => {
-      document.removeEventListener('click', unlock)
-      document.removeEventListener('touchstart', unlock)
-    }
+    return () => { document.removeEventListener('click', unlock); document.removeEventListener('touchstart', unlock) }
   }, [])
 
   const [deliveryCharge, setDeliveryCharge] = useState('')
+  const [distanceBasedDelivery, setDistanceBasedDelivery] = useState(false)
   const [minOrderAmount, setMinOrderAmount] = useState('')
   const [fssai, setFssai] = useState('')
   const [gstNumber, setGstNumber] = useState('')
@@ -337,37 +653,23 @@ export default function VendorApp() {
   const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
 
   useNotifications(user?.uid, 'vendor')
-  // Save Expo push token when app provides it
-useEffect(() => {
-  if (!user?.uid) return
 
-  const saveToken = async (token) => {
-    if (token && typeof token === 'string' && token.startsWith('ExponentPushToken')) {
-      await saveExpoPushToken(user.uid, token, 'vendor')
+  useEffect(() => {
+    if (!user?.uid) return
+    const saveToken = async (token) => {
+      if (token && typeof token === 'string' && token.startsWith('ExponentPushToken')) await saveExpoPushToken(user.uid, token, 'vendor')
     }
-  }
-
-  // Check window object
-  if (window.expoPushToken) saveToken(window.expoPushToken)
-
-  // Check localStorage (backup)
-  try {
-    const stored = localStorage.getItem('expoPushToken')
-    if (stored) saveToken(stored)
-  } catch(e) {}
-
-  const handleToken = (e) => saveToken(e.detail)
-  window.addEventListener('expoPushToken', handleToken)
-  return () => window.removeEventListener('expoPushToken', handleToken)
-}, [user?.uid])
+    if (window.expoPushToken) saveToken(window.expoPushToken)
+    try { const stored = localStorage.getItem('expoPushToken'); if (stored) saveToken(stored) } catch(e) {}
+    const handleToken = (e) => saveToken(e.detail)
+    window.addEventListener('expoPushToken', handleToken)
+    return () => window.removeEventListener('expoPushToken', handleToken)
+  }, [user?.uid])
 
   useEffect(() => {
     if (!user) return
     return listenNotifications(user.uid, (notifs) => {
-      notifs.forEach(n => {
-        toast(n.body, { icon: '🔔', duration: 6000 })
-        markNotificationRead(n.id)
-      })
+      notifs.forEach(n => { toast(n.body, { icon: '🔔', duration: 6000 }); markNotificationRead(n.id) })
     })
   }, [user])
 
@@ -375,12 +677,8 @@ useEffect(() => {
     const pendingOrders = orders.filter(o => o.status === 'pending')
     const pendingCount = pendingOrders.length
     if (pendingCount > prevOrderCountRef.current && prevOrderCountRef.current >= 0) {
-      setNewOrderAlert(pendingOrders[0])
-      setAlertDismissed(false)
-      startAlarm()
-    } else if (pendingCount === 0) {
-      stopAlarm()
-    }
+      setNewOrderAlert(pendingOrders[0]); setAlertDismissed(false); startAlarm()
+    } else if (pendingCount === 0) { stopAlarm() }
     prevOrderCountRef.current = pendingCount
   }, [orders])
 
@@ -389,6 +687,7 @@ useEffect(() => {
     setIsOpen(userData?.isOpen || false)
     if (userData?.customCategories) setCustomCategories(userData.customCategories)
     if (userData?.deliveryCharge !== undefined) setDeliveryCharge(String(userData.deliveryCharge ?? ''))
+    setDistanceBasedDelivery(userData?.distanceBasedDelivery || false)
     if (userData?.minOrderAmount !== undefined) setMinOrderAmount(String(userData.minOrderAmount ?? ''))
     if (userData?.fssai) setFssai(userData.fssai)
     if (userData?.gstNumber !== undefined) setGstNumber(userData.gstNumber || '')
@@ -396,7 +695,6 @@ useEffect(() => {
     if (userData?.openTime) setOpenTime(userData.openTime)
     if (userData?.closeTime) setCloseTime(userData.closeTime)
     if (userData?.location) { setVendorLocation(userData.location); setLocationName(userData.locationName || '') }
-
     const u1 = getVendorOrders(user.uid, setOrders)
     const u2 = getMenuItems(user.uid, setMenuItems)
     const u3 = getCombos(user.uid, (fetchedCombos) => { setCombos(fetchedCombos) })
@@ -447,23 +745,19 @@ useEffect(() => {
 
   const handleSaveDetails = async () => {
     if (gstNumber.trim() && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber.trim().toUpperCase())) {
-      toast.error('Invalid GST number format. E.g. 22AAAAA0000A1Z5')
-      return
+      toast.error('Invalid GST number format. E.g. 22AAAAA0000A1Z5'); return
     }
     if (upiId.trim() && !/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(upiId.trim())) {
-      toast.error('Invalid UPI ID format. E.g. name@upi or 9876543210@paytm')
-      return
+      toast.error('Invalid UPI ID format. E.g. name@upi or 9876543210@paytm'); return
     }
     setSavingDetails(true)
     try {
       await updateVendorStore(user.uid, {
         deliveryCharge: deliveryCharge === '' ? 0 : Number(deliveryCharge),
+        distanceBasedDelivery: distanceBasedDelivery,
         minOrderAmount: minOrderAmount === '' ? 0 : Number(minOrderAmount),
-        fssai: fssai.trim(),
-        gstNumber: gstNumber.trim().toUpperCase(),
-        upiId: upiId.trim(),
-        openTime: openTime.trim(),
-        closeTime: closeTime.trim()
+        fssai: fssai.trim(), gstNumber: gstNumber.trim().toUpperCase(),
+        upiId: upiId.trim(), openTime: openTime.trim(), closeTime: closeTime.trim()
       })
       toast.success('Store details saved! ✅')
     } catch { toast.error('Failed to save. Try again.') }
@@ -482,10 +776,7 @@ useEffect(() => {
     toast.success(`Order → ${next.replace('_',' ')}`)
   }
 
-  const handleReject = async (orderId) => {
-    await updateOrderStatus(orderId, 'cancelled')
-    toast.error('Order rejected')
-  }
+  const handleReject = async (orderId) => { await updateOrderStatus(orderId, 'cancelled'); toast.error('Order rejected') }
 
   const openCancelModal = (order) => { setCancelOrderTarget(order); setCancelReason(''); setShowCancelModal(true) }
 
@@ -500,9 +791,7 @@ useEffect(() => {
       })
       toast.success('Order cancelled and user notified')
       setShowCancelModal(false); setCancelOrderTarget(null)
-      if (selectedVendorOrder?.id === cancelOrderTarget.id) {
-        setSelectedVendorOrder(prev => ({ ...prev, status: 'cancelled' }))
-      }
+      if (selectedVendorOrder?.id === cancelOrderTarget.id) setSelectedVendorOrder(prev => ({ ...prev, status: 'cancelled' }))
     } catch { toast.error('Failed to cancel. Try again.') }
     setCancellingOrder(false)
   }
@@ -573,11 +862,8 @@ useEffect(() => {
   // ── COMBO HANDLERS ────────────────────────────────────────────────────────
   const toggleComboItem = (item, comboState, setComboState) => {
     const exists = comboState.items.find(i => i.id === item.id)
-    if (exists) {
-      setComboState(p => ({ ...p, items: p.items.filter(i => i.id !== item.id) }))
-    } else {
-      setComboState(p => ({ ...p, items: [...p.items, { id: item.id, name: item.name, price: item.price, qty: 1 }] }))
-    }
+    if (exists) setComboState(p => ({ ...p, items: p.items.filter(i => i.id !== item.id) }))
+    else setComboState(p => ({ ...p, items: [...p.items, { id: item.id, name: item.name, price: item.price, qty: 1 }] }))
   }
 
   const updateComboItemQty = (itemId, qty, comboState, setComboState) => {
@@ -593,11 +879,7 @@ useEffect(() => {
     if (newCombo.items.length < 2) return toast.error('Select at least 2 items for a combo')
     setAddingCombo(true)
     try {
-      await addCombo(user.uid, {
-        name: newCombo.name.trim(), description: newCombo.description.trim(),
-        comboPrice: Number(newCombo.comboPrice), originalPrice: comboOriginalPrice(newCombo.items),
-        items: newCombo.items, isVeg: newCombo.isVeg, available: true, tag: newCombo.tag,
-      })
+      await addCombo(user.uid, { name: newCombo.name.trim(), description: newCombo.description.trim(), comboPrice: Number(newCombo.comboPrice), originalPrice: comboOriginalPrice(newCombo.items), items: newCombo.items, isVeg: newCombo.isVeg, available: true, tag: newCombo.tag })
       setNewCombo(EMPTY_COMBO); setShowAddCombo(false); toast.success('Combo created! 🍱')
     } catch (err) { console.error('Add combo error:', err); toast.error('Failed to create combo. Try again.') }
     setAddingCombo(false)
@@ -609,11 +891,7 @@ useEffect(() => {
     if (editComboData.items?.length < 2) return toast.error('Select at least 2 items')
     setSavingCombo(true)
     try {
-      await updateCombo(user.uid, comboId, {
-        name: editComboData.name.trim(), description: editComboData.description?.trim() || '',
-        comboPrice: Number(editComboData.comboPrice), originalPrice: comboOriginalPrice(editComboData.items),
-        items: editComboData.items, isVeg: editComboData.isVeg, available: editComboData.available !== false, tag: editComboData.tag || '',
-      })
+      await updateCombo(user.uid, comboId, { name: editComboData.name.trim(), description: editComboData.description?.trim() || '', comboPrice: Number(editComboData.comboPrice), originalPrice: comboOriginalPrice(editComboData.items), items: editComboData.items, isVeg: editComboData.isVeg, available: editComboData.available !== false, tag: editComboData.tag || '' })
       toast.success('Combo updated! ✅'); setEditingCombo(null)
     } catch (err) { console.error('Update combo error:', err); toast.error('Failed to update combo.') }
     setSavingCombo(false)
@@ -648,13 +926,9 @@ useEffect(() => {
   const liveOrders = orders.filter(o => !['delivered','cancelled'].includes(o.status))
   const todayRevenue = orders.filter(o => o.status==='delivered').reduce((s,o) => s+(o.total||0), 0)
   const filteredOrders = orderFilter === 'all' ? orders : orders.filter(o => o.status === orderFilter)
-
   const menuCategories = ['All', ...Array.from(new Set(menuItems.map(i => i.category).filter(Boolean)))]
   const filteredMenuItems = menuCatFilter === 'All' ? menuItems : menuItems.filter(i => i.category === menuCatFilter)
-
-  const filteredMenuForCombo = comboSearchQuery.trim()
-    ? menuItems.filter(i => i.name.toLowerCase().includes(comboSearchQuery.toLowerCase()) || i.category?.toLowerCase().includes(comboSearchQuery.toLowerCase()))
-    : menuItems
+  const filteredMenuForCombo = comboSearchQuery.trim() ? menuItems.filter(i => i.name.toLowerCase().includes(comboSearchQuery.toLowerCase()) || i.category?.toLowerCase().includes(comboSearchQuery.toLowerCase())) : menuItems
 
   const inp = {
     width:'100%', padding:'10px 12px', borderWidth:'1px', borderStyle:'solid', borderColor:'#e5e7eb',
@@ -819,53 +1093,59 @@ useEffect(() => {
                     </button>
                   </div>
 
-                  {/* ── 🛵 LIVE TRACKING CARD — shows for out_for_delivery ── */}
+                  {/* ── OUT FOR DELIVERY: Rider + Customer Map ── */}
                   {selectedVendorOrder.status === 'out_for_delivery' && (
-                    <div style={{ background:'linear-gradient(135deg,#0f3460,#1a1a2e)', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 4px 20px rgba(15,52,96,0.35)', position:'relative', overflow:'hidden' }}>
-                      <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>🛵</div>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
-                        <div>
-                          <div style={{ fontSize:10, color:'rgba(255,255,255,0.6)', fontWeight:700, letterSpacing:1, marginBottom:4 }}>DELIVERY TRACKING</div>
-                          <div style={{ fontSize:15, fontWeight:800, color:'#fff' }}>🛵 Live Rider Tracking</div>
+                    <>
+                      {/* Mini Customer Map — always visible */}
+                      <MiniCustomerMap
+                        order={selectedVendorOrder}
+                        onExpand={() => { setCustomerMapOrder(selectedVendorOrder); setShowCustomerMap(true) }}
+                      />
+
+                      {/* Rider tracking card */}
+                      <div style={{ background:'linear-gradient(135deg,#0f3460,#1a1a2e)', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 4px 20px rgba(15,52,96,0.35)', position:'relative', overflow:'hidden' }}>
+                        <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>🛵</div>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
+                          <div>
+                            <div style={{ fontSize:10, color:'rgba(255,255,255,0.6)', fontWeight:700, letterSpacing:1, marginBottom:4 }}>DELIVERY TRACKING</div>
+                            <div style={{ fontSize:15, fontWeight:800, color:'#fff' }}>🛵 Live Rider Tracking</div>
+                          </div>
+                          {selectedVendorOrder.riderName && (
+                            <div style={{ background:'rgba(74,222,128,0.2)', borderRadius:20, padding:'4px 10px', display:'flex', alignItems:'center', gap:5, borderWidth:1, borderStyle:'solid', borderColor:'rgba(74,222,128,0.3)' }}>
+                              <div style={{ width:6, height:6, borderRadius:'50%', background:'#4ade80', animation:'pulse 1s infinite' }} />
+                              <span style={{ fontSize:10, color:'#4ade80', fontWeight:700 }}>ACTIVE</span>
+                            </div>
+                          )}
                         </div>
-                        {selectedVendorOrder.riderName && (
-                          <div style={{ background:'rgba(74,222,128,0.2)', borderRadius:20, padding:'4px 10px', display:'flex', alignItems:'center', gap:5, borderWidth:1, borderStyle:'solid', borderColor:'rgba(74,222,128,0.3)' }}>
-                            <div style={{ width:6, height:6, borderRadius:'50%', background:'#4ade80', animation:'pulse 1s infinite' }} />
-                            <span style={{ fontSize:10, color:'#4ade80', fontWeight:700 }}>ACTIVE</span>
+                        {selectedVendorOrder.riderName ? (
+                          <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:10, padding:'10px 12px', marginBottom:12 }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                              <div style={{ width:38, height:38, borderRadius:10, background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                                <span style={{ fontSize:18 }}>🛵</span>
+                              </div>
+                              <div>
+                                <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{selectedVendorOrder.riderName}</div>
+                                <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)' }}>📱 {selectedVendorOrder.riderPhone}</div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ background:'rgba(255,255,255,0.06)', borderRadius:10, padding:'10px 12px', marginBottom:12 }}>
+                            <div style={{ fontSize:12, color:'rgba(255,255,255,0.6)', textAlign:'center' }}>⚠️ No rider assigned yet. Tap below to assign.</div>
                           </div>
                         )}
-                      </div>
-
-                      {selectedVendorOrder.riderName ? (
-                        <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:10, padding:'10px 12px', marginBottom:12 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                            <div style={{ width:38, height:38, borderRadius:10, background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                              <span style={{ fontSize:18 }}>🛵</span>
-                            </div>
-                            <div>
-                              <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{selectedVendorOrder.riderName}</div>
-                              <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)' }}>📱 {selectedVendorOrder.riderPhone}</div>
-                            </div>
-                          </div>
+                        <div style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginBottom:10, lineHeight:1.5 }}>
+                          Customer can see live location on their tracking map.
                         </div>
-                      ) : (
-                        <div style={{ background:'rgba(255,255,255,0.06)', borderRadius:10, padding:'10px 12px', marginBottom:12 }}>
-                          <div style={{ fontSize:12, color:'rgba(255,255,255,0.6)', textAlign:'center' }}>⚠️ No rider assigned yet. Tap below to assign.</div>
-                        </div>
-                      )}
-
-                      <div style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginBottom:10, lineHeight:1.5 }}>
-                        Customer can see live location on their tracking map. Open this on the rider's phone to stream GPS.
+                        <button
+                          onClick={() => { setRiderPanelOrder(selectedVendorOrder); setShowRiderPanel(true) }}
+                          style={{ width:'100%', background:'linear-gradient(135deg,#E24B4A,#c73232)', color:'#fff', border:'none', padding:'13px 0', borderRadius:12, fontSize:14, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:'0 4px 16px rgba(226,75,74,0.5)' }}
+                        >
+                          <span style={{ fontSize:20 }}>🛵</span>
+                          {selectedVendorOrder.riderName ? 'Manage Rider & Tracking' : 'Assign Rider & Start Tracking'}
+                        </button>
                       </div>
-
-                      <button
-                        onClick={() => { setRiderPanelOrder(selectedVendorOrder); setShowRiderPanel(true) }}
-                        style={{ width:'100%', background:'linear-gradient(135deg,#E24B4A,#c73232)', color:'#fff', border:'none', padding:'13px 0', borderRadius:12, fontSize:14, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:'0 4px 16px rgba(226,75,74,0.5)' }}
-                      >
-                        <span style={{ fontSize:20 }}>🛵</span>
-                        {selectedVendorOrder.riderName ? 'Manage Rider & Tracking' : 'Assign Rider & Start Tracking'}
-                      </button>
-                    </div>
+                    </>
                   )}
 
                   <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
@@ -958,7 +1238,7 @@ useEffect(() => {
               <div style={{ textAlign:'center', color:'#9ca3af', padding:'40px 20px', fontSize:13 }}>
                 <div style={{ fontSize:40, marginBottom:12 }}>{orderFilter==='delivered'?'✅':orderFilter==='cancelled'?'❌':'📋'}</div>
                 <div style={{ fontWeight:600, marginBottom:4 }}>{orderFilter==='all'?'No orders yet':`No ${ORDER_FILTERS.find(f=>f.id===orderFilter)?.label?.toLowerCase()} orders`}</div>
-                <div style={{ fontSize:12 }}>{orderFilter==='all'?'Orders will appear here when customers place them':`You have no orders with this status`}</div>
+                <div style={{ fontSize:12 }}>{orderFilter==='all'?'Orders will appear here when customers place them':'You have no orders with this status'}</div>
               </div>
             )}
 
@@ -973,7 +1253,6 @@ useEffect(() => {
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
                     <span style={statusBadgeStyle(order.status)}>{order.status?.replace('_',' ').toUpperCase()}</span>
-                    {/* 🛵 Live tracking quick badge */}
                     {order.status === 'out_for_delivery' && order.riderName && (
                       <div style={{ display:'flex', alignItems:'center', gap:4, background:'#eff6ff', borderRadius:10, padding:'2px 8px' }}>
                         <div style={{ width:5, height:5, borderRadius:'50%', background:'#3b82f6', animation:'pulse 1s infinite' }} />
@@ -986,12 +1265,20 @@ useEffect(() => {
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ fontSize:16, fontWeight:800, color:'#E24B4A' }}>₹{order.total} <span style={{ fontSize:11, color:'#9ca3af', fontWeight:400 }}>COD</span></div>
                   {order.status === 'out_for_delivery' ? (
-                    <button
-                      onClick={e => { e.stopPropagation(); setRiderPanelOrder(order); setShowRiderPanel(true) }}
-                      style={{ display:'flex', alignItems:'center', gap:5, background:'#0f3460', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
-                    >
-                      🛵 Track Rider
-                    </button>
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button
+                        onClick={e => { e.stopPropagation(); setCustomerMapOrder(order); setShowCustomerMap(true) }}
+                        style={{ display:'flex', alignItems:'center', gap:4, background:'#0369a1', color:'#fff', border:'none', borderRadius:8, padding:'6px 10px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
+                      >
+                        🗺️ Map
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); setRiderPanelOrder(order); setShowRiderPanel(true) }}
+                        style={{ display:'flex', alignItems:'center', gap:5, background:'#0f3460', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
+                      >
+                        🛵 Track
+                      </button>
+                    </div>
                   ) : (
                     <span style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Tap for details →</span>
                   )}
@@ -1005,10 +1292,7 @@ useEffect(() => {
                 )}
                 {order.status === 'cancelled' && order.cancellationReason && <div style={{ marginTop:8, background:'#fff5f5', borderRadius:8, padding:'6px 10px', fontSize:11, color:'#991b1b' }}>🚫 {order.cancellationReason}</div>}
                 {order.status === 'delivered' && (
-                  <button
-                    onClick={e => { e.stopPropagation(); setVendorBillOrder(order); setShowVendorBill(true) }}
-                    style={{ marginTop:6, display:'flex', alignItems:'center', gap:6, background:'#f3f4f6', borderRadius:8, padding:'5px 10px', border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600, color:'#374151' }}
-                  >
+                  <button onClick={e => { e.stopPropagation(); setVendorBillOrder(order); setShowVendorBill(true) }} style={{ marginTop:6, display:'flex', alignItems:'center', gap:6, background:'#f3f4f6', borderRadius:8, padding:'5px 10px', border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600, color:'#374151' }}>
                     🧾 View Bill
                   </button>
                 )}
@@ -1348,12 +1632,9 @@ useEffect(() => {
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
                 <div style={{ fontSize:13, fontWeight:700 }}>Store Info</div>
                 {!editingStoreInfo && (
-                  <button onClick={handleOpenStoreEdit} style={{ display:'flex', alignItems:'center', gap:5, background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
-                    ✏️ Edit Info
-                  </button>
+                  <button onClick={handleOpenStoreEdit} style={{ display:'flex', alignItems:'center', gap:5, background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>✏️ Edit Info</button>
                 )}
               </div>
-
               {!editingStoreInfo ? (
                 <>
                   {[
@@ -1372,9 +1653,7 @@ useEffect(() => {
                 </>
               ) : (
                 <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  <div style={{ background:'#fff5f5', borderRadius:8, padding:'8px 12px', fontSize:11, color:'#991b1b', marginBottom:4 }}>
-                    ⚠️ Email and subscription plan cannot be changed here.
-                  </div>
+                  <div style={{ background:'#fff5f5', borderRadius:8, padding:'8px 12px', fontSize:11, color:'#991b1b', marginBottom:4 }}>⚠️ Email and subscription plan cannot be changed here.</div>
                   <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Store Name *</label><input style={inp} placeholder="Your store name" value={storeEditData.storeName||''} onChange={e => setStoreEditData(p=>({...p,storeName:e.target.value}))} /></div>
                   <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Phone / WhatsApp</label><input style={inp} type="tel" placeholder="10-digit mobile number" value={storeEditData.phone||''} onChange={e => setStoreEditData(p=>({...p,phone:e.target.value}))} maxLength={10} /></div>
                   <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Store Address</label><textarea style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.5}} placeholder="Full address with landmark" value={storeEditData.address||''} onChange={e => setStoreEditData(p=>({...p,address:e.target.value}))} /></div>
@@ -1433,16 +1712,35 @@ useEffect(() => {
 
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
               <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>🏪 Store Details</div>
-              <div style={{ marginBottom:10 }}>
+              <div style={{ marginBottom:14 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🚴 Delivery Charge (₹)</label>
                 <input type="number" placeholder="e.g. 20 (0 for free delivery)" value={deliveryCharge} onChange={e => setDeliveryCharge(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
+                <div style={{ marginTop:10 }}>
+                  <div style={{ fontSize:11, color:'#6b7280', fontWeight:600, marginBottom:8 }}>Delivery Charge Mode</div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={() => setDistanceBasedDelivery(false)} style={{ flex:1, padding:'10px 0', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:700, border:'none', background: !distanceBasedDelivery ? '#E24B4A' : '#f3f4f6', color: !distanceBasedDelivery ? '#fff' : '#6b7280', transition:'all 0.2s' }}>💰 Fixed (₹{deliveryCharge || 0})</button>
+                    <button onClick={() => setDistanceBasedDelivery(true)} style={{ flex:1, padding:'10px 0', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:700, border:'none', background: distanceBasedDelivery ? '#E24B4A' : '#f3f4f6', color: distanceBasedDelivery ? '#fff' : '#6b7280', transition:'all 0.2s' }}>📍 Distance-based</button>
+                  </div>
+                  {distanceBasedDelivery ? (
+                    <div style={{ marginTop:8, background:'#eff6ff', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:'#1e40af', marginBottom:4 }}>📍 Distance-based pricing active</div>
+                      <div style={{ fontSize:11, color:'#3b82f6', lineHeight:1.7 }}>₹10 up to 1 km · ₹20 up to 2 km<br/>₹30 up to 3 km · ₹40 up to 4 km</div>
+                      <div style={{ fontSize:10, color:'#6b7280', marginTop:4 }}>Your fixed charge above is ignored when this mode is on.</div>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop:8, background:'#f0fdf4', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:'#15803d', marginBottom:2 }}>💰 Fixed charge mode active</div>
+                      <div style={{ fontSize:11, color:'#6b7280' }}>All customers pay ₹{deliveryCharge || 0} regardless of distance.{Number(deliveryCharge) === 0 ? ' (Free delivery 🎉)' : ''}</div>
+                    </div>
+                  )}
+                </div>
               </div>
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🛒 Minimum Order Amount (₹)</label>
                 <input type="number" placeholder="e.g. 100 (0 for no minimum)" value={minOrderAmount} onChange={e => setMinOrderAmount(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
                 <div style={{ marginTop:6, display:'flex', alignItems:'flex-start', gap:6 }}>
                   <span style={{ fontSize:12, flexShrink:0 }}>💡</span>
-                  <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>If set, customers must add at least ₹{minOrderAmount || '0'} worth of items before checkout. Set to 0 to remove.</p>
+                  <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>Customers must add at least ₹{minOrderAmount || '0'} worth of items before checkout.</p>
                 </div>
               </div>
               {Number(minOrderAmount) > 0 && (
@@ -1519,7 +1817,7 @@ useEffect(() => {
             <div style={{ padding:'0 20px 36px' }}>
               <div style={{ background:'#fff5f5', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca', borderRadius:12, padding:'12px 14px', marginBottom:16, display:'flex', gap:10, alignItems:'flex-start' }}>
                 <span style={{ fontSize:18, flexShrink:0 }}>⚠️</span>
-                <div style={{ fontSize:12, color:'#991b1b', lineHeight:1.6 }}>The customer will be notified that their order was cancelled. This action cannot be undone.</div>
+                <div style={{ fontSize:12, color:'#991b1b', lineHeight:1.6 }}>The customer will be notified. This action cannot be undone.</div>
               </div>
               <div style={{ background:'#f9fafb', borderRadius:10, padding:'10px 14px', marginBottom:16 }}>
                 <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:6 }}>ORDER SUMMARY</div>
@@ -1556,22 +1854,20 @@ useEffect(() => {
 
       {/* ── VENDOR BILL MODAL ── */}
       {showVendorBill && vendorBillOrder && (
-        <VendorBill
-          order={vendorBillOrder}
-          vendorData={userData}
-          onClose={() => { setShowVendorBill(false); setVendorBillOrder(null) }}
-        />
+        <VendorBill order={vendorBillOrder} vendorData={userData} onClose={() => { setShowVendorBill(false); setVendorBillOrder(null) }} />
       )}
 
-      {/* ── 🛵 RIDER LOCATION PANEL ── */}
+      {/* ── RIDER LOCATION PANEL ── */}
       {showRiderPanel && riderPanelOrder && (
-        <RiderLocationPanel
-          order={riderPanelOrder}
-          onClose={() => { setShowRiderPanel(false); setRiderPanelOrder(null) }}
-        />
+        <RiderLocationPanel order={riderPanelOrder} onClose={() => { setShowRiderPanel(false); setRiderPanelOrder(null) }} />
       )}
 
-      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
+      {/* ── CUSTOMER LOCATION PANEL (FULLSCREEN) ── */}
+      {showCustomerMap && customerMapOrder && (
+        <CustomerLocationPanel order={customerMapOrder} onClose={() => { setShowCustomerMap(false); setCustomerMapOrder(null) }} />
+      )}
+
+      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} } @keyframes livePulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.4)} }`}</style>
     </div>
   )
 }
