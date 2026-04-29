@@ -4,7 +4,7 @@ import {
   logoutUser, getAllVendors, getMenuItems, placeOrder, getUserOrders,
   getUserLocation, getDistance, saveUserLocation,
   listenNotifications, markNotificationRead, callVendor, notifyVendorWhatsApp,
-  getCombos, saveExpoPushToken
+  getCombos, saveExpoPushToken, updateOrderStatus
 } from '../firebase/services'
 import { db } from '../firebase/config'
 import { useNotifications } from '../hooks/useNotifications'
@@ -465,35 +465,33 @@ export default function UserApp() {
       return updated
     })
   }
-
+  
   const cartTotal = cart.reduce((s,c) => s + c.price*c.qty, 0)
   const cartCount = cart.reduce((s,c) => s + c.qty, 0)
   const deliveryFee = Number(cartVendor?.deliveryCharge ?? 0)
   const minOrder = Number(cartVendor?.minOrderAmount ?? 0)
   const minOrderShortfall = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
   const meetsMinOrder = minOrderShortfall === 0
-
   const handleCancelOrder = async (order) => {
-    if (cancellingOrder) return
-    setCancellingOrder(true)
-    try {
-      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore')
-      await updateDoc(doc(db, 'orders', order.id), {
-        status: 'cancelled',
-        cancelledBy: 'user',
-        cancellationReason: 'Cancelled by customer within 5 minutes',
-        cancelledAt: serverTimestamp(),
-      })
-      toast.success('Order cancelled successfully.')
-      setShowCancelConfirm(false)
-      setOrderToCancel(null)
-      if (selectedOrder?.id === order.id) setSelectedOrder(null)
-    } catch (e) {
-      console.error(e)
-      toast.error('Failed to cancel. Please try again.')
-    }
-    setCancellingOrder(false)
+  if (cancellingOrder) return
+  setCancellingOrder(true)
+  try {
+    await updateOrderStatus(order.id, 'cancelled', {
+      userUid: order.userUid,
+      vendorUid: order.vendorUid,
+      vendorName: order.vendorName,
+      cancellationReason: 'Cancelled by customer within 5 minutes',
+    })
+    toast.success('Order cancelled successfully.')
+    setShowCancelConfirm(false)
+    setOrderToCancel(null)
+    if (selectedOrder?.id === order.id) setSelectedOrder(null)
+  } catch (e) {
+    console.error(e)
+    toast.error('Failed to cancel. Please try again.')
   }
+  setCancellingOrder(false)
+}
 
   useEffect(() => {
     if (!user) return

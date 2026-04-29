@@ -145,7 +145,8 @@ function useDeliveryCoords(order) {
     } else {
       setLocError('No delivery address found for this order.')
     }
-  }, [order?.id]) // eslint-disable-line
+  }, [order?.id]) // eslint-dg
+  // isable-line
 
   // Live-subscribe to rider GPS on the order Firestore doc
   useEffect(() => {

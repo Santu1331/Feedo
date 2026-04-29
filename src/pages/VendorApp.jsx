@@ -776,7 +776,15 @@ export default function VendorApp() {
     toast.success(`Order → ${next.replace('_',' ')}`)
   }
 
-  const handleReject = async (orderId) => { await updateOrderStatus(orderId, 'cancelled'); toast.error('Order rejected') }
+  // ✅ Pass the full order object
+const handleReject = async (order) => {
+  await updateOrderStatus(order.id, 'cancelled', {
+    userUid: order.userUid,
+    vendorName: userData?.storeName || '',
+    cancellationReason: 'Order rejected by restaurant',
+  })
+  toast.error('Order rejected')
+}
 
   const openCancelModal = (order) => { setCancelOrderTarget(order); setCancelReason(''); setShowCancelModal(true) }
 
@@ -1176,7 +1184,11 @@ export default function VendorApp() {
                     <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:10 }}>
                       <div style={{ display:'flex', gap:10 }}>
                         {selectedVendorOrder.status === 'pending' && (
-                          <button onClick={async () => { await handleReject(selectedVendorOrder.id); setSelectedVendorOrder(prev => ({ ...prev, status: 'cancelled' })) }} style={{ flex:1, background:'transparent', color:'#E24B4A', borderWidth:2, borderStyle:'solid', borderColor:'#E24B4A', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>❌ Reject</button>
+                          <button // ✅ Fix — pass full object
+                         onClick={async () => { 
+                         await handleReject(selectedVendorOrder)  // ← remove .id
+                         setSelectedVendorOrder(prev => ({ ...prev, status: 'cancelled' })) 
+                         }} style={{ flex:1, background:'transparent', color:'#E24B4A', borderWidth:2, borderStyle:'solid', borderColor:'#E24B4A', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>❌ Reject</button>
                         )}
                         {STATUS_NEXT[selectedVendorOrder.status] && (
                           <button onClick={async () => { await handleStatus(selectedVendorOrder.id, selectedVendorOrder.status, { userUid: selectedVendorOrder.userUid, vendorName: userData?.storeName||'' }); setSelectedVendorOrder(prev => ({ ...prev, status: STATUS_NEXT[prev.status] })) }} style={{ flex:2, background: selectedVendorOrder.status==='pending'?'#E24B4A':'#16a34a', color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>{STATUS_LABEL[selectedVendorOrder.status]} ✓</button>
@@ -1285,7 +1297,7 @@ export default function VendorApp() {
                 </div>
                 {!['delivered','cancelled'].includes(order.status) && (
                   <div style={{ display:'flex', gap:8, marginTop:10 }} onClick={e => e.stopPropagation()}>
-                    {order.status === 'pending' && <button onClick={() => handleReject(order.id)} style={{ background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>Reject</button>}
+                    {order.status === 'pending' && <button onClick={() => handleReject(order)} style={{ background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>Reject</button>}
                     {CANCELLABLE_STATUSES.includes(order.status) && <button onClick={() => openCancelModal(order)} style={{ background:'#fff5f5', color:'#dc2626', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>🚫 Cancel</button>}
                     {STATUS_NEXT[order.status] && <button onClick={() => handleStatus(order.id, order.status, { userUid:order.userUid, vendorName:userData?.storeName||'' })} style={{ flex:1, background:order.status==='pending'?'#E24B4A':'#1a1a1a', color:'#fff', border:'none', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>{STATUS_LABEL[order.status]}</button>}
                   </div>
