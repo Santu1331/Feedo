@@ -52,7 +52,7 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
 }
 
-// ── MINI CUSTOMER MAP (embedded in order detail) ──────────────────────────────
+// ── MINI CUSTOMER MAP ─────────────────────────────────────────────────────────
 function MiniCustomerMap({ order, onExpand }) {
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
@@ -65,7 +65,6 @@ function MiniCustomerMap({ order, onExpand }) {
   const routeLineRef = useRef(null)
   const leafletLoadedRef = useRef(false)
 
-  // Live listen to rider location from Firestore
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'orders', order.id), (snap) => {
       const data = snap.data()
@@ -74,17 +73,10 @@ function MiniCustomerMap({ order, onExpand }) {
     return unsub
   }, [order.id])
 
-  // Resolve customer location
   useEffect(() => {
     async function resolve() {
       setLoading(true)
-      // 1. Try live GPS from order
-      if (order.customerLocation?.lat) {
-        setCustomerCoords(order.customerLocation)
-        setLoading(false)
-        return
-      }
-      // 2. Geocode delivery address
+      if (order.customerLocation?.lat) { setCustomerCoords(order.customerLocation); setLoading(false); return }
       if (order.address) {
         const coords = await geocodeAddress(order.address)
         if (coords) { setCustomerCoords(coords); setLoading(false); return }
@@ -94,16 +86,13 @@ function MiniCustomerMap({ order, onExpand }) {
     resolve()
   }, [order])
 
-  // Load Leaflet and initialize map
   useEffect(() => {
     if (!customerCoords) return
     if (leafletLoadedRef.current) { initMap(); return }
-
     const link = document.createElement('link')
     link.rel = 'stylesheet'
     link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
     document.head.appendChild(link)
-
     const script = document.createElement('script')
     script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
     script.onload = () => { leafletLoadedRef.current = true; initMap() }
@@ -113,20 +102,15 @@ function MiniCustomerMap({ order, onExpand }) {
   const initMap = () => {
     if (!mapRef.current || !customerCoords || !window.L) return
     if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null }
-
     const L = window.L
     const center = riderCoords
       ? [(customerCoords.lat + riderCoords.lat) / 2, (customerCoords.lng + riderCoords.lng) / 2]
       : [customerCoords.lat, customerCoords.lng]
-
     const map = L.map(mapRef.current, { zoomControl: false, attributionControl: false, dragging: false, scrollWheelZoom: false, touchZoom: false, doubleClickZoom: false })
     mapInstanceRef.current = map
-
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
-
     const customerIcon = L.divIcon({ html: '<div style="font-size:22px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))">🏠</div>', className:'', iconSize:[24,24], iconAnchor:[12,12] })
     customerMarkerRef.current = L.marker([customerCoords.lat, customerCoords.lng], { icon: customerIcon }).addTo(map)
-
     if (riderCoords) {
       const riderIcon = L.divIcon({ html: '<div style="font-size:22px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))">🛵</div>', className:'', iconSize:[24,24], iconAnchor:[12,12] })
       riderMarkerRef.current = L.marker([riderCoords.lat, riderCoords.lng], { icon: riderIcon }).addTo(map)
@@ -140,21 +124,16 @@ function MiniCustomerMap({ order, onExpand }) {
     }
   }
 
-  // Update rider marker when riderCoords changes
   useEffect(() => {
     if (!mapInstanceRef.current || !riderCoords || !customerCoords || !window.L) return
     const L = window.L
-    if (riderMarkerRef.current) {
-      riderMarkerRef.current.setLatLng([riderCoords.lat, riderCoords.lng])
-    } else {
+    if (riderMarkerRef.current) { riderMarkerRef.current.setLatLng([riderCoords.lat, riderCoords.lng]) }
+    else {
       const riderIcon = L.divIcon({ html: '<div style="font-size:22px">🛵</div>', className:'', iconSize:[24,24], iconAnchor:[12,12] })
       riderMarkerRef.current = L.marker([riderCoords.lat, riderCoords.lng], { icon: riderIcon }).addTo(mapInstanceRef.current)
     }
-    if (routeLineRef.current) {
-      routeLineRef.current.setLatLngs([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]])
-    } else {
-      routeLineRef.current = L.polyline([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]], { color:'#E24B4A', weight:2.5, dashArray:'6,6', opacity:0.85 }).addTo(mapInstanceRef.current)
-    }
+    if (routeLineRef.current) { routeLineRef.current.setLatLngs([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]]) }
+    else { routeLineRef.current = L.polyline([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]], { color:'#E24B4A', weight:2.5, dashArray:'6,6', opacity:0.85 }).addTo(mapInstanceRef.current) }
     const dist = haversineDistance(customerCoords.lat, customerCoords.lng, riderCoords.lat, riderCoords.lng)
     setDistance(dist)
     const bounds = L.latLngBounds([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]])
@@ -167,7 +146,6 @@ function MiniCustomerMap({ order, onExpand }) {
 
   return (
     <div style={{ background:'#fff', borderRadius:14, overflow:'hidden', marginBottom:12, boxShadow:'0 2px 12px rgba(0,0,0,0.1)', borderWidth:1, borderStyle:'solid', borderColor:'#e0f2fe' }}>
-      {/* Header bar */}
       <div style={{ background:'linear-gradient(135deg,#0369a1,#0f3460)', padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <div style={{ width:8, height:8, borderRadius:'50%', background:'#4ade80', animation:'livePulse 1.2s infinite' }} />
@@ -178,7 +156,6 @@ function MiniCustomerMap({ order, onExpand }) {
           <button onClick={onExpand} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', fontSize:10, fontWeight:700, borderRadius:6, padding:'4px 9px', cursor:'pointer', fontFamily:'Poppins', letterSpacing:0.5 }}>⛶ FULLSCREEN</button>
         </div>
       </div>
-      {/* Map */}
       <div style={{ position:'relative', height:170 }}>
         {loading && (
           <div style={{ position:'absolute', inset:0, background:'#f0f9ff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, zIndex:5 }}>
@@ -193,20 +170,15 @@ function MiniCustomerMap({ order, onExpand }) {
           </div>
         )}
         <div ref={mapRef} style={{ width:'100%', height:'100%' }} />
-        {/* Legend */}
         {customerCoords && (
           <div style={{ position:'absolute', bottom:8, left:8, background:'rgba(255,255,255,0.92)', borderRadius:8, padding:'5px 10px', display:'flex', gap:10, fontSize:11, fontWeight:600, color:'#374151', backdropFilter:'blur(4px)', zIndex:999 }}>
             <span>🏠 Customer</span>
             {riderCoords && <span>🛵 Rider</span>}
           </div>
         )}
-        {/* Navigate button */}
         {customerCoords && (
-          <a
-            href={`https://www.google.com/maps/dir/?api=1&destination=${customerCoords.lat},${customerCoords.lng}`}
-            target="_blank" rel="noreferrer"
-            style={{ position:'absolute', bottom:8, right:8, background:'#E24B4A', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:700, color:'#fff', textDecoration:'none', zIndex:999, display:'flex', alignItems:'center', gap:4 }}
-          >
+          <a href={`https://www.google.com/maps/dir/?api=1&destination=${customerCoords.lat},${customerCoords.lng}`} target="_blank" rel="noreferrer"
+            style={{ position:'absolute', bottom:8, right:8, background:'#E24B4A', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:700, color:'#fff', textDecoration:'none', zIndex:999, display:'flex', alignItems:'center', gap:4 }}>
             🧭 Navigate
           </a>
         )}
@@ -252,12 +224,8 @@ function CustomerLocationPanel({ order, onClose }) {
   useEffect(() => {
     if (!customerCoords) return
     if (leafletLoadedRef.current) { initMap(); return }
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'
-    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-    document.head.appendChild(link)
-    const script = document.createElement('script')
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+    const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(link)
+    const script = document.createElement('script'); script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
     script.onload = () => { leafletLoadedRef.current = true; initMap() }
     document.head.appendChild(script)
     if (window.L) { leafletLoadedRef.current = true; initMap() }
@@ -278,31 +246,23 @@ function CustomerLocationPanel({ order, onClose }) {
       routeLineRef.current = L.polyline([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]], { color:'#E24B4A', weight:3.5, dashArray:'8,8', opacity:0.9 }).addTo(map)
       const dist = haversineDistance(customerCoords.lat, customerCoords.lng, riderCoords.lat, riderCoords.lng)
       setDistance(dist)
-      const bounds = L.latLngBounds([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]])
-      map.fitBounds(bounds, { padding:[50,50] })
-    } else {
-      map.setView([customerCoords.lat, customerCoords.lng], 15)
-    }
+      map.fitBounds(L.latLngBounds([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]]), { padding:[50,50] })
+    } else { map.setView([customerCoords.lat, customerCoords.lng], 15) }
   }
 
   useEffect(() => {
     if (!mapInstanceRef.current || !riderCoords || !customerCoords || !window.L) return
     const L = window.L
-    if (riderMarkerRef.current) {
-      riderMarkerRef.current.setLatLng([riderCoords.lat, riderCoords.lng])
-    } else {
+    if (riderMarkerRef.current) { riderMarkerRef.current.setLatLng([riderCoords.lat, riderCoords.lng]) }
+    else {
       const riderIcon = L.divIcon({ html: '<div style="font-size:28px">🛵</div>', className:'', iconSize:[30,30], iconAnchor:[15,15] })
       riderMarkerRef.current = L.marker([riderCoords.lat, riderCoords.lng], { icon: riderIcon }).addTo(mapInstanceRef.current)
     }
-    if (routeLineRef.current) {
-      routeLineRef.current.setLatLngs([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]])
-    } else {
-      routeLineRef.current = L.polyline([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]], { color:'#E24B4A', weight:3.5, dashArray:'8,8', opacity:0.9 }).addTo(mapInstanceRef.current)
-    }
+    if (routeLineRef.current) { routeLineRef.current.setLatLngs([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]]) }
+    else { routeLineRef.current = L.polyline([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]], { color:'#E24B4A', weight:3.5, dashArray:'8,8', opacity:0.9 }).addTo(mapInstanceRef.current) }
     const dist = haversineDistance(customerCoords.lat, customerCoords.lng, riderCoords.lat, riderCoords.lng)
     setDistance(dist)
-    const bounds = L.latLngBounds([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]])
-    mapInstanceRef.current.fitBounds(bounds, { padding:[50,50] })
+    mapInstanceRef.current.fitBounds(L.latLngBounds([[customerCoords.lat, customerCoords.lng],[riderCoords.lat, riderCoords.lng]]), { padding:[50,50] })
   }, [riderCoords])
 
   useEffect(() => { return () => { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null } } }, [])
@@ -311,7 +271,6 @@ function CustomerLocationPanel({ order, onClose }) {
 
   return (
     <div style={{ position:'fixed', inset:0, zIndex:3000, display:'flex', flexDirection:'column', background:'#0f1923', fontFamily:'Poppins,sans-serif' }}>
-      {/* Header */}
       <div style={{ background:'linear-gradient(135deg,#0f3460,#1a1a2e)', padding:'16px 16px 18px', position:'relative', overflow:'hidden', flexShrink:0 }}>
         <div style={{ position:'absolute', right:-10, top:-10, fontSize:80, opacity:0.06 }}>🗺️</div>
         <div style={{ display:'flex', justifyContent:'center', marginBottom:10 }}><div style={{ width:36, height:4, borderRadius:2, background:'rgba(255,255,255,0.25)' }} /></div>
@@ -323,7 +282,6 @@ function CustomerLocationPanel({ order, onClose }) {
           </div>
           <button onClick={onClose} style={{ background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', width:36, height:36, borderRadius:'50%', fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
         </div>
-        {/* Stats row */}
         <div style={{ display:'flex', gap:10, marginTop:14 }}>
           {[
             { icon:'📍', label:'Address', val: order.address?.slice(0,28) + (order.address?.length > 28 ? '…' : '') || 'N/A' },
@@ -337,7 +295,6 @@ function CustomerLocationPanel({ order, onClose }) {
             </div>
           ))}
         </div>
-        {/* Live badge */}
         {riderCoords && (
           <div style={{ marginTop:12, background:'rgba(74,222,128,0.15)', borderRadius:8, padding:'7px 12px', display:'flex', alignItems:'center', gap:8, borderWidth:1, borderStyle:'solid', borderColor:'rgba(74,222,128,0.3)' }}>
             <div style={{ width:8, height:8, borderRadius:'50%', background:'#4ade80', animation:'livePulse 1.2s infinite' }} />
@@ -345,32 +302,15 @@ function CustomerLocationPanel({ order, onClose }) {
           </div>
         )}
       </div>
-      {/* Map area */}
       <div style={{ flex:1, position:'relative', minHeight:0 }}>
-        {loading && (
-          <div style={{ position:'absolute', inset:0, background:'#0f1923', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:10, zIndex:5 }}>
-            <div style={{ fontSize:48 }}>🗺️</div>
-            <div style={{ fontSize:14, color:'#7dd3fc', fontWeight:700 }}>Locating customer...</div>
-            <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)' }}>Geocoding delivery address</div>
-          </div>
-        )}
-        {!loading && !customerCoords && (
-          <div style={{ position:'absolute', inset:0, background:'#0f1923', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:10 }}>
-            <div style={{ fontSize:48 }}>📍</div>
-            <div style={{ fontSize:14, color:'#f87171', fontWeight:700 }}>Location Not Found</div>
-            <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)', textAlign:'center', padding:'0 30px' }}>Could not locate the delivery address on the map</div>
-          </div>
-        )}
+        {loading && <div style={{ position:'absolute', inset:0, background:'#0f1923', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:10, zIndex:5 }}><div style={{ fontSize:48 }}>🗺️</div><div style={{ fontSize:14, color:'#7dd3fc', fontWeight:700 }}>Locating customer...</div></div>}
+        {!loading && !customerCoords && <div style={{ position:'absolute', inset:0, background:'#0f1923', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:10 }}><div style={{ fontSize:48 }}>📍</div><div style={{ fontSize:14, color:'#f87171', fontWeight:700 }}>Location Not Found</div></div>}
         <div ref={mapRef} style={{ width:'100%', height:'100%' }} />
       </div>
-      {/* Bottom action bar */}
       <div style={{ background:'#1a1a2e', padding:'14px 16px 20px', flexShrink:0, display:'flex', gap:10 }}>
         {customerCoords && (
-          <a
-            href={`https://www.google.com/maps/dir/?api=1&destination=${customerCoords.lat},${customerCoords.lng}`}
-            target="_blank" rel="noreferrer"
-            style={{ flex:1, background:'linear-gradient(135deg,#E24B4A,#c73232)', color:'#fff', borderRadius:12, padding:'13px 0', fontSize:14, fontWeight:800, textDecoration:'none', display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:'0 4px 16px rgba(226,75,74,0.45)' }}
-          >
+          <a href={`https://www.google.com/maps/dir/?api=1&destination=${customerCoords.lat},${customerCoords.lng}`} target="_blank" rel="noreferrer"
+            style={{ flex:1, background:'linear-gradient(135deg,#E24B4A,#c73232)', color:'#fff', borderRadius:12, padding:'13px 0', fontSize:14, fontWeight:800, textDecoration:'none', display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:'0 4px 16px rgba(226,75,74,0.45)' }}>
             <span style={{ fontSize:18 }}>🧭</span> Navigate with Google Maps
           </a>
         )}
@@ -381,7 +321,7 @@ function CustomerLocationPanel({ order, onClose }) {
   )
 }
 
-// ── RIDER LOCATION PANEL ─────────────────────────────────────────────────────
+// ── RIDER LOCATION PANEL ──────────────────────────────────────────────────────
 function RiderLocationPanel({ order, onClose }) {
   const [riderName, setRiderName] = useState(order.riderName || '')
   const [riderPhone, setRiderPhone] = useState(order.riderPhone || '')
@@ -404,24 +344,21 @@ function RiderLocationPanel({ order, onClose }) {
     if (!riderPhone.trim() || riderPhone.length < 10) return toast.error('Enter valid phone number')
     try {
       await updateDoc(doc(db, 'orders', order.id), { riderName: riderName.trim(), riderPhone: riderPhone.trim() })
-      setRiderSaved(true)
-      toast.success('Rider info saved! ✅')
+      setRiderSaved(true); toast.success('Rider info saved! ✅')
     } catch { toast.error('Failed to save rider info') }
   }
 
   const pushLocation = async (lat, lng) => {
     try {
       await updateDoc(doc(db, 'orders', order.id), { riderLocation: { lat, lng }, riderLocationUpdatedAt: new Date().toISOString() })
-      setLastUpdated(new Date())
-      setLocationStatus(`📍 ${lat.toFixed(4)}, ${lng.toFixed(4)}`)
+      setLastUpdated(new Date()); setLocationStatus(`📍 ${lat.toFixed(4)}, ${lng.toFixed(4)}`)
     } catch { setLocationStatus('⚠️ Failed to update location') }
   }
 
   const startTracking = () => {
     if (!navigator.geolocation) return toast.error('GPS not supported on this device')
     if (!riderSaved) return toast.error('Save rider info first')
-    setTracking(true)
-    setLocationStatus('Getting location...')
+    setTracking(true); setLocationStatus('Getting location...')
     navigator.geolocation.getCurrentPosition(
       (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude),
       () => setLocationStatus('⚠️ Could not get location'),
@@ -438,16 +375,11 @@ function RiderLocationPanel({ order, onClose }) {
   const stopTracking = () => {
     if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current)
     if (updateIntervalRef.current) clearInterval(updateIntervalRef.current)
-    watchIdRef.current = null
-    setTracking(false)
-    setLocationStatus('Tracking stopped')
+    watchIdRef.current = null; setTracking(false); setLocationStatus('Tracking stopped')
     toast('Tracking stopped', { icon: '⏹️' })
   }
 
-  const inp = {
-    width:'100%', padding:'10px 12px', borderWidth:'1px', borderStyle:'solid', borderColor:'#e5e7eb',
-    borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box'
-  }
+  const inp = { width:'100%', padding:'10px 12px', borderWidth:'1px', borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:2000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
@@ -470,7 +402,6 @@ function RiderLocationPanel({ order, onClose }) {
             </div>
           )}
         </div>
-
         <div style={{ padding:'20px 20px 40px' }}>
           <div style={{ background:'#f0f9ff', borderRadius:12, padding:'12px 14px', marginBottom:18, borderWidth:1, borderStyle:'solid', borderColor:'#bae6fd', display:'flex', gap:10, alignItems:'flex-start' }}>
             <span style={{ fontSize:20, flexShrink:0 }}>💡</span>
@@ -483,22 +414,13 @@ function RiderLocationPanel({ order, onClose }) {
               </div>
             </div>
           </div>
-
           <div style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
             <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:12 }}>👤 Rider Details</div>
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              <div>
-                <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Rider Name *</label>
-                <input style={inp} placeholder="e.g. Rahul Patil" value={riderName} onChange={e => setRiderName(e.target.value)} disabled={riderSaved} />
-              </div>
-              <div>
-                <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Rider Phone *</label>
-                <input style={inp} type="tel" placeholder="10-digit mobile" value={riderPhone} onChange={e => setRiderPhone(e.target.value)} maxLength={10} disabled={riderSaved} />
-              </div>
+              <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Rider Name *</label><input style={inp} placeholder="e.g. Rahul Patil" value={riderName} onChange={e => setRiderName(e.target.value)} disabled={riderSaved} /></div>
+              <div><label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Rider Phone *</label><input style={inp} type="tel" placeholder="10-digit mobile" value={riderPhone} onChange={e => setRiderPhone(e.target.value)} maxLength={10} disabled={riderSaved} /></div>
               {!riderSaved ? (
-                <button onClick={saveRiderInfo} style={{ background:'#1a1a1a', color:'#fff', border:'none', padding:'11px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
-                  💾 Save Rider Info
-                </button>
+                <button onClick={saveRiderInfo} style={{ background:'#1a1a1a', color:'#fff', border:'none', padding:'11px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>💾 Save Rider Info</button>
               ) : (
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <span style={{ fontSize:11, background:'#d1fae5', color:'#065f46', fontWeight:700, borderRadius:6, padding:'3px 8px' }}>✅ Rider Saved</span>
@@ -507,7 +429,6 @@ function RiderLocationPanel({ order, onClose }) {
               )}
             </div>
           </div>
-
           {locationStatus && (
             <div style={{ background: tracking ? '#f0fdf4' : '#f9fafb', borderRadius:10, padding:'10px 14px', marginBottom:14, borderWidth:1, borderStyle:'solid', borderColor: tracking ? '#bbf7d0' : '#e5e7eb', display:'flex', gap:8, alignItems:'center' }}>
               <span style={{ fontSize:16 }}>{tracking ? '📡' : '📍'}</span>
@@ -518,17 +439,15 @@ function RiderLocationPanel({ order, onClose }) {
               </div>
             </div>
           )}
-
           {!tracking ? (
             <button onClick={startTracking} disabled={!riderSaved} style={{ width:'100%', background: riderSaved ? 'linear-gradient(135deg,#E24B4A,#c73232)' : '#e5e7eb', color: riderSaved ? '#fff' : '#9ca3af', border:'none', padding:'16px 0', borderRadius:14, fontSize:15, fontWeight:800, cursor: riderSaved ? 'pointer' : 'not-allowed', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow: riderSaved ? '0 6px 20px rgba(226,75,74,0.35)' : 'none', transition:'all 0.2s' }}>
               <span style={{ fontSize:22 }}>🛵</span> Start Live Tracking
             </button>
           ) : (
-            <button onClick={stopTracking} style={{ width:'100%', background:'linear-gradient(135deg,#dc2626,#991b1b)', color:'#fff', border:'none', padding:'16px 0', borderRadius:14, fontSize:15, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:10, animation:'trackPulse 2s infinite' }}>
+            <button onClick={stopTracking} style={{ width:'100%', background:'linear-gradient(135deg,#dc2626,#991b1b)', color:'#fff', border:'none', padding:'16px 0', borderRadius:14, fontSize:15, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:10 }}>
               <span style={{ fontSize:18 }}>⏹️</span> Stop Tracking
             </button>
           )}
-
           {riderSaved && (
             <button onClick={() => {
               navigator.geolocation.getCurrentPosition(
@@ -540,17 +459,132 @@ function RiderLocationPanel({ order, onClose }) {
               📍 Push Current Location Once
             </button>
           )}
-
           <div style={{ marginTop:16, background:'#fffbeb', borderRadius:10, padding:'10px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', display:'flex', gap:8, alignItems:'flex-start' }}>
             <span style={{ fontSize:14, flexShrink:0 }}>⚠️</span>
             <div style={{ fontSize:11, color:'#92400e', lineHeight:1.6 }}>Keep this panel open on the rider's phone while delivering.</div>
           </div>
         </div>
       </div>
-      <style>{`
-        @keyframes livePulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.6;transform:scale(1.3)} }
-        @keyframes trackPulse { 0%,100%{box-shadow:0 6px 20px rgba(220,38,38,0.4)} 50%{box-shadow:0 6px 28px rgba(220,38,38,0.7)} }
-      `}</style>
+      <style>{`@keyframes livePulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.6;transform:scale(1.3)} } @keyframes trackPulse { 0%,100%{box-shadow:0 6px 20px rgba(220,38,38,0.4)} 50%{box-shadow:0 6px 28px rgba(220,38,38,0.7)} }`}</style>
+    </div>
+  )
+}
+
+// ── PACKING CHARGES MANAGER ───────────────────────────────────────────────────
+function PackingChargesManager({ allCategories, packingCharges, onSave, saving }) {
+  const [localCharges, setLocalCharges] = useState(() => {
+    const init = {}
+    allCategories.forEach(cat => { init[cat] = packingCharges?.[cat] ?? '' })
+    return init
+  })
+
+  useEffect(() => {
+    const updated = {}
+    allCategories.forEach(cat => { updated[cat] = packingCharges?.[cat] ?? '' })
+    setLocalCharges(updated)
+  }, [allCategories, packingCharges])
+
+  const handleChange = (cat, val) => {
+    setLocalCharges(prev => ({ ...prev, [cat]: val }))
+  }
+
+  const handleSave = () => {
+    const cleaned = {}
+    allCategories.forEach(cat => {
+      const val = localCharges[cat]
+      cleaned[cat] = val === '' ? 0 : Number(val)
+    })
+    onSave(cleaned)
+  }
+
+  const categoryEmojis = { Thali:'🥘', Biryani:'🍚', Chinese:'🍜', Snacks:'🍟', Drinks:'🥤', Sweets:'🍮', Roti:'🫓', Rice:'🍛', Pizza:'🍕', Burger:'🍔', Juice:'🧃', Dessert:'🍰' }
+  const getEmoji = (cat) => categoryEmojis[cat] || '📦'
+
+  const totalCats = allCategories.length
+  const configuredCats = allCategories.filter(cat => localCharges[cat] && Number(localCharges[cat]) > 0).length
+
+  return (
+    <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:14, boxShadow:'0 2px 10px rgba(0,0,0,0.06)', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:14 }}>
+        <div>
+          <div style={{ fontSize:14, fontWeight:800, color:'#1f2937', display:'flex', alignItems:'center', gap:8 }}>
+            <div style={{ width:32, height:32, borderRadius:8, background:'linear-gradient(135deg,#fef3c7,#fde68a)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>📦</div>
+            Packing Charges
+          </div>
+          <div style={{ fontSize:11, color:'#9ca3af', marginTop:4 }}>Set per-category packing fee shown to customers at checkout</div>
+        </div>
+        <div style={{ background:'#f0fdf4', borderRadius:8, padding:'4px 10px', textAlign:'center', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+          <div style={{ fontSize:14, fontWeight:800, color:'#16a34a' }}>{configuredCats}/{totalCats}</div>
+          <div style={{ fontSize:9, color:'#15803d', fontWeight:600 }}>SET</div>
+        </div>
+      </div>
+
+      {/* Info banner */}
+      <div style={{ background:'linear-gradient(135deg,#eff6ff,#dbeafe)', borderRadius:10, padding:'10px 12px', marginBottom:14, display:'flex', gap:8, alignItems:'flex-start', borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
+        <span style={{ fontSize:16, flexShrink:0 }}>💡</span>
+        <div style={{ fontSize:11, color:'#1e40af', lineHeight:1.7 }}>
+          Packing charges are <strong>added per category</strong> in the customer's cart. Example: if a customer orders 2 items from <em>Pizza</em> category and packing charge is ₹10 → they pay ₹10 extra (not ₹20). Set <strong>0 or leave blank</strong> for free packing.
+        </div>
+      </div>
+
+      {/* Category rows */}
+      <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:14 }}>
+        {allCategories.map(cat => {
+          const val = localCharges[cat]
+          const isSet = val !== '' && Number(val) > 0
+          return (
+            <div key={cat} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background: isSet ? '#fef9f0' : '#f9fafb', borderRadius:10, borderWidth:1, borderStyle:'solid', borderColor: isSet ? '#fed7aa' : '#f3f4f6' }}>
+              <div style={{ width:36, height:36, borderRadius:10, background: isSet ? '#fff7ed' : '#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0, borderWidth:1.5, borderStyle:'solid', borderColor: isSet ? '#fbbf24' : '#e5e7eb' }}>
+                {getEmoji(cat)}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>{cat}</div>
+                <div style={{ fontSize:10, color: isSet ? '#d97706' : '#9ca3af', fontWeight:600 }}>
+                  {isSet ? `₹${val} packing charge` : 'No packing charge'}
+                </div>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ fontSize:12, color:'#6b7280', fontWeight:600 }}>₹</span>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={val}
+                  onChange={e => handleChange(cat, e.target.value)}
+                  style={{ width:70, padding:'7px 10px', borderWidth:1.5, borderStyle:'solid', borderColor: isSet ? '#f59e0b' : '#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', fontWeight:700, color:'#1f2937', textAlign:'center', background: isSet ? '#fffbeb' : '#fff' }}
+                />
+              </div>
+              {isSet && (
+                <button onClick={() => handleChange(cat, '')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:14, color:'#9ca3af', padding:2 }}>✕</button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Summary */}
+      {configuredCats > 0 && (
+        <div style={{ background:'#fffbeb', borderRadius:10, padding:'10px 12px', marginBottom:12, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#92400e', marginBottom:6 }}>📋 Active Packing Charges</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+            {allCategories.filter(cat => localCharges[cat] && Number(localCharges[cat]) > 0).map(cat => (
+              <div key={cat} style={{ background:'#fef3c7', borderRadius:6, padding:'3px 10px', display:'flex', alignItems:'center', gap:5, borderWidth:1, borderStyle:'solid', borderColor:'#fbbf24' }}>
+                <span style={{ fontSize:12 }}>{getEmoji(cat)}</span>
+                <span style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>{cat}: ₹{localCharges[cat]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        style={{ width:'100%', background: saving ? '#f09595' : 'linear-gradient(135deg,#E24B4A,#c73232)', color:'#fff', border:'none', padding:'12px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:'0 4px 14px rgba(226,75,74,0.3)' }}
+      >
+        {saving ? '⏳ Saving...' : '💾 Save Packing Charges'}
+      </button>
     </div>
   )
 }
@@ -568,19 +602,20 @@ export default function VendorApp() {
   const [newCatInput, setNewCatInput] = useState('')
   const [showAddCat, setShowAddCat] = useState(false)
   const [selectedVendorOrder, setSelectedVendorOrder] = useState(null)
-
   const [orderFilter, setOrderFilter] = useState('all')
-
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [cancelOrderTarget, setCancelOrderTarget] = useState(null)
   const [cancelReason, setCancelReason] = useState('')
   const [cancellingOrder, setCancellingOrder] = useState(false)
-
   const [menuEditMode, setMenuEditMode] = useState(false)
   const [menuCatFilter, setMenuCatFilter] = useState('All')
   const [editingItem, setEditingItem] = useState(null)
   const [editItemData, setEditItemData] = useState({})
   const [savingEdit, setSavingEdit] = useState(false)
+
+  // ── PACKING CHARGES STATE ─────────────────────────────────────────────────
+  const [packingCharges, setPackingCharges] = useState({})
+  const [savingPackingCharges, setSavingPackingCharges] = useState(false)
 
   // ── RIDER TRACKING STATE ──────────────────────────────────────────────────
   const [showRiderPanel, setShowRiderPanel] = useState(false)
@@ -695,11 +730,24 @@ export default function VendorApp() {
     if (userData?.openTime) setOpenTime(userData.openTime)
     if (userData?.closeTime) setCloseTime(userData.closeTime)
     if (userData?.location) { setVendorLocation(userData.location); setLocationName(userData.locationName || '') }
+    // ── Load packing charges from userData ──
+    if (userData?.packingCharges) setPackingCharges(userData.packingCharges)
     const u1 = getVendorOrders(user.uid, setOrders)
     const u2 = getMenuItems(user.uid, setMenuItems)
     const u3 = getCombos(user.uid, (fetchedCombos) => { setCombos(fetchedCombos) })
     return () => { u1(); u2(); u3() }
   }, [user, userData])
+
+  // ── SAVE PACKING CHARGES ──────────────────────────────────────────────────
+  const handleSavePackingCharges = async (charges) => {
+    setSavingPackingCharges(true)
+    try {
+      await updateVendorStore(user.uid, { packingCharges: charges })
+      setPackingCharges(charges)
+      toast.success('Packing charges saved! 📦')
+    } catch { toast.error('Failed to save. Try again.') }
+    setSavingPackingCharges(false)
+  }
 
   const reverseGeocode = async (lat, lng) => {
     try {
@@ -776,15 +824,14 @@ export default function VendorApp() {
     toast.success(`Order → ${next.replace('_',' ')}`)
   }
 
-  // ✅ Pass the full order object
-const handleReject = async (order) => {
-  await updateOrderStatus(order.id, 'cancelled', {
-    userUid: order.userUid,
-    vendorName: userData?.storeName || '',
-    cancellationReason: 'Order rejected by restaurant',
-  })
-  toast.error('Order rejected')
-}
+  const handleReject = async (order) => {
+    await updateOrderStatus(order.id, 'cancelled', {
+      userUid: order.userUid,
+      vendorName: userData?.storeName || '',
+      cancellationReason: 'Order rejected by restaurant',
+    })
+    toast.error('Order rejected')
+  }
 
   const openCancelModal = (order) => { setCancelOrderTarget(order); setCancelReason(''); setShowCancelModal(true) }
 
@@ -1065,6 +1112,7 @@ const handleReject = async (order) => {
                 </div>
 
                 <div style={{ padding:'16px 16px 100px', marginTop:-8 }}>
+                  {/* Customer Details */}
                   <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
                     <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:12, textTransform:'uppercase' }}>Customer Details</div>
                     <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
@@ -1093,24 +1141,15 @@ const handleReject = async (order) => {
                         </a>
                       </div>
                     )}
-                    <button
-                      onClick={() => { setVendorBillOrder(selectedVendorOrder); setShowVendorBill(true) }}
-                      style={{ width:'100%', background:'#f9fafb', color:'#1f2937', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginTop:8, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
-                    >
+                    <button onClick={() => { setVendorBillOrder(selectedVendorOrder); setShowVendorBill(true) }} style={{ width:'100%', background:'#f9fafb', color:'#1f2937', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginTop:8, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
                       🧾 View / Print Bill
                     </button>
                   </div>
 
-                  {/* ── OUT FOR DELIVERY: Rider + Customer Map ── */}
+                  {/* Out for delivery: Rider + Customer Map */}
                   {selectedVendorOrder.status === 'out_for_delivery' && (
                     <>
-                      {/* Mini Customer Map — always visible */}
-                      <MiniCustomerMap
-                        order={selectedVendorOrder}
-                        onExpand={() => { setCustomerMapOrder(selectedVendorOrder); setShowCustomerMap(true) }}
-                      />
-
-                      {/* Rider tracking card */}
+                      <MiniCustomerMap order={selectedVendorOrder} onExpand={() => { setCustomerMapOrder(selectedVendorOrder); setShowCustomerMap(true) }} />
                       <div style={{ background:'linear-gradient(135deg,#0f3460,#1a1a2e)', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 4px 20px rgba(15,52,96,0.35)', position:'relative', overflow:'hidden' }}>
                         <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>🛵</div>
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
@@ -1128,9 +1167,7 @@ const handleReject = async (order) => {
                         {selectedVendorOrder.riderName ? (
                           <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:10, padding:'10px 12px', marginBottom:12 }}>
                             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                              <div style={{ width:38, height:38, borderRadius:10, background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                                <span style={{ fontSize:18 }}>🛵</span>
-                              </div>
+                              <div style={{ width:38, height:38, borderRadius:10, background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:18 }}>🛵</span></div>
                               <div>
                                 <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{selectedVendorOrder.riderName}</div>
                                 <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)' }}>📱 {selectedVendorOrder.riderPhone}</div>
@@ -1142,13 +1179,8 @@ const handleReject = async (order) => {
                             <div style={{ fontSize:12, color:'rgba(255,255,255,0.6)', textAlign:'center' }}>⚠️ No rider assigned yet. Tap below to assign.</div>
                           </div>
                         )}
-                        <div style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginBottom:10, lineHeight:1.5 }}>
-                          Customer can see live location on their tracking map.
-                        </div>
-                        <button
-                          onClick={() => { setRiderPanelOrder(selectedVendorOrder); setShowRiderPanel(true) }}
-                          style={{ width:'100%', background:'linear-gradient(135deg,#E24B4A,#c73232)', color:'#fff', border:'none', padding:'13px 0', borderRadius:12, fontSize:14, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:'0 4px 16px rgba(226,75,74,0.5)' }}
-                        >
+                        <div style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginBottom:10, lineHeight:1.5 }}>Customer can see live location on their tracking map.</div>
+                        <button onClick={() => { setRiderPanelOrder(selectedVendorOrder); setShowRiderPanel(true) }} style={{ width:'100%', background:'linear-gradient(135deg,#E24B4A,#c73232)', color:'#fff', border:'none', padding:'13px 0', borderRadius:12, fontSize:14, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:'0 4px 16px rgba(226,75,74,0.5)' }}>
                           <span style={{ fontSize:20 }}>🛵</span>
                           {selectedVendorOrder.riderName ? 'Manage Rider & Tracking' : 'Assign Rider & Start Tracking'}
                         </button>
@@ -1156,6 +1188,7 @@ const handleReject = async (order) => {
                     </>
                   )}
 
+                  {/* Items Ordered */}
                   <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
                     <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:12, textTransform:'uppercase' }}>Items Ordered</div>
                     {selectedVendorOrder.items?.map((item, i) => (
@@ -1172,6 +1205,21 @@ const handleReject = async (order) => {
                     ))}
                     <div style={{ marginTop:12, paddingTop:12, borderTopWidth:2, borderTopStyle:'dashed', borderTopColor:'#f3f4f6' }}>
                       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:13, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:13 }}>₹{selectedVendorOrder.subtotal || selectedVendorOrder.total}</span></div>
+                      {/* Packing charges breakdown in order detail */}
+                      {selectedVendorOrder.packingChargesBreakdown && Object.keys(selectedVendorOrder.packingChargesBreakdown).length > 0 && (
+                        <>
+                          {Object.entries(selectedVendorOrder.packingChargesBreakdown).map(([cat, charge]) => (
+                            <div key={cat} style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                              <span style={{ fontSize:12, color:'#6b7280' }}>📦 {cat} packing</span>
+                              <span style={{ fontSize:12 }}>₹{charge}</span>
+                            </div>
+                          ))}
+                          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                            <span style={{ fontSize:13, color:'#6b7280', fontWeight:600 }}>Total Packing</span>
+                            <span style={{ fontSize:13, color:'#f59e0b', fontWeight:700 }}>₹{selectedVendorOrder.totalPackingCharge || 0}</span>
+                          </div>
+                        </>
+                      )}
                       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:13, color:'#6b7280' }}>Delivery fee</span><span style={{ fontSize:13, color: selectedVendorOrder.deliveryFee===0?'#16a34a':'#1f2937' }}>{selectedVendorOrder.deliveryFee===0?'Free 🎉':`₹${selectedVendorOrder.deliveryFee}`}</span></div>
                       <div style={{ display:'flex', justifyContent:'space-between', paddingTop:8, borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb' }}>
                         <span style={{ fontSize:16, fontWeight:800, color:'#1f2937' }}>Total</span>
@@ -1184,11 +1232,7 @@ const handleReject = async (order) => {
                     <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:10 }}>
                       <div style={{ display:'flex', gap:10 }}>
                         {selectedVendorOrder.status === 'pending' && (
-                          <button // ✅ Fix — pass full object
-                         onClick={async () => { 
-                         await handleReject(selectedVendorOrder)  // ← remove .id
-                         setSelectedVendorOrder(prev => ({ ...prev, status: 'cancelled' })) 
-                         }} style={{ flex:1, background:'transparent', color:'#E24B4A', borderWidth:2, borderStyle:'solid', borderColor:'#E24B4A', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>❌ Reject</button>
+                          <button onClick={async () => { await handleReject(selectedVendorOrder); setSelectedVendorOrder(prev => ({ ...prev, status: 'cancelled' })) }} style={{ flex:1, background:'transparent', color:'#E24B4A', borderWidth:2, borderStyle:'solid', borderColor:'#E24B4A', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>❌ Reject</button>
                         )}
                         {STATUS_NEXT[selectedVendorOrder.status] && (
                           <button onClick={async () => { await handleStatus(selectedVendorOrder.id, selectedVendorOrder.status, { userUid: selectedVendorOrder.userUid, vendorName: userData?.storeName||'' }); setSelectedVendorOrder(prev => ({ ...prev, status: STATUS_NEXT[prev.status] })) }} style={{ flex:2, background: selectedVendorOrder.status==='pending'?'#E24B4A':'#16a34a', color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>{STATUS_LABEL[selectedVendorOrder.status]} ✓</button>
@@ -1274,22 +1318,19 @@ const handleReject = async (order) => {
                   </div>
                 </div>
                 <div style={{ fontSize:12, color:'#6b7280', marginBottom:8 }}>{order.items?.map(i => `${i.qty}x ${i.name}`).join(' · ')}</div>
+                {/* Packing charge badge on order card */}
+                {order.totalPackingCharge > 0 && (
+                  <div style={{ display:'inline-flex', alignItems:'center', gap:4, background:'#fffbeb', borderRadius:6, padding:'2px 8px', marginBottom:6, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
+                    <span style={{ fontSize:10 }}>📦</span>
+                    <span style={{ fontSize:10, fontWeight:700, color:'#92400e' }}>+₹{order.totalPackingCharge} packing</span>
+                  </div>
+                )}
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ fontSize:16, fontWeight:800, color:'#E24B4A' }}>₹{order.total} <span style={{ fontSize:11, color:'#9ca3af', fontWeight:400 }}>COD</span></div>
                   {order.status === 'out_for_delivery' ? (
                     <div style={{ display:'flex', gap:6 }}>
-                      <button
-                        onClick={e => { e.stopPropagation(); setCustomerMapOrder(order); setShowCustomerMap(true) }}
-                        style={{ display:'flex', alignItems:'center', gap:4, background:'#0369a1', color:'#fff', border:'none', borderRadius:8, padding:'6px 10px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
-                      >
-                        🗺️ Map
-                      </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); setRiderPanelOrder(order); setShowRiderPanel(true) }}
-                        style={{ display:'flex', alignItems:'center', gap:5, background:'#0f3460', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
-                      >
-                        🛵 Track
-                      </button>
+                      <button onClick={e => { e.stopPropagation(); setCustomerMapOrder(order); setShowCustomerMap(true) }} style={{ display:'flex', alignItems:'center', gap:4, background:'#0369a1', color:'#fff', border:'none', borderRadius:8, padding:'6px 10px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>🗺️ Map</button>
+                      <button onClick={e => { e.stopPropagation(); setRiderPanelOrder(order); setShowRiderPanel(true) }} style={{ display:'flex', alignItems:'center', gap:5, background:'#0f3460', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>🛵 Track</button>
                     </div>
                   ) : (
                     <span style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Tap for details →</span>
@@ -1429,6 +1470,10 @@ const handleReject = async (order) => {
                         <span style={{ fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹{item.price}</span>
                         <span style={{ fontSize:10, color:'#9ca3af' }}>·</span>
                         <span style={{ fontSize:11, color:'#9ca3af' }}>{item.category}</span>
+                        {/* Show packing charge badge on item if set */}
+                        {packingCharges[item.category] > 0 && (
+                          <span style={{ fontSize:9, fontWeight:700, background:'#fffbeb', color:'#d97706', borderRadius:4, padding:'1px 6px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>📦 +₹{packingCharges[item.category]}</span>
+                        )}
                       </div>
                     </div>
                     <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center', flexShrink:0 }}>
@@ -1454,18 +1499,12 @@ const handleReject = async (order) => {
               <div style={{ fontSize:18, fontWeight:800, color:'#fff', marginBottom:4 }}>Create Meal Combos</div>
               <div style={{ fontSize:12, color:'#9ca3af', lineHeight:1.5 }}>Bundle items together at a special price.</div>
               <div style={{ display:'flex', gap:8, marginTop:12 }}>
-                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center' }}>
-                  <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>{combos.length}</div>
-                  <div style={{ fontSize:10, color:'#9ca3af' }}>Total Combos</div>
-                </div>
-                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center' }}>
-                  <div style={{ fontSize:18, fontWeight:800, color:'#4ade80' }}>{combos.filter(c=>c.available).length}</div>
-                  <div style={{ fontSize:10, color:'#9ca3af' }}>Active</div>
-                </div>
-                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center' }}>
-                  <div style={{ fontSize:18, fontWeight:800, color:'#fbbf24' }}>{menuItems.length}</div>
-                  <div style={{ fontSize:10, color:'#9ca3af' }}>Items available</div>
-                </div>
+                {[{ val:combos.length, label:'Total Combos', col:'#fff' },{ val:combos.filter(c=>c.available).length, label:'Active', col:'#4ade80' },{ val:menuItems.length, label:'Items available', col:'#fbbf24' }].map(s => (
+                  <div key={s.label} style={{ background:'rgba(255,255,255,0.08)', borderRadius:8, padding:'8px 12px', flex:1, textAlign:'center' }}>
+                    <div style={{ fontSize:18, fontWeight:800, color:s.col }}>{s.val}</div>
+                    <div style={{ fontSize:10, color:'#9ca3af' }}>{s.label}</div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -1551,9 +1590,7 @@ const handleReject = async (order) => {
                       <div>
                         <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Tag</label>
                         <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:6 }}>
-                          {COMBO_TAGS.map(tag => (
-                            <button key={tag} onClick={() => setEditComboData(p=>({...p,tag:p.tag===tag?'':tag}))} style={{ padding:'5px 11px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600, background:editComboData.tag===tag?'#fef3c7':'#f3f4f6', color:editComboData.tag===tag?'#92400e':'#6b7280', borderWidth:1.5, borderStyle:'solid', borderColor:editComboData.tag===tag?'#fbbf24':'transparent' }}>{tag}</button>
-                          ))}
+                          {COMBO_TAGS.map(tag => (<button key={tag} onClick={() => setEditComboData(p=>({...p,tag:p.tag===tag?'':tag}))} style={{ padding:'5px 11px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600, background:editComboData.tag===tag?'#fef3c7':'#f3f4f6', color:editComboData.tag===tag?'#92400e':'#6b7280', borderWidth:1.5, borderStyle:'solid', borderColor:editComboData.tag===tag?'#fbbf24':'transparent' }}>{tag}</button>))}
                         </div>
                       </div>
                       <ComboItemPicker comboState={editComboData} setComboState={setEditComboData} />
@@ -1584,11 +1621,7 @@ const handleReject = async (order) => {
                     <div style={{ padding:'10px 14px 0' }}>
                       <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:8 }}>INCLUDES ({combo.items?.length} items)</div>
                       <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
-                        {combo.items?.map((item, i) => (
-                          <div key={i} style={{ background:'#f9fafb', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:600, color:'#374151', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
-                            {item.qty > 1 && <span style={{ color:'#E24B4A', fontWeight:800, marginRight:3 }}>{item.qty}×</span>}{item.name}
-                          </div>
-                        ))}
+                        {combo.items?.map((item, i) => (<div key={i} style={{ background:'#f9fafb', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:600, color:'#374151', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>{item.qty > 1 && <span style={{ color:'#E24B4A', fontWeight:800, marginRight:3 }}>{item.qty}×</span>}{item.name}</div>))}
                       </div>
                     </div>
                     <div style={{ padding:'0 14px 12px', display:'flex', gap:8, alignItems:'center' }}>
@@ -1640,6 +1673,7 @@ const handleReject = async (order) => {
         {/* ── SETTINGS TAB ── */}
         {tab === 'settings' && (
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+            {/* Store Info */}
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
                 <div style={{ fontSize:13, fontWeight:700 }}>Store Info</div>
@@ -1684,6 +1718,14 @@ const handleReject = async (order) => {
               )}
             </div>
 
+            {/* ── PACKING CHARGES SECTION ─────────────────────────────────────── */}
+            <PackingChargesManager
+              allCategories={allCategories}
+              packingCharges={packingCharges}
+              onSave={handleSavePackingCharges}
+              saving={savingPackingCharges}
+            />
+
             {customCategories.length > 0 && (
               <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
                 <div style={{ fontSize:13, fontWeight:600, marginBottom:8 }}>Your Custom Categories</div>
@@ -1696,6 +1738,7 @@ const handleReject = async (order) => {
               </div>
             )}
 
+            {/* Store Location */}
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
               <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>📍 Store Location</div>
               <div style={{ fontSize:12, color:'#6b7280', marginBottom:10 }}>{vendorLocation?<span style={{ color:'#16a34a', fontWeight:500 }}>✅ Location set: {locationName}</span>:<span style={{ color:'#dc2626' }}>⚠️ Location not set</span>}</div>
@@ -1722,6 +1765,7 @@ const handleReject = async (order) => {
               </div>
             </div>
 
+            {/* Store Details */}
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
               <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>🏪 Store Details</div>
               <div style={{ marginBottom:14 }}>
@@ -1737,7 +1781,6 @@ const handleReject = async (order) => {
                     <div style={{ marginTop:8, background:'#eff6ff', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
                       <div style={{ fontSize:11, fontWeight:700, color:'#1e40af', marginBottom:4 }}>📍 Distance-based pricing active</div>
                       <div style={{ fontSize:11, color:'#3b82f6', lineHeight:1.7 }}>₹10 up to 1 km · ₹20 up to 2 km<br/>₹30 up to 3 km · ₹40 up to 4 km</div>
-                      <div style={{ fontSize:10, color:'#6b7280', marginTop:4 }}>Your fixed charge above is ignored when this mode is on.</div>
                     </div>
                   ) : (
                     <div style={{ marginTop:8, background:'#f0fdf4', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
@@ -1750,23 +1793,7 @@ const handleReject = async (order) => {
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🛒 Minimum Order Amount (₹)</label>
                 <input type="number" placeholder="e.g. 100 (0 for no minimum)" value={minOrderAmount} onChange={e => setMinOrderAmount(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
-                <div style={{ marginTop:6, display:'flex', alignItems:'flex-start', gap:6 }}>
-                  <span style={{ fontSize:12, flexShrink:0 }}>💡</span>
-                  <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>Customers must add at least ₹{minOrderAmount || '0'} worth of items before checkout.</p>
-                </div>
               </div>
-              {Number(minOrderAmount) > 0 && (
-                <div style={{ marginBottom:14, background:'#eff6ff', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe', display:'flex', alignItems:'center', gap:8 }}>
-                  <span style={{ fontSize:15 }}>👁️</span>
-                  <div>
-                    <div style={{ fontSize:11, fontWeight:700, color:'#1e40af', marginBottom:2 }}>How users will see it:</div>
-                    <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                      <span style={{ fontSize:11, background:'#dbeafe', color:'#1e40af', fontWeight:700, borderRadius:6, padding:'2px 8px' }}>🛒 Min. ₹{minOrderAmount}</span>
-                      <span style={{ fontSize:11, color:'#6b7280' }}>shown on restaurant card & menu</span>
-                    </div>
-                  </div>
-                </div>
-              )}
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>📋 FSSAI Licence Number</label>
                 <input type="text" placeholder="e.g. 10012345000123" value={fssai} onChange={e => setFssai(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
@@ -1774,27 +1801,10 @@ const handleReject = async (order) => {
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🏛️ GST Number</label>
                 <input type="text" placeholder="e.g. 22AAAAA0000A1Z5" value={gstNumber} onChange={e => setGstNumber(e.target.value.toUpperCase())} maxLength={15} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box', letterSpacing:1 }} />
-                {gstNumber && (
-                  <div style={{ marginTop:6 }}>
-                    <span style={{ fontSize:11, background: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber) ? '#d1fae5':'#fee2e2', color: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber) ? '#065f46':'#991b1b', fontWeight:700, borderRadius:6, padding:'2px 8px' }}>
-                      {/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstNumber) ? '✅ Valid format' : `${gstNumber.length}/15 chars`}
-                    </span>
-                  </div>
-                )}
               </div>
               <div style={{ marginBottom:14 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>💳 UPI ID</label>
-                <input type="text" placeholder="e.g. storename@paytm or 9876543210@upi" value={upiId} onChange={e => setUpiId(e.target.value.trim())} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
-                {upiId && (
-                  <div style={{ marginTop:8, background:'#f0fdf4', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0', display:'flex', alignItems:'center', gap:10 }}>
-                    <span style={{ fontSize:22 }}>📱</span>
-                    <div>
-                      <div style={{ fontSize:11, fontWeight:700, color:'#15803d', marginBottom:2 }}>UPI Payment Preview on Bill</div>
-                      <div style={{ fontSize:12, color:'#166534', fontWeight:600 }}>{upiId}</div>
-                      <div style={{ fontSize:10, color:'#6b7280', marginTop:1 }}>Pay via PhonePe · GPay · Paytm · BHIM</div>
-                    </div>
-                  </div>
-                )}
+                <input type="text" placeholder="e.g. storename@paytm" value={upiId} onChange={e => setUpiId(e.target.value.trim())} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
               </div>
               <div style={{ marginBottom:12 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🕐 Opening Hours</label>
@@ -1830,11 +1840,6 @@ const handleReject = async (order) => {
               <div style={{ background:'#fff5f5', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca', borderRadius:12, padding:'12px 14px', marginBottom:16, display:'flex', gap:10, alignItems:'flex-start' }}>
                 <span style={{ fontSize:18, flexShrink:0 }}>⚠️</span>
                 <div style={{ fontSize:12, color:'#991b1b', lineHeight:1.6 }}>The customer will be notified. This action cannot be undone.</div>
-              </div>
-              <div style={{ background:'#f9fafb', borderRadius:10, padding:'10px 14px', marginBottom:16 }}>
-                <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:6 }}>ORDER SUMMARY</div>
-                <div style={{ fontSize:13, color:'#374151' }}>{cancelOrderTarget.items?.map(i => `${i.qty}x ${i.name}`).join(', ')}</div>
-                <div style={{ fontSize:14, fontWeight:700, color:'#E24B4A', marginTop:4 }}>₹{cancelOrderTarget.total}</div>
               </div>
               <div style={{ marginBottom:14 }}>
                 <div style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:10 }}>Select cancellation reason *</div>
