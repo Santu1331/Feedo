@@ -1,7 +1,3 @@
-// File location: app/delete-account/page.jsx  (Next.js App Router)
-// OR: pages/delete-account.jsx  (Next.js Pages Router)
-
-'use client';
 import { useState } from 'react';
 
 export default function DeleteAccount() {

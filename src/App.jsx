@@ -5,6 +5,8 @@ import UserApp from './pages/UserApp'
 import VendorApp from './pages/VendorApp'
 import FounderApp from './pages/FounderApp'
 import FounderLoginPage from './pages/FounderLoginPage'
+import PrivacyPolicy from './pages/privacy-policy'
+import DeleteAccount from './pages/delete-account'
 
 export default function App() {
   const { user, userData, loading } = useAuth()
@@ -15,6 +17,8 @@ export default function App() {
 
     // ← ADD THIS: don't redirect away from founder-login page
     if (path === '/founder-login') return
+    if (path === '/privacy-policy') return
+    if (path === '/delete-account') return
 
     if (!user) {
       if (path !== '/login') window.location.replace('/login')
@@ -44,6 +48,8 @@ export default function App() {
   const path = window.location.pathname
 
   // ← ADD THIS: show founder login page at /founder-login
+  if (path === '/privacy-policy') return <PrivacyPolicy />
+  if (path === '/delete-account') return <DeleteAccount />
   if (path === '/founder-login') return <FounderLoginPage />
 
   if (!user || path === '/login') return <LoginPage />
