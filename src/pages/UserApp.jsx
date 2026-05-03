@@ -26,24 +26,26 @@ function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
   return Number(vendorBaseCharge ?? 0)
 }
 
-// ─── Packing charges calculation ─────────────────────────────────────────────
+// ─── Packing charges: per item × quantity ────────────────────────────────────
+// Returns { breakdown: { CategoryName: { charge, qty, total } }, total: number }
 function calcPackingCharges(cartItems, packingCharges) {
   if (!packingCharges || Object.keys(packingCharges).length === 0) {
     return { breakdown: {}, total: 0 }
   }
-  const categoriesInCart = new Set()
+  // Sum qty per category (non-combo items only)
+  const categoryQty = {}
   cartItems.forEach(item => {
     if (!item.isCombo && item.category) {
-      categoriesInCart.add(item.category)
+      categoryQty[item.category] = (categoryQty[item.category] || 0) + item.qty
     }
   })
   const breakdown = {}
   let total = 0
-  categoriesInCart.forEach(cat => {
+  Object.entries(categoryQty).forEach(([cat, qty]) => {
     const charge = Number(packingCharges[cat] ?? 0)
     if (charge > 0) {
-      breakdown[cat] = charge
-      total += charge
+      breakdown[cat] = { charge, qty, total: charge * qty }
+      total += charge * qty
     }
   })
   return { breakdown, total }
@@ -498,7 +500,7 @@ export default function UserApp() {
   const minOrderShortfall = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
   const meetsMinOrder = minOrderShortfall === 0
 
-  // ── Packing charges computed from cart ──
+  // ── Packing charges computed from cart (per item × qty) ──
   const packingInfo = calcPackingCharges(cart, cartVendor?.packingCharges || {})
   const packingTotal = packingInfo.total
   const packingBreakdown = packingInfo.breakdown
@@ -582,6 +584,7 @@ export default function UserApp() {
       const fullAddress = [deliveryHostel.trim(), deliveryAddress.trim(), deliveryNote.trim() ? `Note: ${deliveryNote.trim()}` : ''].filter(Boolean).join(' · ')
       const billNo = 'FZ-' + Date.now().toString(36).slice(-6).toUpperCase()
 
+      // Build packing charges breakdown from live cart (per item × qty)
       const currentPackingInfo = calcPackingCharges(cart, cartVendor?.packingCharges || {})
 
       await placeOrder({
@@ -590,6 +593,7 @@ export default function UserApp() {
         items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty, category: i.category || '', isCombo: i.isCombo||false })),
         subtotal: cartTotal,
         deliveryFee: deliveryFee,
+        // Store breakdown as { CategoryName: { charge, qty, total } }
         packingChargesBreakdown: currentPackingInfo.breakdown,
         totalPackingCharge: currentPackingInfo.total,
         total: cartTotal + deliveryFee + currentPackingInfo.total,
@@ -794,7 +798,7 @@ export default function UserApp() {
     )
   }
 
-  // ── Bill summary component (used in cart + checkout only) ──
+  // ── Bill summary component — now shows per-item packing detail ──
   const BillSummary = ({ showPackingDetail = false }) => (
     <div style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:14, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
       <div style={{ fontSize:12, fontWeight:700, color:'#6b7280', marginBottom:10, letterSpacing:0.3 }}>BILL SUMMARY</div>
@@ -809,23 +813,28 @@ export default function UserApp() {
         <span style={{ fontSize:13, color: deliveryFee===0?'#16a34a':'#1f2937', fontWeight:500 }}>{deliveryFee===0?'Free 🎉':(`₹${deliveryFee}`)}</span>
       </div>
 
-      {/* Packing charges — visible only in cart/checkout (BillSummary) */}
+      {/* Packing charges section — per item × qty */}
       {packingTotal > 0 && (
         <>
           <div style={{ height:1, background:'#f3f4f6', margin:'8px 0' }} />
-          {showPackingDetail && Object.entries(packingBreakdown).map(([cat, charge]) => (
+          {showPackingDetail && Object.entries(packingBreakdown).map(([cat, info]) => (
             <div key={cat} style={{ display:'flex', justifyContent:'space-between', marginBottom:5, alignItems:'center' }}>
               <div style={{ display:'flex', alignItems:'center', gap:5 }}>
                 <span style={{ fontSize:11 }}>📦</span>
-                <span style={{ fontSize:12, color:'#6b7280' }}>{cat} packing</span>
+                <span style={{ fontSize:12, color:'#6b7280' }}>
+                  {cat} packing
+                  <span style={{ fontSize:10, color:'#9ca3af', marginLeft:4 }}>
+                    (₹{info.charge} × {info.qty})
+                  </span>
+                </span>
               </div>
-              <span style={{ fontSize:12, color:'#d97706', fontWeight:600 }}>₹{charge}</span>
+              <span style={{ fontSize:12, color:'#d97706', fontWeight:600 }}>₹{info.total}</span>
             </div>
           ))}
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>
             <div style={{ display:'flex', alignItems:'center', gap:5 }}>
               <span style={{ fontSize:12 }}>📦</span>
-              <span style={{ fontSize:13, color:'#6b7280' }}>Packing charges</span>
+              <span style={{ fontSize:13, color:'#6b7280' }}>Total packing charges</span>
             </div>
             <span style={{ fontSize:13, color:'#d97706', fontWeight:600 }}>₹{packingTotal}</span>
           </div>
@@ -833,7 +842,7 @@ export default function UserApp() {
         </>
       )}
 
-      <div style={{ display:'flex', justifyContent:'space-between', paddingTop: packingTotal > 0 ? 0 : 8, borderTopWidth: packingTotal > 0 ? 0 : 1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', marginTop: packingTotal > 0 ? 0 : 0 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', paddingTop: packingTotal > 0 ? 0 : 8, borderTopWidth: packingTotal > 0 ? 0 : 1, borderTopStyle:'solid', borderTopColor:'#e5e7eb' }}>
         <span style={{ fontSize:15, fontWeight:800, color:'#1f2937' }}>Grand Total</span>
         <span style={{ fontSize:15, fontWeight:800, color:'#E24B4A' }}>₹{grandTotal}</span>
       </div>
@@ -1006,7 +1015,7 @@ export default function UserApp() {
               {filteredVendors.map(v => {
                 const vMinOrder = Number(v.minOrderAmount ?? 0)
                 const dynamicCharge = calcDeliveryCharge(v.distance, v.deliveryCharge, v.distanceBasedDelivery)
-                // ── NO packing charge indicator on vendor card ──
+                const hasPackingCharges = v.packingCharges && Object.values(v.packingCharges).some(c => Number(c) > 0)
                 return (
                   <div key={v.id} onClick={() => openVendor(v)}
                     style={{ background:'#fff', borderRadius:16, overflow:'hidden', marginBottom:16, cursor:v.isOpen?'pointer':'not-allowed', boxShadow:'0 2px 12px rgba(0,0,0,0.08)', borderWidth:1, borderStyle:'solid', borderColor:v.isOpen?'#f3f4f6':'#fecaca', opacity:v.isOpen?1:0.6 }}>
@@ -1055,7 +1064,11 @@ export default function UserApp() {
                             🛒 Min. ₹{vMinOrder}
                           </span>
                         )}
-                        {/* Packing charges badge intentionally removed from vendor card */}
+                        {hasPackingCharges && (
+                          <span style={{ fontSize:10, fontWeight:700, background:'#fffbeb', color:'#d97706', borderRadius:6, padding:'2px 7px', display:'inline-flex', alignItems:'center', gap:3, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
+                            📦 Packing charges per item
+                          </span>
+                        )}
                       </div>
                       {!v.isOpen && (
                         <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:6, background:'#fee2e2', borderRadius:8, padding:'6px 10px' }}>
@@ -1093,7 +1106,7 @@ export default function UserApp() {
             : null
           const dynamicCharge = calcDeliveryCharge(vendorDist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
           const vendorPackingCharges = selectedVendor.packingCharges || {}
-          // ── Packing charges banner and per-item badges intentionally hidden on menu page ──
+          const hasPackingCharges = Object.values(vendorPackingCharges).some(c => Number(c) > 0)
 
           return (
             <div style={{ background:'#fff', minHeight:'100%' }}>
@@ -1128,7 +1141,23 @@ export default function UserApp() {
                 )}
               </div>
 
-              {/* ── Packing charges banner on vendor menu page: REMOVED ── */}
+              {/* ── Packing charges info banner — updated wording to per item ── */}
+              {hasPackingCharges && (
+                <div style={{ margin:'10px 16px 0', background:'linear-gradient(135deg,#fffbeb,#fef3c7)', borderRadius:12, padding:'10px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', display:'flex', gap:10, alignItems:'flex-start' }}>
+                  <span style={{ fontSize:18, flexShrink:0 }}>📦</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e', marginBottom:4 }}>Packing charges apply per item</div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+                      {Object.entries(vendorPackingCharges).filter(([,v]) => Number(v) > 0).map(([cat, charge]) => (
+                        <span key={cat} style={{ fontSize:10, fontWeight:700, background:'#fef9c3', color:'#78350f', borderRadius:6, padding:'2px 8px', borderWidth:1, borderStyle:'solid', borderColor:'#fbbf24' }}>
+                          {cat}: ₹{charge}/item
+                        </span>
+                      ))}
+                    </div>
+                    <div style={{ fontSize:10, color:'#a16207', marginTop:5, lineHeight:1.5 }}>Charged per item ordered · e.g. 4 pizzas = ₹{Object.values(vendorPackingCharges).find(v => Number(v) > 0) * 4 || 40} packing</div>
+                  </div>
+                </div>
+              )}
 
               {!selectedVendor.isOpen && (
                 <div style={{ background:'#fee2e2', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', margin:'12px 16px', borderRadius:12, padding:'14px 16px', display:'flex', alignItems:'center', gap:12 }}>
@@ -1174,9 +1203,12 @@ export default function UserApp() {
                               const isActive = menuCatFilter === cat
                               const count = cat==='All' ? availableItems.length : availableItems.filter(i => i.category===cat).length
                               return (
-                                // ── Packing charge badge on category pill: REMOVED ──
                                 <button key={cat} onClick={() => setMenuCatFilter(cat)} style={{ flexShrink:0, padding:'7px 14px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:isActive?700:500, background:isActive?'#E24B4A':'#f3f4f6', color:isActive?'#fff':'#6b7280', boxShadow:isActive?'0 4px 12px rgba(226,75,74,0.3)':'none', transition:'all 0.2s', whiteSpace:'nowrap' }}>
                                   {cat} {count > 0 && <span style={{ opacity:isActive?0.8:0.6, fontSize:10 }}>({count})</span>}
+                                  {/* Show per-item rate on category pill */}
+                                  {cat !== 'All' && vendorPackingCharges[cat] > 0 && (
+                                    <span style={{ marginLeft:4, fontSize:9, background:isActive?'rgba(255,255,255,0.25)':'#fef3c7', color:isActive?'#fff':'#d97706', borderRadius:4, padding:'1px 5px' }}>📦₹{vendorPackingCharges[cat]}/item</span>
+                                  )}
                                 </button>
                               )
                             })}
@@ -1203,7 +1235,9 @@ export default function UserApp() {
                                 <div key={cat}>
                                   <div style={{ display:'flex', alignItems:'center', gap:8, padding:'16px 0 8px' }}>
                                     <div style={{ fontSize:13, fontWeight:800, color:'#1f2937', letterSpacing:0.2 }}>{cat}</div>
-                                    {/* ── Packing badge on category section header: REMOVED ── */}
+                                    {vendorPackingCharges[cat] > 0 && (
+                                      <span style={{ fontSize:10, fontWeight:700, background:'#fffbeb', color:'#d97706', borderRadius:6, padding:'2px 7px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>📦 ₹{vendorPackingCharges[cat]}/item packing</span>
+                                    )}
                                     <div style={{ flex:1, height:1, background:'#f3f4f6' }} />
                                     <span style={{ fontSize:10, color:'#9ca3af', fontWeight:500 }}>{catItems.length} item{catItems.length>1?'s':''}</span>
                                   </div>
@@ -1222,7 +1256,7 @@ export default function UserApp() {
                   function MenuItemCard({ item, vendorPackingCharges }) {
                     const inCart = cart.find(c => c.id === item.id)
                     const vendorClosed = !selectedVendor.isOpen
-                    // ── Packing charge per-item badge: REMOVED ──
+                    const packingCharge = vendorPackingCharges?.[item.category]
                     return (
                       <div style={{ display:'flex', gap:12, padding:'14px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f7f7f7', alignItems:'flex-start' }}>
                         <div style={{ flex:1 }}>
@@ -1233,7 +1267,12 @@ export default function UserApp() {
                           {item.description && <div style={{ fontSize:11, color:'#9ca3af', marginBottom:4, lineHeight:1.5 }}>{item.description}</div>}
                           <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
                             <div style={{ fontSize:14, fontWeight:700, color:vendorClosed?'#9ca3af':'#E24B4A' }}>₹{item.price}</div>
-                            {/* Packing charge badge on item price: REMOVED */}
+                            {/* Updated label: per item */}
+                            {packingCharge > 0 && (
+                              <span style={{ fontSize:10, fontWeight:700, background:'#fffbeb', color:'#d97706', borderRadius:5, padding:'1px 6px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
+                                📦 +₹{packingCharge} packing/item
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div style={{ position:'relative', flexShrink:0 }}>
@@ -1308,7 +1347,23 @@ export default function UserApp() {
                   </div>
                 </div>
 
-                {/* ── Packing charges in restaurant info section: REMOVED ── */}
+                {/* Updated packing charges info — per item */}
+                {hasPackingCharges && (
+                  <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'flex-start' }}>
+                    <div style={{ width:38, height:38, borderRadius:10, background:'#fffbeb', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>📦</span></div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:11, color:'#9ca3af', marginBottom:4, fontWeight:500 }}>PACKING CHARGES (PER ITEM)</div>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+                        {Object.entries(vendorPackingCharges).filter(([,v]) => Number(v) > 0).map(([cat, charge]) => (
+                          <span key={cat} style={{ fontSize:11, fontWeight:700, background:'#fffbeb', color:'#92400e', borderRadius:6, padding:'3px 9px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
+                            {cat}: ₹{charge}/item
+                          </span>
+                        ))}
+                      </div>
+                      <div style={{ fontSize:11, color:'#a16207', marginTop:5 }}>Charged per item quantity · e.g. 4 pizzas × ₹{vendorPackingCharges['Pizza'] || vendorPackingCharges[Object.keys(vendorPackingCharges)[0]] || 10} = ₹{(vendorPackingCharges['Pizza'] || vendorPackingCharges[Object.keys(vendorPackingCharges)[0]] || 10) * 4} packing</div>
+                    </div>
+                  </div>
+                )}
 
                 {selectedVendor.address && (
                   <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'flex-start' }}>
@@ -1432,21 +1487,26 @@ export default function UserApp() {
               </div>
             )}
 
-            {/* ── Packing charges notice — shown only in cart (first time user sees it) ── */}
+            {/* Packing charges notice in cart — per item × qty */}
             {packingTotal > 0 && (
               <div style={{ background:'linear-gradient(135deg,#fffbeb,#fef3c7)', borderRadius:10, padding:'10px 14px', marginBottom:10, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
                   <span style={{ fontSize:16 }}>📦</span>
-                  <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>Packing charges apply</div>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>Packing charges (per item)</div>
                 </div>
-                <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
-                  {Object.entries(packingBreakdown).map(([cat, charge]) => (
-                    <span key={cat} style={{ fontSize:11, fontWeight:600, background:'#fef9c3', color:'#78350f', borderRadius:6, padding:'2px 9px', borderWidth:1, borderStyle:'solid', borderColor:'#fbbf24' }}>
-                      {cat}: ₹{charge}
-                    </span>
+                <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                  {Object.entries(packingBreakdown).map(([cat, info]) => (
+                    <div key={cat} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <span style={{ fontSize:11, fontWeight:600, background:'#fef9c3', color:'#78350f', borderRadius:6, padding:'2px 9px', borderWidth:1, borderStyle:'solid', borderColor:'#fbbf24' }}>
+                        {cat}
+                      </span>
+                      <span style={{ fontSize:11, color:'#92400e' }}>
+                        ₹{info.charge} × {info.qty} item{info.qty > 1 ? 's' : ''} = <strong>₹{info.total}</strong>
+                      </span>
+                    </div>
                   ))}
                 </div>
-                <div style={{ fontSize:10, color:'#a16207', marginTop:5 }}>Charged once per category · Total: ₹{packingTotal}</div>
+                <div style={{ fontSize:10, color:'#a16207', marginTop:6 }}>Total packing: ₹{packingTotal}</div>
               </div>
             )}
 
@@ -1460,7 +1520,12 @@ export default function UserApp() {
                   {item.isCombo && item.comboItems && (
                     <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>{item.comboItems.map(ci => `${ci.qty > 1 ? ci.qty+'× ' : ''}${ci.name}`).join(' · ')}</div>
                   )}
-                  {/* ── Per-item packing note in cart: REMOVED (total shown in bill summary) ── */}
+                  {/* Show live packing cost for this item */}
+                  {!item.isCombo && item.category && cartVendor?.packingCharges?.[item.category] > 0 && (
+                    <div style={{ fontSize:10, color:'#d97706', marginTop:2 }}>
+                      📦 ₹{cartVendor.packingCharges[item.category]}/item × {item.qty} = ₹{cartVendor.packingCharges[item.category] * item.qty} packing
+                    </div>
+                  )}
                 </div>
                 <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                   <button onClick={() => updateQty(item.id,-1)} style={{ width:28, height:28, borderRadius:'50%', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', background:'transparent', color:'#E24B4A', cursor:'pointer', fontSize:16 }}>-</button>
@@ -1491,7 +1556,6 @@ export default function UserApp() {
                   </div>
                 )}
 
-                {/* Bill summary with packing charges detail — visible here in cart */}
                 <div style={{ marginTop:14 }}>
                   <BillSummary showPackingDetail={true} />
                 </div>
@@ -1523,7 +1587,6 @@ export default function UserApp() {
                 <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Room / Address *</label><input style={inp} placeholder="e.g. Room 204..." value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} /></div>
                 <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Order Note (optional)</label><textarea style={{ ...inp, minHeight:60, resize:'none', lineHeight:1.5 }} placeholder="e.g. Less spicy, extra roti..." value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} /></div>
 
-                {/* Full bill breakdown in checkout — packing charges shown here too */}
                 <BillSummary showPackingDetail={true} />
 
                 <div style={{ background:'#fef3c7', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#78350f', marginBottom:12 }}>💵 Payment: <strong>Cash on Delivery (COD)</strong></div>
@@ -1554,11 +1617,11 @@ export default function UserApp() {
                       </span>
                     </div>
                     <div style={{ fontSize:12, color:'#6b7280', marginBottom:8 }}>{o.items?.slice(0,2).map(i=>i.qty+'x '+i.name).join(', ')}{o.items?.length>2?` +${o.items.length-2} more`:''}</div>
-                    {/* ── Packing charge badge on order history card: kept (post-order summary context) ── */}
+                    {/* Updated packing badge — show total packing amount */}
                     {o.totalPackingCharge > 0 && (
                       <div style={{ display:'inline-flex', alignItems:'center', gap:4, background:'#fffbeb', borderRadius:6, padding:'2px 8px', marginBottom:6, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
                         <span style={{ fontSize:10 }}>📦</span>
-                        <span style={{ fontSize:10, fontWeight:700, color:'#92400e' }}>+₹{o.totalPackingCharge} packing</span>
+                        <span style={{ fontSize:10, fontWeight:700, color:'#92400e' }}>+₹{o.totalPackingCharge} packing (per item)</span>
                       </div>
                     )}
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -1686,17 +1749,20 @@ export default function UserApp() {
             <div style={{ marginTop:12, background:'rgba(255,255,255,0.2)', borderRadius:20, display:'inline-block', padding:'6px 18px' }}><span style={{ fontSize:12, fontWeight:600 }}>Order #{orderSuccess.orderId}</span></div>
           </div>
           <div style={{ padding:20 }}>
-            {/* Full order summary including packing charges — shown post-order */}
+            {/* Order success bill summary with per-item packing */}
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
               <div style={{ fontSize:12, fontWeight:700, color:'#6b7280', marginBottom:10 }}>ORDER SUMMARY</div>
               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{orderSuccess.subtotal}</span></div>
               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee</span><span style={{ fontSize:12 }}>{orderSuccess.deliveryFee===0?'Free 🎉':`₹${orderSuccess.deliveryFee}`}</span></div>
               {orderSuccess.totalPackingCharge > 0 && (
                 <>
-                  {Object.entries(orderSuccess.packingChargesBreakdown || {}).map(([cat, charge]) => (
+                  {Object.entries(orderSuccess.packingChargesBreakdown || {}).map(([cat, info]) => (
                     <div key={cat} style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-                      <span style={{ fontSize:12, color:'#6b7280', display:'flex', alignItems:'center', gap:4 }}><span>📦</span>{cat} packing</span>
-                      <span style={{ fontSize:12, color:'#d97706', fontWeight:600 }}>₹{charge}</span>
+                      <span style={{ fontSize:12, color:'#6b7280', display:'flex', alignItems:'center', gap:4 }}>
+                        <span>📦</span>{cat} packing
+                        <span style={{ fontSize:10, color:'#9ca3af' }}>(₹{info.charge} × {info.qty})</span>
+                      </span>
+                      <span style={{ fontSize:12, color:'#d97706', fontWeight:600 }}>₹{info.total}</span>
                     </div>
                   ))}
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
@@ -1780,7 +1846,7 @@ export default function UserApp() {
                 { title:'3. Location Requirement', body:'FeedoZone requires location access to show nearby restaurants and calculate delivery charges. Restaurants beyond 4km are not available for delivery.' },
                 { title:'4. Orders & Payments', body:'All orders placed are subject to restaurant availability and acceptance. Payment is currently Cash on Delivery (COD) only.' },
                 { title:'5. Delivery Charges', body:'Delivery charges are set by each restaurant — either a fixed fee or distance-based (₹10/1km, ₹20/2km, ₹30/3km, ₹40/4km).' },
-                { title:'6. Packing Charges', body:'Some restaurants may apply packing charges per food category. These are shown clearly in the cart and checkout before placing any order.' },
+                { title:'6. Packing Charges', body:'Some restaurants may apply packing charges per item ordered. For example, if a Pizza packing charge is ₹10 and you order 4 pizzas, you will be charged ₹40 in packing. These are shown clearly in the menu, cart, and checkout before placing any order.' },
                 { title:'7. Cancellation Policy', body:'Users may cancel orders within 5 minutes of placing them. Cancellations after 5 minutes are not permitted through the app.' },
                 { title:'8. User Responsibilities', body:'You are responsible for providing accurate delivery details, including address and contact number.' },
                 { title:'9. Prohibited Conduct', body:'Users must not misuse the platform, place fraudulent orders, or abuse vendors or delivery personnel.' },
