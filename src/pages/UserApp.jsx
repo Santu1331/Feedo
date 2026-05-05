@@ -13,6 +13,8 @@ import LiveOrderTracking from '../components/LiveOrderTracking'
 import toast from 'react-hot-toast'
 
 // ─── Delivery charge: vendor fixed OR distance-based ─────────────────────────
+// If vendor has distanceBasedDelivery = true → use km slabs
+// Otherwise → always use vendor's fixed deliveryCharge
 function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
   if (useDistanceBased) {
     if (distanceKm === null || distanceKm === undefined) return Number(vendorBaseCharge ?? 0)
@@ -23,32 +25,8 @@ function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
     if (km <= 4) return 40
     return 40
   }
+  // Fixed charge — ignore distance
   return Number(vendorBaseCharge ?? 0)
-}
-
-// ─── Packing charges: per item × quantity ────────────────────────────────────
-// Returns { breakdown: { CategoryName: { charge, qty, total } }, total: number }
-function calcPackingCharges(cartItems, packingCharges) {
-  if (!packingCharges || Object.keys(packingCharges).length === 0) {
-    return { breakdown: {}, total: 0 }
-  }
-  // Sum qty per category (non-combo items only)
-  const categoryQty = {}
-  cartItems.forEach(item => {
-    if (!item.isCombo && item.category) {
-      categoryQty[item.category] = (categoryQty[item.category] || 0) + item.qty
-    }
-  })
-  const breakdown = {}
-  let total = 0
-  Object.entries(categoryQty).forEach(([cat, qty]) => {
-    const charge = Number(packingCharges[cat] ?? 0)
-    if (charge > 0) {
-      breakdown[cat] = { charge, qty, total: charge * qty }
-      total += charge * qty
-    }
-  })
-  return { breakdown, total }
 }
 
 const MAX_DELIVERY_KM = 4
@@ -152,6 +130,7 @@ function MapModal({ userLat, userLng, vendors, onClose }) {
         if (!v.location?.lat || !v.location?.lng) return
         const dist = getDistance(userLat, userLng, v.location.lat, v.location.lng)
         if (dist > MAX_DELIVERY_KM) return
+        // ✅ Pass distanceBasedDelivery flag to map popup charge too
         const charge = calcDeliveryCharge(dist, v.deliveryCharge, v.distanceBasedDelivery)
         const color = v.isOpen ? '#16a34a' : '#6b7280'
         const vendorIcon = L.divIcon({
@@ -264,6 +243,7 @@ export default function UserApp() {
   const [locationSearch, setLocationSearch] = useState('')
   const [locationSuggestions, setLocationSuggestions] = useState([])
   const [searchingLocation, setSearchingLocation] = useState(false)
+  const [locationGranted, setLocationGranted] = useState(true)
   const [showMap, setShowMap] = useState(false)
 
   const [deliveryName, setDeliveryName] = useState('')
@@ -302,6 +282,7 @@ export default function UserApp() {
     const token = window.expoPushToken || localStorage.getItem('expoPushToken')
     if (token && token.startsWith('ExponentPushToken')) {
       saveExpoPushToken(user.uid, token, 'user')
+      console.log('✅ Token saved on login:', token)
     }
   }, [user?.uid])
 
@@ -445,14 +426,10 @@ export default function UserApp() {
     const dist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
       ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
       : null
+    // ✅ Pass distanceBasedDelivery flag
     const dynamicCharge = calcDeliveryCharge(dist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
 
-    setCartVendor({
-      ...selectedVendor,
-      deliveryCharge: dynamicCharge,
-      distanceKm: dist,
-      packingCharges: selectedVendor.packingCharges || {}
-    })
+    setCartVendor({ ...selectedVendor, deliveryCharge: dynamicCharge, distanceKm: dist })
     setCart(prev => {
       const ex = prev.find(c => c.id === item.id)
       if (ex) return prev.map(c => c.id === item.id ? { ...c, qty: c.qty+1 } : c)
@@ -468,14 +445,10 @@ export default function UserApp() {
     const dist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
       ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
       : null
+    // ✅ Pass distanceBasedDelivery flag
     const dynamicCharge = calcDeliveryCharge(dist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
 
-    setCartVendor({
-      ...selectedVendor,
-      deliveryCharge: dynamicCharge,
-      distanceKm: dist,
-      packingCharges: selectedVendor.packingCharges || {}
-    })
+    setCartVendor({ ...selectedVendor, deliveryCharge: dynamicCharge, distanceKm: dist })
     const comboCartId = 'combo_' + combo.id
     setCart(prev => {
       const ex = prev.find(c => c.id === comboCartId)
@@ -492,40 +465,33 @@ export default function UserApp() {
       return updated
     })
   }
-
+  
   const cartTotal = cart.reduce((s,c) => s + c.price*c.qty, 0)
   const cartCount = cart.reduce((s,c) => s + c.qty, 0)
   const deliveryFee = Number(cartVendor?.deliveryCharge ?? 0)
   const minOrder = Number(cartVendor?.minOrderAmount ?? 0)
   const minOrderShortfall = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
   const meetsMinOrder = minOrderShortfall === 0
-
-  // ── Packing charges computed from cart (per item × qty) ──
-  const packingInfo = calcPackingCharges(cart, cartVendor?.packingCharges || {})
-  const packingTotal = packingInfo.total
-  const packingBreakdown = packingInfo.breakdown
-  const grandTotal = cartTotal + deliveryFee + packingTotal
-
   const handleCancelOrder = async (order) => {
-    if (cancellingOrder) return
-    setCancellingOrder(true)
-    try {
-      await updateOrderStatus(order.id, 'cancelled', {
-        userUid: order.userUid,
-        vendorUid: order.vendorUid,
-        vendorName: order.vendorName,
-        cancellationReason: 'Cancelled by customer within 5 minutes',
-      })
-      toast.success('Order cancelled successfully.')
-      setShowCancelConfirm(false)
-      setOrderToCancel(null)
-      if (selectedOrder?.id === order.id) setSelectedOrder(null)
-    } catch (e) {
-      console.error(e)
-      toast.error('Failed to cancel. Please try again.')
-    }
-    setCancellingOrder(false)
+  if (cancellingOrder) return
+  setCancellingOrder(true)
+  try {
+    await updateOrderStatus(order.id, 'cancelled', {
+      userUid: order.userUid,
+      vendorUid: order.vendorUid,
+      vendorName: order.vendorName,
+      cancellationReason: 'Cancelled by customer within 5 minutes',
+    })
+    toast.success('Order cancelled successfully.')
+    setShowCancelConfirm(false)
+    setOrderToCancel(null)
+    if (selectedOrder?.id === order.id) setSelectedOrder(null)
+  } catch (e) {
+    console.error(e)
+    toast.error('Failed to cancel. Please try again.')
   }
+  setCancellingOrder(false)
+}
 
   useEffect(() => {
     if (!user) return
@@ -583,20 +549,11 @@ export default function UserApp() {
     try {
       const fullAddress = [deliveryHostel.trim(), deliveryAddress.trim(), deliveryNote.trim() ? `Note: ${deliveryNote.trim()}` : ''].filter(Boolean).join(' · ')
       const billNo = 'FZ-' + Date.now().toString(36).slice(-6).toUpperCase()
-
-      // Build packing charges breakdown from live cart (per item × qty)
-      const currentPackingInfo = calcPackingCharges(cart, cartVendor?.packingCharges || {})
-
       await placeOrder({
         userUid: user.uid, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
         userEmail: user.email, vendorUid: cartVendor.id, vendorName: cartVendor.storeName,
-        items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty, category: i.category || '', isCombo: i.isCombo||false })),
-        subtotal: cartTotal,
-        deliveryFee: deliveryFee,
-        // Store breakdown as { CategoryName: { charge, qty, total } }
-        packingChargesBreakdown: currentPackingInfo.breakdown,
-        totalPackingCharge: currentPackingInfo.total,
-        total: cartTotal + deliveryFee + currentPackingInfo.total,
+        items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty, isCombo: i.isCombo||false })),
+        subtotal: cartTotal, deliveryFee: deliveryFee, total: cartTotal + deliveryFee,
         address: fullAddress, paymentMode: 'COD',
         billNo,
         userLat, userLng,
@@ -609,11 +566,7 @@ export default function UserApp() {
         billNo,
         vendorName: cartVendor.storeName, vendorPhone: vendorInfo.phone || '',
         vendorPhoto: vendorInfo.photo || '', items: cart.map(i => ({ ...i })),
-        total: cartTotal + deliveryFee + currentPackingInfo.total,
-        subtotal: cartTotal,
-        deliveryFee: deliveryFee,
-        packingChargesBreakdown: currentPackingInfo.breakdown,
-        totalPackingCharge: currentPackingInfo.total,
+        total: cartTotal + deliveryFee, subtotal: cartTotal, deliveryFee: deliveryFee,
         address: fullAddress, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
         prepTime: vendorInfo.prepTime || 20,
       })
@@ -798,57 +751,6 @@ export default function UserApp() {
     )
   }
 
-  // ── Bill summary component — now shows per-item packing detail ──
-  const BillSummary = ({ showPackingDetail = false }) => (
-    <div style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:14, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
-      <div style={{ fontSize:12, fontWeight:700, color:'#6b7280', marginBottom:10, letterSpacing:0.3 }}>BILL SUMMARY</div>
-      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>
-        <span style={{ fontSize:13, color:'#6b7280' }}>Subtotal</span>
-        <span style={{ fontSize:13, color:'#1f2937', fontWeight:500 }}>₹{cartTotal}</span>
-      </div>
-      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>
-        <span style={{ fontSize:13, color:'#6b7280' }}>
-          Delivery fee {cartVendor?.distanceBasedDelivery && cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}
-        </span>
-        <span style={{ fontSize:13, color: deliveryFee===0?'#16a34a':'#1f2937', fontWeight:500 }}>{deliveryFee===0?'Free 🎉':(`₹${deliveryFee}`)}</span>
-      </div>
-
-      {/* Packing charges section — per item × qty */}
-      {packingTotal > 0 && (
-        <>
-          <div style={{ height:1, background:'#f3f4f6', margin:'8px 0' }} />
-          {showPackingDetail && Object.entries(packingBreakdown).map(([cat, info]) => (
-            <div key={cat} style={{ display:'flex', justifyContent:'space-between', marginBottom:5, alignItems:'center' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                <span style={{ fontSize:11 }}>📦</span>
-                <span style={{ fontSize:12, color:'#6b7280' }}>
-                  {cat} packing
-                  <span style={{ fontSize:10, color:'#9ca3af', marginLeft:4 }}>
-                    (₹{info.charge} × {info.qty})
-                  </span>
-                </span>
-              </div>
-              <span style={{ fontSize:12, color:'#d97706', fontWeight:600 }}>₹{info.total}</span>
-            </div>
-          ))}
-          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-              <span style={{ fontSize:12 }}>📦</span>
-              <span style={{ fontSize:13, color:'#6b7280' }}>Total packing charges</span>
-            </div>
-            <span style={{ fontSize:13, color:'#d97706', fontWeight:600 }}>₹{packingTotal}</span>
-          </div>
-          <div style={{ height:1, background:'#f3f4f6', margin:'8px 0' }} />
-        </>
-      )}
-
-      <div style={{ display:'flex', justifyContent:'space-between', paddingTop: packingTotal > 0 ? 0 : 8, borderTopWidth: packingTotal > 0 ? 0 : 1, borderTopStyle:'solid', borderTopColor:'#e5e7eb' }}>
-        <span style={{ fontSize:15, fontWeight:800, color:'#1f2937' }}>Grand Total</span>
-        <span style={{ fontSize:15, fontWeight:800, color:'#E24B4A' }}>₹{grandTotal}</span>
-      </div>
-    </div>
-  )
-
   return (
     <div style={S.shell}>
 
@@ -960,6 +862,8 @@ export default function UserApp() {
         {/* ── HOME ── */}
         {tab==='home' && (
           <div style={{ background:'#fff', minHeight:'100%' }}>
+
+            {/* ✅ Updated banner — no longer says "distance-based" since it varies by vendor */}
             <div style={{ background:'linear-gradient(90deg,#fff7ed,#fef3c7)', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#fed7aa', padding:'8px 16px', display:'flex', alignItems:'center', gap:10 }}>
               <span style={{ fontSize:16 }}>🚚</span>
               <div style={{ flex:1 }}>
@@ -1014,8 +918,8 @@ export default function UserApp() {
             <div style={{ padding:'0 16px' }}>
               {filteredVendors.map(v => {
                 const vMinOrder = Number(v.minOrderAmount ?? 0)
+                // ✅ Vendor-first delivery charge
                 const dynamicCharge = calcDeliveryCharge(v.distance, v.deliveryCharge, v.distanceBasedDelivery)
-                const hasPackingCharges = v.packingCharges && Object.values(v.packingCharges).some(c => Number(c) > 0)
                 return (
                   <div key={v.id} onClick={() => openVendor(v)}
                     style={{ background:'#fff', borderRadius:16, overflow:'hidden', marginBottom:16, cursor:v.isOpen?'pointer':'not-allowed', boxShadow:'0 2px 12px rgba(0,0,0,0.08)', borderWidth:1, borderStyle:'solid', borderColor:v.isOpen?'#f3f4f6':'#fecaca', opacity:v.isOpen?1:0.6 }}>
@@ -1049,11 +953,12 @@ export default function UserApp() {
                         <div style={{ background:'#f0fdf4', color:'#16a34a', fontSize:12, fontWeight:700, padding:'2px 8px', borderRadius:8 }}>⭐ {v.rating||4.5}</div>
                       </div>
                       <div style={{ fontSize:12, color:'#9ca3af', marginTop:3 }}>{v.category}</div>
-                      <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginTop:8, alignItems:'center' }}>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:10, marginTop:8, alignItems:'center' }}>
                         <span style={{ fontSize:12, color:'#9ca3af' }}>🕐 {v.prepTime||20}-{(v.prepTime||20)+15} min</span>
                         <span style={{ fontSize:12, fontWeight:700, background:dynamicCharge===0?'#dcfce7':'#fef3c7', color:dynamicCharge===0?'#16a34a':'#92400e', borderRadius:6, padding:'2px 8px' }}>
                           {dynamicCharge===0 ? '🎉 Free delivery' : `🚚 ₹${dynamicCharge} delivery`}
                         </span>
+                        {/* ✅ Show badge if vendor uses distance-based pricing */}
                         {v.distanceBasedDelivery && v.distance !== null && (
                           <span style={{ fontSize:10, fontWeight:600, background:'#eff6ff', color:'#3b82f6', borderRadius:6, padding:'2px 7px' }}>
                             📍 Distance-based
@@ -1062,11 +967,6 @@ export default function UserApp() {
                         {vMinOrder > 0 && (
                           <span style={{ fontSize:11, fontWeight:700, background:'#dbeafe', color:'#1e40af', borderRadius:6, padding:'2px 7px', display:'inline-flex', alignItems:'center', gap:3 }}>
                             🛒 Min. ₹{vMinOrder}
-                          </span>
-                        )}
-                        {hasPackingCharges && (
-                          <span style={{ fontSize:10, fontWeight:700, background:'#fffbeb', color:'#d97706', borderRadius:6, padding:'2px 7px', display:'inline-flex', alignItems:'center', gap:3, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
-                            📦 Packing charges per item
                           </span>
                         )}
                       </div>
@@ -1104,9 +1004,8 @@ export default function UserApp() {
           const vendorDist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
             ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
             : null
+          // ✅ Pass distanceBasedDelivery flag
           const dynamicCharge = calcDeliveryCharge(vendorDist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
-          const vendorPackingCharges = selectedVendor.packingCharges || {}
-          const hasPackingCharges = Object.values(vendorPackingCharges).some(c => Number(c) > 0)
 
           return (
             <div style={{ background:'#fff', minHeight:'100%' }}>
@@ -1119,11 +1018,12 @@ export default function UserApp() {
                 </div>
               </div>
 
-              <div style={{ padding:'10px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
+              <div style={{ padding:'10px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
                 <span style={{ fontSize:12, color:'#6b7280' }}>🕐 {selectedVendor.prepTime||20}-{(selectedVendor.prepTime||20)+15} min</span>
                 <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px' }}>
                   🚚 {dynamicCharge === 0 ? 'Free delivery 🎉' : `₹${dynamicCharge} delivery`}
                 </span>
+                {/* ✅ Show distance-based badge in vendor menu too */}
                 {selectedVendor.distanceBasedDelivery && vendorDist !== null && (
                   <span style={{ fontSize:10, fontWeight:600, background:'#eff6ff', color:'#3b82f6', borderRadius:6, padding:'2px 7px' }}>
                     📍 Distance-based
@@ -1140,24 +1040,6 @@ export default function UserApp() {
                   </span>
                 )}
               </div>
-
-              {/* ── Packing charges info banner — updated wording to per item ── */}
-              {hasPackingCharges && (
-                <div style={{ margin:'10px 16px 0', background:'linear-gradient(135deg,#fffbeb,#fef3c7)', borderRadius:12, padding:'10px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', display:'flex', gap:10, alignItems:'flex-start' }}>
-                  <span style={{ fontSize:18, flexShrink:0 }}>📦</span>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e', marginBottom:4 }}>Packing charges apply per item</div>
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
-                      {Object.entries(vendorPackingCharges).filter(([,v]) => Number(v) > 0).map(([cat, charge]) => (
-                        <span key={cat} style={{ fontSize:10, fontWeight:700, background:'#fef9c3', color:'#78350f', borderRadius:6, padding:'2px 8px', borderWidth:1, borderStyle:'solid', borderColor:'#fbbf24' }}>
-                          {cat}: ₹{charge}/item
-                        </span>
-                      ))}
-                    </div>
-                    <div style={{ fontSize:10, color:'#a16207', marginTop:5, lineHeight:1.5 }}>Charged per item ordered · e.g. 4 pizzas = ₹{Object.values(vendorPackingCharges).find(v => Number(v) > 0) * 4 || 40} packing</div>
-                  </div>
-                </div>
-              )}
 
               {!selectedVendor.isOpen && (
                 <div style={{ background:'#fee2e2', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', margin:'12px 16px', borderRadius:12, padding:'14px 16px', display:'flex', alignItems:'center', gap:12 }}>
@@ -1205,10 +1087,6 @@ export default function UserApp() {
                               return (
                                 <button key={cat} onClick={() => setMenuCatFilter(cat)} style={{ flexShrink:0, padding:'7px 14px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:isActive?700:500, background:isActive?'#E24B4A':'#f3f4f6', color:isActive?'#fff':'#6b7280', boxShadow:isActive?'0 4px 12px rgba(226,75,74,0.3)':'none', transition:'all 0.2s', whiteSpace:'nowrap' }}>
                                   {cat} {count > 0 && <span style={{ opacity:isActive?0.8:0.6, fontSize:10 }}>({count})</span>}
-                                  {/* Show per-item rate on category pill */}
-                                  {cat !== 'All' && vendorPackingCharges[cat] > 0 && (
-                                    <span style={{ marginLeft:4, fontSize:9, background:isActive?'rgba(255,255,255,0.25)':'#fef3c7', color:isActive?'#fff':'#d97706', borderRadius:4, padding:'1px 5px' }}>📦₹{vendorPackingCharges[cat]}/item</span>
-                                  )}
                                 </button>
                               )
                             })}
@@ -1235,28 +1113,24 @@ export default function UserApp() {
                                 <div key={cat}>
                                   <div style={{ display:'flex', alignItems:'center', gap:8, padding:'16px 0 8px' }}>
                                     <div style={{ fontSize:13, fontWeight:800, color:'#1f2937', letterSpacing:0.2 }}>{cat}</div>
-                                    {vendorPackingCharges[cat] > 0 && (
-                                      <span style={{ fontSize:10, fontWeight:700, background:'#fffbeb', color:'#d97706', borderRadius:6, padding:'2px 7px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>📦 ₹{vendorPackingCharges[cat]}/item packing</span>
-                                    )}
                                     <div style={{ flex:1, height:1, background:'#f3f4f6' }} />
                                     <span style={{ fontSize:10, color:'#9ca3af', fontWeight:500 }}>{catItems.length} item{catItems.length>1?'s':''}</span>
                                   </div>
-                                  {catItems.map(item => <MenuItemCard key={item.id} item={item} vendorPackingCharges={vendorPackingCharges} />)}
+                                  {catItems.map(item => <MenuItemCard key={item.id} item={item} />)}
                                 </div>
                               )
                             })
                           ) : (
-                            filteredItems.map(item => <MenuItemCard key={item.id} item={item} vendorPackingCharges={vendorPackingCharges} />)
+                            filteredItems.map(item => <MenuItemCard key={item.id} item={item} />)
                           )}
                         </div>
                       )}
                     </>
                   )
 
-                  function MenuItemCard({ item, vendorPackingCharges }) {
+                  function MenuItemCard({ item }) {
                     const inCart = cart.find(c => c.id === item.id)
                     const vendorClosed = !selectedVendor.isOpen
-                    const packingCharge = vendorPackingCharges?.[item.category]
                     return (
                       <div style={{ display:'flex', gap:12, padding:'14px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f7f7f7', alignItems:'flex-start' }}>
                         <div style={{ flex:1 }}>
@@ -1265,15 +1139,7 @@ export default function UserApp() {
                             <span style={{ fontSize:13, fontWeight:600, color:vendorClosed?'#9ca3af':'#1f2937' }}>{item.name}</span>
                           </div>
                           {item.description && <div style={{ fontSize:11, color:'#9ca3af', marginBottom:4, lineHeight:1.5 }}>{item.description}</div>}
-                          <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                            <div style={{ fontSize:14, fontWeight:700, color:vendorClosed?'#9ca3af':'#E24B4A' }}>₹{item.price}</div>
-                            {/* Updated label: per item */}
-                            {packingCharge > 0 && (
-                              <span style={{ fontSize:10, fontWeight:700, background:'#fffbeb', color:'#d97706', borderRadius:5, padding:'1px 6px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
-                                📦 +₹{packingCharge} packing/item
-                              </span>
-                            )}
-                          </div>
+                          <div style={{ fontSize:14, fontWeight:700, color:vendorClosed?'#9ca3af':'#E24B4A' }}>₹{item.price}</div>
                         </div>
                         <div style={{ position:'relative', flexShrink:0 }}>
                           <div style={{ width:90, height:90, borderRadius:12, overflow:'hidden', background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center', filter:vendorClosed?'grayscale(60%)':'none' }}>
@@ -1332,6 +1198,7 @@ export default function UserApp() {
                   )}
                 </div>
 
+                {/* ✅ Delivery charge type info row */}
                 <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'center' }}>
                   <div style={{ width:38, height:38, borderRadius:10, background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>🚚</span></div>
                   <div style={{ flex:1 }}>
@@ -1346,24 +1213,6 @@ export default function UserApp() {
                     </div>
                   </div>
                 </div>
-
-                {/* Updated packing charges info — per item */}
-                {hasPackingCharges && (
-                  <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'flex-start' }}>
-                    <div style={{ width:38, height:38, borderRadius:10, background:'#fffbeb', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>📦</span></div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:11, color:'#9ca3af', marginBottom:4, fontWeight:500 }}>PACKING CHARGES (PER ITEM)</div>
-                      <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
-                        {Object.entries(vendorPackingCharges).filter(([,v]) => Number(v) > 0).map(([cat, charge]) => (
-                          <span key={cat} style={{ fontSize:11, fontWeight:700, background:'#fffbeb', color:'#92400e', borderRadius:6, padding:'3px 9px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
-                            {cat}: ₹{charge}/item
-                          </span>
-                        ))}
-                      </div>
-                      <div style={{ fontSize:11, color:'#a16207', marginTop:5 }}>Charged per item quantity · e.g. 4 pizzas × ₹{vendorPackingCharges['Pizza'] || vendorPackingCharges[Object.keys(vendorPackingCharges)[0]] || 10} = ₹{(vendorPackingCharges['Pizza'] || vendorPackingCharges[Object.keys(vendorPackingCharges)[0]] || 10) * 4} packing</div>
-                    </div>
-                  </div>
-                )}
 
                 {selectedVendor.address && (
                   <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'flex-start' }}>
@@ -1469,9 +1318,10 @@ export default function UserApp() {
             <div style={{ fontSize:15, fontWeight:600, marginBottom:12 }}>{t('Your Cart','तुमची कार्ट')} {cartVendor && `· ${cartVendor.storeName}`}</div>
 
             {cartVendor && cartVendor.distanceKm !== null && cartVendor.distanceKm !== undefined && (
-              <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 14px', marginBottom:10, display:'flex', alignItems:'center', gap:10, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
+              <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:10, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
                 <span style={{ fontSize:16 }}>🚚</span>
                 <div style={{ flex:1 }}>
+                  {/* ✅ Show correct label based on charge type */}
                   <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>
                     {cartVendor.distanceBasedDelivery ? 'Distance-based delivery charge' : 'Delivery charge'}
                   </div>
@@ -1487,29 +1337,6 @@ export default function UserApp() {
               </div>
             )}
 
-            {/* Packing charges notice in cart — per item × qty */}
-            {packingTotal > 0 && (
-              <div style={{ background:'linear-gradient(135deg,#fffbeb,#fef3c7)', borderRadius:10, padding:'10px 14px', marginBottom:10, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-                  <span style={{ fontSize:16 }}>📦</span>
-                  <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>Packing charges (per item)</div>
-                </div>
-                <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                  {Object.entries(packingBreakdown).map(([cat, info]) => (
-                    <div key={cat} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <span style={{ fontSize:11, fontWeight:600, background:'#fef9c3', color:'#78350f', borderRadius:6, padding:'2px 9px', borderWidth:1, borderStyle:'solid', borderColor:'#fbbf24' }}>
-                        {cat}
-                      </span>
-                      <span style={{ fontSize:11, color:'#92400e' }}>
-                        ₹{info.charge} × {info.qty} item{info.qty > 1 ? 's' : ''} = <strong>₹{info.total}</strong>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ fontSize:10, color:'#a16207', marginTop:6 }}>Total packing: ₹{packingTotal}</div>
-              </div>
-            )}
-
             {cart.length===0 && <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>Cart is empty. Browse vendors!</div>}
 
             {cart.map(item => (
@@ -1519,12 +1346,6 @@ export default function UserApp() {
                   <div style={{ fontSize:12, color:'#6b7280' }}>₹{item.price} each</div>
                   {item.isCombo && item.comboItems && (
                     <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>{item.comboItems.map(ci => `${ci.qty > 1 ? ci.qty+'× ' : ''}${ci.name}`).join(' · ')}</div>
-                  )}
-                  {/* Show live packing cost for this item */}
-                  {!item.isCombo && item.category && cartVendor?.packingCharges?.[item.category] > 0 && (
-                    <div style={{ fontSize:10, color:'#d97706', marginTop:2 }}>
-                      📦 ₹{cartVendor.packingCharges[item.category]}/item × {item.qty} = ₹{cartVendor.packingCharges[item.category] * item.qty} packing
-                    </div>
                   )}
                 </div>
                 <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -1556,8 +1377,15 @@ export default function UserApp() {
                   </div>
                 )}
 
-                <div style={{ marginTop:14 }}>
-                  <BillSummary showPackingDetail={true} />
+                <div style={{ background:'#f9fafb', borderRadius:10, padding:12, margin:'12px 0' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                    <span style={{ fontSize:12, color:'#6b7280' }}>
+                      Delivery fee {cartVendor?.distanceBasedDelivery && cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}
+                    </span>
+                    <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
+                  </div>
+                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:600 }}>Total</span><span style={{ fontSize:14, fontWeight:600 }}>₹{cartTotal+deliveryFee}</span></div>
                 </div>
 
                 <button
@@ -1567,7 +1395,7 @@ export default function UserApp() {
                   }}
                   style={{ width:'100%', background: meetsMinOrder ? '#E24B4A' : '#9ca3af', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor: meetsMinOrder ? 'pointer' : 'not-allowed', fontFamily:'Poppins', opacity: meetsMinOrder ? 1 : 0.75 }}
                 >
-                  {meetsMinOrder ? `Proceed to Checkout · ₹${grandTotal}` : `Add ₹${minOrderShortfall} more to checkout`}
+                  {meetsMinOrder ? `Proceed to Checkout · ₹${cartTotal+deliveryFee}` : `Add ₹${minOrderShortfall} more to checkout`}
                 </button>
               </>
             )}
@@ -1586,11 +1414,18 @@ export default function UserApp() {
                 <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Hostel / Building</label><input style={inp} placeholder="e.g. Hostel B, Men's Hostel..." value={deliveryHostel} onChange={e => setDeliveryHostel(e.target.value)} /></div>
                 <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Room / Address *</label><input style={inp} placeholder="e.g. Room 204..." value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} /></div>
                 <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Order Note (optional)</label><textarea style={{ ...inp, minHeight:60, resize:'none', lineHeight:1.5 }} placeholder="e.g. Less spicy, extra roti..." value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} /></div>
-
-                <BillSummary showPackingDetail={true} />
-
+                <div style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:12 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
+                    <span style={{ fontSize:12, color:'#6b7280' }}>
+                      Delivery fee {cartVendor?.distanceBasedDelivery && cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}
+                    </span>
+                    <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
+                  </div>
+                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:700 }}>Total</span><span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{cartTotal+deliveryFee}</span></div>
+                </div>
                 <div style={{ background:'#fef3c7', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#78350f', marginBottom:12 }}>💵 Payment: <strong>Cash on Delivery (COD)</strong></div>
-                <button onClick={handlePlaceOrder} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:8 }}>🎉 Place Order · ₹{grandTotal}</button>
+                <button onClick={handlePlaceOrder} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:8 }}>🎉 Place Order · ₹{cartTotal+deliveryFee}</button>
                 <button onClick={() => setShowCheckout(false)} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:11, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>← Back to Cart</button>
               </div>
             )}
@@ -1617,13 +1452,6 @@ export default function UserApp() {
                       </span>
                     </div>
                     <div style={{ fontSize:12, color:'#6b7280', marginBottom:8 }}>{o.items?.slice(0,2).map(i=>i.qty+'x '+i.name).join(', ')}{o.items?.length>2?` +${o.items.length-2} more`:''}</div>
-                    {/* Updated packing badge — show total packing amount */}
-                    {o.totalPackingCharge > 0 && (
-                      <div style={{ display:'inline-flex', alignItems:'center', gap:4, background:'#fffbeb', borderRadius:6, padding:'2px 8px', marginBottom:6, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
-                        <span style={{ fontSize:10 }}>📦</span>
-                        <span style={{ fontSize:10, fontWeight:700, color:'#92400e' }}>+₹{o.totalPackingCharge} packing (per item)</span>
-                      </div>
-                    )}
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                       <span style={{ fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹{o.total}</span>
                       {isActive
@@ -1749,34 +1577,6 @@ export default function UserApp() {
             <div style={{ marginTop:12, background:'rgba(255,255,255,0.2)', borderRadius:20, display:'inline-block', padding:'6px 18px' }}><span style={{ fontSize:12, fontWeight:600 }}>Order #{orderSuccess.orderId}</span></div>
           </div>
           <div style={{ padding:20 }}>
-            {/* Order success bill summary with per-item packing */}
-            <div style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
-              <div style={{ fontSize:12, fontWeight:700, color:'#6b7280', marginBottom:10 }}>ORDER SUMMARY</div>
-              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{orderSuccess.subtotal}</span></div>
-              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee</span><span style={{ fontSize:12 }}>{orderSuccess.deliveryFee===0?'Free 🎉':`₹${orderSuccess.deliveryFee}`}</span></div>
-              {orderSuccess.totalPackingCharge > 0 && (
-                <>
-                  {Object.entries(orderSuccess.packingChargesBreakdown || {}).map(([cat, info]) => (
-                    <div key={cat} style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-                      <span style={{ fontSize:12, color:'#6b7280', display:'flex', alignItems:'center', gap:4 }}>
-                        <span>📦</span>{cat} packing
-                        <span style={{ fontSize:10, color:'#9ca3af' }}>(₹{info.charge} × {info.qty})</span>
-                      </span>
-                      <span style={{ fontSize:12, color:'#d97706', fontWeight:600 }}>₹{info.total}</span>
-                    </div>
-                  ))}
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                    <span style={{ fontSize:12, color:'#6b7280', fontWeight:600 }}>Total packing</span>
-                    <span style={{ fontSize:12, color:'#d97706', fontWeight:700 }}>₹{orderSuccess.totalPackingCharge}</span>
-                  </div>
-                </>
-              )}
-              <div style={{ display:'flex', justifyContent:'space-between', paddingTop:8, borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb' }}>
-                <span style={{ fontSize:14, fontWeight:800 }}>Grand Total</span>
-                <span style={{ fontSize:14, fontWeight:800, color:'#E24B4A' }}>₹{orderSuccess.total}</span>
-              </div>
-            </div>
-
             {orderSuccess.vendorPhone && (
               <div style={{ background:'#fafafa', borderRadius:14, padding:16, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
                 <div style={{ display:'flex', gap:10 }}>
@@ -1846,12 +1646,11 @@ export default function UserApp() {
                 { title:'3. Location Requirement', body:'FeedoZone requires location access to show nearby restaurants and calculate delivery charges. Restaurants beyond 4km are not available for delivery.' },
                 { title:'4. Orders & Payments', body:'All orders placed are subject to restaurant availability and acceptance. Payment is currently Cash on Delivery (COD) only.' },
                 { title:'5. Delivery Charges', body:'Delivery charges are set by each restaurant — either a fixed fee or distance-based (₹10/1km, ₹20/2km, ₹30/3km, ₹40/4km).' },
-                { title:'6. Packing Charges', body:'Some restaurants may apply packing charges per item ordered. For example, if a Pizza packing charge is ₹10 and you order 4 pizzas, you will be charged ₹40 in packing. These are shown clearly in the menu, cart, and checkout before placing any order.' },
-                { title:'7. Cancellation Policy', body:'Users may cancel orders within 5 minutes of placing them. Cancellations after 5 minutes are not permitted through the app.' },
-                { title:'8. User Responsibilities', body:'You are responsible for providing accurate delivery details, including address and contact number.' },
-                { title:'9. Prohibited Conduct', body:'Users must not misuse the platform, place fraudulent orders, or abuse vendors or delivery personnel.' },
-                { title:'10. Intellectual Property', body:'All content, logos, and branding on FeedoZone are the property of FeedoZone.' },
-                { title:'11. Changes to Terms', body:'FeedoZone reserves the right to update these terms at any time without prior notice.' },
+                { title:'6. Cancellation Policy', body:'Users may cancel orders within 5 minutes of placing them. Cancellations after 5 minutes are not permitted through the app.' },
+                { title:'7. User Responsibilities', body:'You are responsible for providing accurate delivery details, including address and contact number.' },
+                { title:'8. Prohibited Conduct', body:'Users must not misuse the platform, place fraudulent orders, or abuse vendors or delivery personnel.' },
+                { title:'9. Intellectual Property', body:'All content, logos, and branding on FeedoZone are the property of FeedoZone.' },
+                { title:'10. Changes to Terms', body:'FeedoZone reserves the right to update these terms at any time without prior notice.' },
               ].map((section, i) => (
                 <div key={i} style={{ marginBottom:18 }}>
                   <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:5 }}>{section.title}</div>
@@ -1905,11 +1704,8 @@ export default function UserApp() {
       {/* Cart bar */}
       {cart.length > 0 && (tab==='home' || tab==='vendor-menu') && (
         <div onClick={() => setTab('cart')} style={{ background:'#E24B4A', color:'#fff', padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', flexShrink:0 }}>
-          <div>
-            <div style={{ fontSize:13 }}>{cartCount} item{cartCount>1?'s':''} · ₹{cartTotal}</div>
-            {packingTotal > 0 && <div style={{ fontSize:10, opacity:0.85 }}>+₹{deliveryFee} delivery +₹{packingTotal} packing</div>}
-          </div>
-          <strong style={{ fontSize:14 }}>View Cart · ₹{grandTotal} →</strong>
+          <span style={{ fontSize:13 }}>{cartCount} item{cartCount>1?'s':''} · ₹{cartTotal}</span>
+          <strong style={{ fontSize:14 }}>View Cart →</strong>
         </div>
       )}
 
