@@ -34,6 +34,89 @@ const ORDER_FILTERS = [
   { id:'cancelled',        label:'Cancelled',      emoji:'❌' },
 ]
 
+// ── SCHEDULE HELPERS ──────────────────────────────────────────────────────────
+function parseTimeToMinutes(timeStr) {
+  // Accepts "HH:MM" (24h)
+  if (!timeStr || !timeStr.includes(':')) return null
+  const [h, m] = timeStr.split(':').map(Number)
+  if (isNaN(h) || isNaN(m)) return null
+  return h * 60 + m
+}
+
+function getCurrentMinutes() {
+  const now = new Date()
+  return now.getHours() * 60 + now.getMinutes()
+}
+
+function isWithinSchedule(openTime, closeTime) {
+  const open  = parseTimeToMinutes(openTime)
+  const close = parseTimeToMinutes(closeTime)
+  if (open === null || close === null) return null // schedule not set
+  const now = getCurrentMinutes()
+  if (open <= close) {
+    // e.g. 09:00 – 22:00 (same day)
+    return now >= open && now < close
+  } else {
+    // overnight e.g. 22:00 – 02:00
+    return now >= open || now < close
+  }
+}
+
+function formatTime12(timeStr) {
+  if (!timeStr) return ''
+  const [h, m] = timeStr.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12  = h % 12 || 12
+  return `${h12}:${String(m).padStart(2,'0')} ${ampm}`
+}
+
+// ── SCHEDULE HOOK ─────────────────────────────────────────────────────────────
+// Runs every 60 s. Auto-opens/closes the store based on schedule.
+// scheduleOverride=true means vendor manually closed during scheduled hours → don't auto-reopen until next open window.
+function useStoreSchedule({ uid, openTime, closeTime, isOpen, scheduleOverride, onScheduleChange }) {
+  const prevWindowRef = useRef(null)
+
+  useEffect(() => {
+    if (!uid || !openTime || !closeTime) return
+
+    const check = async () => {
+      const inWindow = isWithinSchedule(openTime, closeTime)
+      if (inWindow === null) return
+
+      // Detect window transition: were we outside, now inside → new open window started
+      const crossedIntoOpen = (prevWindowRef.current === false && inWindow === true)
+      prevWindowRef.current = inWindow
+
+      if (inWindow) {
+        // Inside scheduled hours
+        if (crossedIntoOpen) {
+          // New open window just started → clear any override and auto-open
+          await updateVendorStore(uid, { isOpen: true, scheduleOverride: false })
+          onScheduleChange(true, false)
+          toast.success('🟢 Store automatically opened (scheduled)', { duration: 4000 })
+        } else if (!scheduleOverride && !isOpen) {
+          // Was somehow closed without override → restore open
+          await updateVendorStore(uid, { isOpen: true })
+          onScheduleChange(true, false)
+        }
+      } else {
+        // Outside scheduled hours → auto-close if open and no override pending
+        if (isOpen && !scheduleOverride) {
+          await updateVendorStore(uid, { isOpen: false, scheduleOverride: false })
+          onScheduleChange(false, false)
+          toast('🔴 Store automatically closed (scheduled)', { icon: '⏰', duration: 4000 })
+        }
+      }
+    }
+
+    // Run immediately
+    check()
+    // Then every 60 s
+    const id = setInterval(check, 60_000)
+    return () => clearInterval(id)
+  }, [uid, openTime, closeTime, isOpen, scheduleOverride])
+}
+
 // ── GEOCODE HELPER ────────────────────────────────────────────────────────────
 async function geocodeAddress(address) {
   try {
@@ -65,7 +148,6 @@ function MiniCustomerMap({ order, onExpand }) {
   const routeLineRef = useRef(null)
   const leafletLoadedRef = useRef(false)
 
-  // Live listen to rider location from Firestore
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'orders', order.id), (snap) => {
       const data = snap.data()
@@ -74,17 +156,14 @@ function MiniCustomerMap({ order, onExpand }) {
     return unsub
   }, [order.id])
 
-  // Resolve customer location
   useEffect(() => {
     async function resolve() {
       setLoading(true)
-      // 1. Try live GPS from order
       if (order.customerLocation?.lat) {
         setCustomerCoords(order.customerLocation)
         setLoading(false)
         return
       }
-      // 2. Geocode delivery address
       if (order.address) {
         const coords = await geocodeAddress(order.address)
         if (coords) { setCustomerCoords(coords); setLoading(false); return }
@@ -94,16 +173,13 @@ function MiniCustomerMap({ order, onExpand }) {
     resolve()
   }, [order])
 
-  // Load Leaflet and initialize map
   useEffect(() => {
     if (!customerCoords) return
     if (leafletLoadedRef.current) { initMap(); return }
-
     const link = document.createElement('link')
     link.rel = 'stylesheet'
     link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
     document.head.appendChild(link)
-
     const script = document.createElement('script')
     script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
     script.onload = () => { leafletLoadedRef.current = true; initMap() }
@@ -113,20 +189,15 @@ function MiniCustomerMap({ order, onExpand }) {
   const initMap = () => {
     if (!mapRef.current || !customerCoords || !window.L) return
     if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null }
-
     const L = window.L
     const center = riderCoords
       ? [(customerCoords.lat + riderCoords.lat) / 2, (customerCoords.lng + riderCoords.lng) / 2]
       : [customerCoords.lat, customerCoords.lng]
-
     const map = L.map(mapRef.current, { zoomControl: false, attributionControl: false, dragging: false, scrollWheelZoom: false, touchZoom: false, doubleClickZoom: false })
     mapInstanceRef.current = map
-
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
-
     const customerIcon = L.divIcon({ html: '<div style="font-size:22px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))">🏠</div>', className:'', iconSize:[24,24], iconAnchor:[12,12] })
     customerMarkerRef.current = L.marker([customerCoords.lat, customerCoords.lng], { icon: customerIcon }).addTo(map)
-
     if (riderCoords) {
       const riderIcon = L.divIcon({ html: '<div style="font-size:22px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))">🛵</div>', className:'', iconSize:[24,24], iconAnchor:[12,12] })
       riderMarkerRef.current = L.marker([riderCoords.lat, riderCoords.lng], { icon: riderIcon }).addTo(map)
@@ -140,7 +211,6 @@ function MiniCustomerMap({ order, onExpand }) {
     }
   }
 
-  // Update rider marker when riderCoords changes
   useEffect(() => {
     if (!mapInstanceRef.current || !riderCoords || !customerCoords || !window.L) return
     const L = window.L
@@ -167,7 +237,6 @@ function MiniCustomerMap({ order, onExpand }) {
 
   return (
     <div style={{ background:'#fff', borderRadius:14, overflow:'hidden', marginBottom:12, boxShadow:'0 2px 12px rgba(0,0,0,0.1)', borderWidth:1, borderStyle:'solid', borderColor:'#e0f2fe' }}>
-      {/* Header bar */}
       <div style={{ background:'linear-gradient(135deg,#0369a1,#0f3460)', padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <div style={{ width:8, height:8, borderRadius:'50%', background:'#4ade80', animation:'livePulse 1.2s infinite' }} />
@@ -178,7 +247,6 @@ function MiniCustomerMap({ order, onExpand }) {
           <button onClick={onExpand} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', fontSize:10, fontWeight:700, borderRadius:6, padding:'4px 9px', cursor:'pointer', fontFamily:'Poppins', letterSpacing:0.5 }}>⛶ FULLSCREEN</button>
         </div>
       </div>
-      {/* Map */}
       <div style={{ position:'relative', height:170 }}>
         {loading && (
           <div style={{ position:'absolute', inset:0, background:'#f0f9ff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, zIndex:5 }}>
@@ -193,14 +261,12 @@ function MiniCustomerMap({ order, onExpand }) {
           </div>
         )}
         <div ref={mapRef} style={{ width:'100%', height:'100%' }} />
-        {/* Legend */}
         {customerCoords && (
           <div style={{ position:'absolute', bottom:8, left:8, background:'rgba(255,255,255,0.92)', borderRadius:8, padding:'5px 10px', display:'flex', gap:10, fontSize:11, fontWeight:600, color:'#374151', backdropFilter:'blur(4px)', zIndex:999 }}>
             <span>🏠 Customer</span>
             {riderCoords && <span>🛵 Rider</span>}
           </div>
         )}
-        {/* Navigate button */}
         {customerCoords && (
           <a
             href={`https://www.google.com/maps/dir/?api=1&destination=${customerCoords.lat},${customerCoords.lng}`}
@@ -311,7 +377,6 @@ function CustomerLocationPanel({ order, onClose }) {
 
   return (
     <div style={{ position:'fixed', inset:0, zIndex:3000, display:'flex', flexDirection:'column', background:'#0f1923', fontFamily:'Poppins,sans-serif' }}>
-      {/* Header */}
       <div style={{ background:'linear-gradient(135deg,#0f3460,#1a1a2e)', padding:'16px 16px 18px', position:'relative', overflow:'hidden', flexShrink:0 }}>
         <div style={{ position:'absolute', right:-10, top:-10, fontSize:80, opacity:0.06 }}>🗺️</div>
         <div style={{ display:'flex', justifyContent:'center', marginBottom:10 }}><div style={{ width:36, height:4, borderRadius:2, background:'rgba(255,255,255,0.25)' }} /></div>
@@ -323,7 +388,6 @@ function CustomerLocationPanel({ order, onClose }) {
           </div>
           <button onClick={onClose} style={{ background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', width:36, height:36, borderRadius:'50%', fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
         </div>
-        {/* Stats row */}
         <div style={{ display:'flex', gap:10, marginTop:14 }}>
           {[
             { icon:'📍', label:'Address', val: order.address?.slice(0,28) + (order.address?.length > 28 ? '…' : '') || 'N/A' },
@@ -337,7 +401,6 @@ function CustomerLocationPanel({ order, onClose }) {
             </div>
           ))}
         </div>
-        {/* Live badge */}
         {riderCoords && (
           <div style={{ marginTop:12, background:'rgba(74,222,128,0.15)', borderRadius:8, padding:'7px 12px', display:'flex', alignItems:'center', gap:8, borderWidth:1, borderStyle:'solid', borderColor:'rgba(74,222,128,0.3)' }}>
             <div style={{ width:8, height:8, borderRadius:'50%', background:'#4ade80', animation:'livePulse 1.2s infinite' }} />
@@ -345,7 +408,6 @@ function CustomerLocationPanel({ order, onClose }) {
           </div>
         )}
       </div>
-      {/* Map area */}
       <div style={{ flex:1, position:'relative', minHeight:0 }}>
         {loading && (
           <div style={{ position:'absolute', inset:0, background:'#0f1923', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:10, zIndex:5 }}>
@@ -363,7 +425,6 @@ function CustomerLocationPanel({ order, onClose }) {
         )}
         <div ref={mapRef} style={{ width:'100%', height:'100%' }} />
       </div>
-      {/* Bottom action bar */}
       <div style={{ background:'#1a1a2e', padding:'14px 16px 20px', flexShrink:0, display:'flex', gap:10 }}>
         {customerCoords && (
           <a
@@ -470,7 +531,6 @@ function RiderLocationPanel({ order, onClose }) {
             </div>
           )}
         </div>
-
         <div style={{ padding:'20px 20px 40px' }}>
           <div style={{ background:'#f0f9ff', borderRadius:12, padding:'12px 14px', marginBottom:18, borderWidth:1, borderStyle:'solid', borderColor:'#bae6fd', display:'flex', gap:10, alignItems:'flex-start' }}>
             <span style={{ fontSize:20, flexShrink:0 }}>💡</span>
@@ -483,7 +543,6 @@ function RiderLocationPanel({ order, onClose }) {
               </div>
             </div>
           </div>
-
           <div style={{ background:'#f9fafb', borderRadius:12, padding:14, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
             <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:12 }}>👤 Rider Details</div>
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
@@ -507,7 +566,6 @@ function RiderLocationPanel({ order, onClose }) {
               )}
             </div>
           </div>
-
           {locationStatus && (
             <div style={{ background: tracking ? '#f0fdf4' : '#f9fafb', borderRadius:10, padding:'10px 14px', marginBottom:14, borderWidth:1, borderStyle:'solid', borderColor: tracking ? '#bbf7d0' : '#e5e7eb', display:'flex', gap:8, alignItems:'center' }}>
               <span style={{ fontSize:16 }}>{tracking ? '📡' : '📍'}</span>
@@ -518,7 +576,6 @@ function RiderLocationPanel({ order, onClose }) {
               </div>
             </div>
           )}
-
           {!tracking ? (
             <button onClick={startTracking} disabled={!riderSaved} style={{ width:'100%', background: riderSaved ? 'linear-gradient(135deg,#E24B4A,#c73232)' : '#e5e7eb', color: riderSaved ? '#fff' : '#9ca3af', border:'none', padding:'16px 0', borderRadius:14, fontSize:15, fontWeight:800, cursor: riderSaved ? 'pointer' : 'not-allowed', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow: riderSaved ? '0 6px 20px rgba(226,75,74,0.35)' : 'none', transition:'all 0.2s' }}>
               <span style={{ fontSize:22 }}>🛵</span> Start Live Tracking
@@ -528,7 +585,6 @@ function RiderLocationPanel({ order, onClose }) {
               <span style={{ fontSize:18 }}>⏹️</span> Stop Tracking
             </button>
           )}
-
           {riderSaved && (
             <button onClick={() => {
               navigator.geolocation.getCurrentPosition(
@@ -540,7 +596,6 @@ function RiderLocationPanel({ order, onClose }) {
               📍 Push Current Location Once
             </button>
           )}
-
           <div style={{ marginTop:16, background:'#fffbeb', borderRadius:10, padding:'10px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', display:'flex', gap:8, alignItems:'flex-start' }}>
             <span style={{ fontSize:14, flexShrink:0 }}>⚠️</span>
             <div style={{ fontSize:11, color:'#92400e', lineHeight:1.6 }}>Keep this panel open on the rider's phone while delivering.</div>
@@ -562,6 +617,7 @@ export default function VendorApp() {
   const [menuItems, setMenuItems] = useState([])
   const [combos, setCombos] = useState([])
   const [isOpen, setIsOpen] = useState(false)
+  const [scheduleOverride, setScheduleOverride] = useState(false)
   const [showAddItem, setShowAddItem] = useState(false)
   const [newItem, setNewItem] = useState(EMPTY_ITEM)
   const [customCategories, setCustomCategories] = useState([])
@@ -582,15 +638,12 @@ export default function VendorApp() {
   const [editItemData, setEditItemData] = useState({})
   const [savingEdit, setSavingEdit] = useState(false)
 
-  // ── RIDER TRACKING STATE ──────────────────────────────────────────────────
   const [showRiderPanel, setShowRiderPanel] = useState(false)
   const [riderPanelOrder, setRiderPanelOrder] = useState(null)
 
-  // ── CUSTOMER LOCATION STATE ───────────────────────────────────────────────
   const [showCustomerMap, setShowCustomerMap] = useState(false)
   const [customerMapOrder, setCustomerMapOrder] = useState(null)
 
-  // ── COMBO STATES ──────────────────────────────────────────────────────────
   const [showAddCombo, setShowAddCombo] = useState(false)
   const [newCombo, setNewCombo] = useState(EMPTY_COMBO)
   const [addingCombo, setAddingCombo] = useState(false)
@@ -599,12 +652,10 @@ export default function VendorApp() {
   const [savingCombo, setSavingCombo] = useState(false)
   const [comboSearchQuery, setComboSearchQuery] = useState('')
 
-  // ── STORE INFO EDIT STATES ────────────────────────────────────────────────
   const [editingStoreInfo, setEditingStoreInfo] = useState(false)
   const [storeEditData, setStoreEditData] = useState({})
   const [savingStoreInfo, setSavingStoreInfo] = useState(false)
 
-  // ── VENDOR BILL STATES ────────────────────────────────────────────────────
   const [showVendorBill, setShowVendorBill] = useState(false)
   const [vendorBillOrder, setVendorBillOrder] = useState(null)
 
@@ -654,6 +705,19 @@ export default function VendorApp() {
 
   useNotifications(user?.uid, 'vendor')
 
+  // ── SCHEDULE HOOK: auto open/close ────────────────────────────────────────
+  useStoreSchedule({
+    uid: user?.uid,
+    openTime,
+    closeTime,
+    isOpen,
+    scheduleOverride,
+    onScheduleChange: (newIsOpen, newOverride) => {
+      setIsOpen(newIsOpen)
+      setScheduleOverride(newOverride)
+    }
+  })
+
   useEffect(() => {
     if (!user?.uid) return
     const saveToken = async (token) => {
@@ -685,6 +749,7 @@ export default function VendorApp() {
   useEffect(() => {
     if (!user) return
     setIsOpen(userData?.isOpen || false)
+    setScheduleOverride(userData?.scheduleOverride || false)
     if (userData?.customCategories) setCustomCategories(userData.customCategories)
     if (userData?.deliveryCharge !== undefined) setDeliveryCharge(String(userData.deliveryCharge ?? ''))
     setDistanceBasedDelivery(userData?.distanceBasedDelivery || false)
@@ -764,10 +829,30 @@ export default function VendorApp() {
     setSavingDetails(false)
   }
 
+  // ── TOGGLE STORE (manual) ─────────────────────────────────────────────────
   const toggleStore = async () => {
-    const val = !isOpen; setIsOpen(val)
-    await updateVendorStore(user.uid, { isOpen: val })
-    toast.success(val ? '🟢 Store is now Open!' : '🔴 Store is now Closed')
+    const inWindow = isWithinSchedule(openTime, closeTime)
+    const newVal = !isOpen
+
+    if (!newVal && inWindow) {
+      // Vendor is manually closing during scheduled open hours → set override
+      await updateVendorStore(user.uid, { isOpen: false, scheduleOverride: true })
+      setIsOpen(false)
+      setScheduleOverride(true)
+      toast('🔴 Store closed manually. Auto-schedule paused until next open window.', { icon: '⚠️', duration: 5000 })
+    } else if (newVal && inWindow && scheduleOverride) {
+      // Vendor manually re-opening during scheduled hours → clear override
+      await updateVendorStore(user.uid, { isOpen: true, scheduleOverride: false })
+      setIsOpen(true)
+      setScheduleOverride(false)
+      toast.success('🟢 Store is now Open!')
+    } else {
+      // No schedule set or outside window — simple toggle
+      await updateVendorStore(user.uid, { isOpen: newVal, scheduleOverride: false })
+      setIsOpen(newVal)
+      setScheduleOverride(false)
+      toast.success(newVal ? '🟢 Store is now Open!' : '🔴 Store is now Closed')
+    }
   }
 
   const handleStatus = async (orderId, current, orderData = {}) => {
@@ -776,15 +861,14 @@ export default function VendorApp() {
     toast.success(`Order → ${next.replace('_',' ')}`)
   }
 
-  // ✅ Pass the full order object
-const handleReject = async (order) => {
-  await updateOrderStatus(order.id, 'cancelled', {
-    userUid: order.userUid,
-    vendorName: userData?.storeName || '',
-    cancellationReason: 'Order rejected by restaurant',
-  })
-  toast.error('Order rejected')
-}
+  const handleReject = async (order) => {
+    await updateOrderStatus(order.id, 'cancelled', {
+      userUid: order.userUid,
+      vendorName: userData?.storeName || '',
+      cancellationReason: 'Order rejected by restaurant',
+    })
+    toast.error('Order rejected')
+  }
 
   const openCancelModal = (order) => { setCancelOrderTarget(order); setCancelReason(''); setShowCancelModal(true) }
 
@@ -867,7 +951,6 @@ const handleReject = async (order) => {
     setItemPhotoUploading(null); setItemPhotoProgress(0); e.target.value = ''
   }
 
-  // ── COMBO HANDLERS ────────────────────────────────────────────────────────
   const toggleComboItem = (item, comboState, setComboState) => {
     const exists = comboState.items.find(i => i.id === item.id)
     if (exists) setComboState(p => ({ ...p, items: p.items.filter(i => i.id !== item.id) }))
@@ -938,6 +1021,17 @@ const handleReject = async (order) => {
   const filteredMenuItems = menuCatFilter === 'All' ? menuItems : menuItems.filter(i => i.category === menuCatFilter)
   const filteredMenuForCombo = comboSearchQuery.trim() ? menuItems.filter(i => i.name.toLowerCase().includes(comboSearchQuery.toLowerCase()) || i.category?.toLowerCase().includes(comboSearchQuery.toLowerCase())) : menuItems
 
+  // ── SCHEDULE STATUS DISPLAY ───────────────────────────────────────────────
+  const hasSchedule = openTime && closeTime
+  const inScheduleWindow = hasSchedule ? isWithinSchedule(openTime, closeTime) : null
+  const scheduleStatusLabel = () => {
+    if (!hasSchedule) return null
+    if (inScheduleWindow && !scheduleOverride) return `🟢 Auto-opens ${formatTime12(openTime)} · Closes ${formatTime12(closeTime)}`
+    if (inScheduleWindow && scheduleOverride) return `⚠️ Manually closed (schedule paused)`
+    if (!inScheduleWindow) return `⏰ Opens at ${formatTime12(openTime)}`
+    return null
+  }
+
   const inp = {
     width:'100%', padding:'10px 12px', borderWidth:'1px', borderStyle:'solid', borderColor:'#e5e7eb',
     borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box'
@@ -949,7 +1043,6 @@ const handleReject = async (order) => {
     color: status==='pending'?'#92400e': status==='accepted'?'#1e40af': status==='preparing'?'#6d28d9': status==='ready'?'#15803d': status==='out_for_delivery'?'#0369a1': status==='delivered'?'#065f46':'#991b1b',
   })
 
-  // ── COMBO ITEM PICKER ─────────────────────────────────────────────────────
   const ComboItemPicker = ({ comboState, setComboState }) => (
     <div>
       <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Select Items for Combo *</label>
@@ -1015,13 +1108,27 @@ const handleReject = async (order) => {
             <div>
               <div style={{ fontSize:15, fontWeight:600, color:'#fff' }}>{userData?.storeName || 'My Store'}</div>
               <div style={{ fontSize:10, color:'#888', marginTop:1 }}>📷 Tap photo to change · {userData?.category||'Food'}</div>
+              {/* ── SCHEDULE STATUS in header ── */}
+              {hasSchedule && (
+                <div style={{ fontSize:10, color: inScheduleWindow && !scheduleOverride ? '#4ade80' : scheduleOverride ? '#fbbf24' : '#9ca3af', marginTop:2, fontWeight:600 }}>
+                  {scheduleStatusLabel()}
+                </div>
+              )}
             </div>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <span style={{ fontSize:11, color: isOpen?'#4ade80':'#9ca3af' }}>{isOpen?'Open':'Closed'}</span>
-            <div onClick={toggleStore} style={{ width:44, height:24, background: isOpen?'#16a34a':'#6b7280', borderRadius:12, cursor:'pointer', position:'relative', transition:'background 0.2s' }}>
-              <div style={{ position:'absolute', width:18, height:18, background:'#fff', borderRadius:'50%', top:3, left: isOpen?23:3, transition:'left 0.2s' }} />
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <span style={{ fontSize:11, color: isOpen?'#4ade80':'#9ca3af' }}>{isOpen?'Open':'Closed'}</span>
+              <div onClick={toggleStore} style={{ width:44, height:24, background: isOpen?'#16a34a':'#6b7280', borderRadius:12, cursor:'pointer', position:'relative', transition:'background 0.2s' }}>
+                <div style={{ position:'absolute', width:18, height:18, background:'#fff', borderRadius:'50%', top:3, left: isOpen?23:3, transition:'left 0.2s' }} />
+              </div>
             </div>
+            {/* Override badge */}
+            {scheduleOverride && (
+              <div style={{ background:'rgba(251,191,36,0.2)', borderRadius:6, padding:'2px 7px', borderWidth:1, borderStyle:'solid', borderColor:'rgba(251,191,36,0.4)' }}>
+                <span style={{ fontSize:9, color:'#fbbf24', fontWeight:700 }}>⚠️ MANUAL OVERRIDE</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1101,16 +1208,12 @@ const handleReject = async (order) => {
                     </button>
                   </div>
 
-                  {/* ── OUT FOR DELIVERY: Rider + Customer Map ── */}
                   {selectedVendorOrder.status === 'out_for_delivery' && (
                     <>
-                      {/* Mini Customer Map — always visible */}
                       <MiniCustomerMap
                         order={selectedVendorOrder}
                         onExpand={() => { setCustomerMapOrder(selectedVendorOrder); setShowCustomerMap(true) }}
                       />
-
-                      {/* Rider tracking card */}
                       <div style={{ background:'linear-gradient(135deg,#0f3460,#1a1a2e)', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 4px 20px rgba(15,52,96,0.35)', position:'relative', overflow:'hidden' }}>
                         <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>🛵</div>
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
@@ -1184,11 +1287,7 @@ const handleReject = async (order) => {
                     <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:10 }}>
                       <div style={{ display:'flex', gap:10 }}>
                         {selectedVendorOrder.status === 'pending' && (
-                          <button // ✅ Fix — pass full object
-                         onClick={async () => { 
-                         await handleReject(selectedVendorOrder)  // ← remove .id
-                         setSelectedVendorOrder(prev => ({ ...prev, status: 'cancelled' })) 
-                         }} style={{ flex:1, background:'transparent', color:'#E24B4A', borderWidth:2, borderStyle:'solid', borderColor:'#E24B4A', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>❌ Reject</button>
+                          <button onClick={async () => { await handleReject(selectedVendorOrder); setSelectedVendorOrder(prev => ({ ...prev, status: 'cancelled' })) }} style={{ flex:1, background:'transparent', color:'#E24B4A', borderWidth:2, borderStyle:'solid', borderColor:'#E24B4A', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>❌ Reject</button>
                         )}
                         {STATUS_NEXT[selectedVendorOrder.status] && (
                           <button onClick={async () => { await handleStatus(selectedVendorOrder.id, selectedVendorOrder.status, { userUid: selectedVendorOrder.userUid, vendorName: userData?.storeName||'' }); setSelectedVendorOrder(prev => ({ ...prev, status: STATUS_NEXT[prev.status] })) }} style={{ flex:2, background: selectedVendorOrder.status==='pending'?'#E24B4A':'#16a34a', color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>{STATUS_LABEL[selectedVendorOrder.status]} ✓</button>
@@ -1724,6 +1823,7 @@ const handleReject = async (order) => {
 
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
               <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>🏪 Store Details</div>
+
               <div style={{ marginBottom:14 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🚴 Delivery Charge (₹)</label>
                 <input type="number" placeholder="e.g. 20 (0 for free delivery)" value={deliveryCharge} onChange={e => setDeliveryCharge(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
@@ -1747,30 +1847,17 @@ const handleReject = async (order) => {
                   )}
                 </div>
               </div>
+
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🛒 Minimum Order Amount (₹)</label>
                 <input type="number" placeholder="e.g. 100 (0 for no minimum)" value={minOrderAmount} onChange={e => setMinOrderAmount(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
-                <div style={{ marginTop:6, display:'flex', alignItems:'flex-start', gap:6 }}>
-                  <span style={{ fontSize:12, flexShrink:0 }}>💡</span>
-                  <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>Customers must add at least ₹{minOrderAmount || '0'} worth of items before checkout.</p>
-                </div>
               </div>
-              {Number(minOrderAmount) > 0 && (
-                <div style={{ marginBottom:14, background:'#eff6ff', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe', display:'flex', alignItems:'center', gap:8 }}>
-                  <span style={{ fontSize:15 }}>👁️</span>
-                  <div>
-                    <div style={{ fontSize:11, fontWeight:700, color:'#1e40af', marginBottom:2 }}>How users will see it:</div>
-                    <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                      <span style={{ fontSize:11, background:'#dbeafe', color:'#1e40af', fontWeight:700, borderRadius:6, padding:'2px 8px' }}>🛒 Min. ₹{minOrderAmount}</span>
-                      <span style={{ fontSize:11, color:'#6b7280' }}>shown on restaurant card & menu</span>
-                    </div>
-                  </div>
-                </div>
-              )}
+
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>📋 FSSAI Licence Number</label>
                 <input type="text" placeholder="e.g. 10012345000123" value={fssai} onChange={e => setFssai(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
               </div>
+
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🏛️ GST Number</label>
                 <input type="text" placeholder="e.g. 22AAAAA0000A1Z5" value={gstNumber} onChange={e => setGstNumber(e.target.value.toUpperCase())} maxLength={15} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box', letterSpacing:1 }} />
@@ -1782,28 +1869,84 @@ const handleReject = async (order) => {
                   </div>
                 )}
               </div>
+
               <div style={{ marginBottom:14 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>💳 UPI ID</label>
                 <input type="text" placeholder="e.g. storename@paytm or 9876543210@upi" value={upiId} onChange={e => setUpiId(e.target.value.trim())} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
-                {upiId && (
-                  <div style={{ marginTop:8, background:'#f0fdf4', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0', display:'flex', alignItems:'center', gap:10 }}>
-                    <span style={{ fontSize:22 }}>📱</span>
+              </div>
+
+              {/* ── SCHEDULE SECTION ── */}
+              <div style={{ marginBottom:16, background:'#fff', borderRadius:12, padding:14, borderWidth:1.5, borderStyle:'solid', borderColor: hasSchedule ? '#bbf7d0' : '#e5e7eb' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#1f2937' }}>⏰ Auto Schedule</div>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>Store opens/closes automatically</div>
+                  </div>
+                  {hasSchedule && (
+                    <div style={{ background: inScheduleWindow && !scheduleOverride ? '#dcfce7' : scheduleOverride ? '#fef3c7' : '#fee2e2', borderRadius:20, padding:'4px 10px' }}>
+                      <span style={{ fontSize:10, fontWeight:700, color: inScheduleWindow && !scheduleOverride ? '#16a34a' : scheduleOverride ? '#92400e' : '#dc2626' }}>
+                        {inScheduleWindow && !scheduleOverride ? '🟢 ACTIVE' : scheduleOverride ? '⚠️ OVERRIDDEN' : '🔴 CLOSED NOW'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+                  <div style={{ flex:1 }}>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Opens At</label>
+                    <input type="time" value={openTime} onChange={e => setOpenTime(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Closes At</label>
+                    <input type="time" value={closeTime} onChange={e => setCloseTime(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
+                  </div>
+                </div>
+
+                {openTime && closeTime && (
+                  <div style={{ background:'#f0fdf4', borderRadius:10, padding:'10px 12px', marginBottom:10, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:'#15803d', marginBottom:4 }}>📅 Schedule Preview</div>
+                    <div style={{ fontSize:12, color:'#166534' }}>
+                      Store auto-opens at <strong>{formatTime12(openTime)}</strong> and closes at <strong>{formatTime12(closeTime)}</strong> every day.
+                    </div>
+                    {inScheduleWindow !== null && (
+                      <div style={{ marginTop:6, fontSize:11, fontWeight:600, color: inScheduleWindow ? '#16a34a' : '#dc2626' }}>
+                        {inScheduleWindow ? '✅ Currently within open hours' : `⏰ Opens at ${formatTime12(openTime)}`}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {scheduleOverride && (
+                  <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 12px', marginBottom:10, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', display:'flex', gap:8, alignItems:'flex-start' }}>
+                    <span style={{ fontSize:16, flexShrink:0 }}>⚠️</span>
                     <div>
-                      <div style={{ fontSize:11, fontWeight:700, color:'#15803d', marginBottom:2 }}>UPI Payment Preview on Bill</div>
-                      <div style={{ fontSize:12, color:'#166534', fontWeight:600 }}>{upiId}</div>
-                      <div style={{ fontSize:10, color:'#6b7280', marginTop:1 }}>Pay via PhonePe · GPay · Paytm · BHIM</div>
+                      <div style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>Manual Override Active</div>
+                      <div style={{ fontSize:11, color:'#a16207', marginTop:2, lineHeight:1.5 }}>You manually closed the store during scheduled hours. Auto-schedule is paused until the next open window ({formatTime12(openTime)}).</div>
+                      <button
+                        onClick={async () => {
+                          await updateVendorStore(user.uid, { isOpen: true, scheduleOverride: false })
+                          setIsOpen(true); setScheduleOverride(false)
+                          toast.success('🟢 Override cleared — store reopened!')
+                        }}
+                        style={{ marginTop:8, background:'#92400e', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
+                      >
+                        ↩️ Clear Override &amp; Reopen
+                      </button>
                     </div>
                   </div>
                 )}
-              </div>
-              <div style={{ marginBottom:12 }}>
-                <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🕐 Opening Hours</label>
-                <div style={{ display:'flex', gap:8, marginTop:4, alignItems:'center' }}>
-                  <input type="time" value={openTime} onChange={e => setOpenTime(e.target.value)} style={{ flex:1, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none' }} />
-                  <span style={{ fontSize:12, color:'#6b7280' }}>to</span>
-                  <input type="time" value={closeTime} onChange={e => setCloseTime(e.target.value)} style={{ flex:1, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none' }} />
+
+                <div style={{ background:'#eff6ff', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
+                  <div style={{ fontSize:11, color:'#1e40af', lineHeight:1.7 }}>
+                    💡 <strong>How it works:</strong><br/>
+                    • Store auto-opens at your opening time every day<br/>
+                    • Store auto-closes at your closing time every day<br/>
+                    • You can still manually close/open the toggle anytime<br/>
+                    • Manual close during open hours pauses auto-schedule
+                  </div>
                 </div>
               </div>
+
               <button onClick={handleSaveDetails} disabled={savingDetails} style={{ width:'100%', background:savingDetails?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
                 {savingDetails?'Saving...':'💾 Save Store Details'}
               </button>
