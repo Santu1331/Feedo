@@ -14,8 +14,6 @@ import { useOrderAlert } from '../hooks/useOrderAlert'
 import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
 import FounderBill from '../components/FounderBill'
 
-// ─── EXPO PUSH HELPER (with FCM fallback) ────────────────────────────────────
-// Uses your Vercel proxy which must forward to https://exp.host/--/api/v2/push/send
 const PUSH_URL = 'https://feedo-ruddy.vercel.app/api/send-push'
 
 async function sendPushBatch(notifications) {
@@ -26,6 +24,144 @@ async function sendPushBatch(notifications) {
   })
   if (!res.ok) throw new Error(`Push proxy returned ${res.status}`)
   return res.json()
+}
+
+// ── CUSTOMER PROFILE MODAL ───────────────────────────────────────────────────
+function CustomerProfileModal({ customer, orders, onClose, broadcastMsg, broadcastTitle }) {
+  if (!customer) return null
+  const userOrders = orders.filter(o => o.userUid === customer.id || o.userPhone === customer.phone || o.userPhone === customer.mobile)
+  const delivered = userOrders.filter(o => o.status === 'delivered')
+  const totalSpent = delivered.reduce((s, o) => s + (o.total || 0), 0)
+  const cancelled = userOrders.filter(o => o.status === 'cancelled')
+  const pending = userOrders.filter(o => o.status === 'pending')
+
+  // Favourite vendor
+  const vendorCount = {}
+  userOrders.forEach(o => { vendorCount[o.vendorName] = (vendorCount[o.vendorName] || 0) + 1 })
+  const favVendor = Object.entries(vendorCount).sort((a, b) => b[1] - a[1])[0]
+
+  // Favourite item
+  const itemCount = {}
+  userOrders.forEach(o => { o.items?.forEach(i => { itemCount[i.name] = (itemCount[i.name] || 0) + i.qty }) })
+  const favItem = Object.entries(itemCount).sort((a, b) => b[1] - a[1])[0]
+
+  // Weekly order pattern (last 8 weeks)
+  const weeklyData = []
+  for (let w = 7; w >= 0; w--) {
+    const start = new Date(); start.setDate(start.getDate() - (w + 1) * 7)
+    const end = new Date(); end.setDate(end.getDate() - w * 7)
+    const count = userOrders.filter(o => {
+      const d = o.createdAt?.toDate?.()
+      return d && d >= start && d < end
+    }).length
+    weeklyData.push({ week: `W${8 - w}`, count })
+  }
+
+  const maxWeek = Math.max(...weeklyData.map(w => w.count), 1)
+  const lastOrder = userOrders[0]?.createdAt?.toDate?.()
+  const daysSince = lastOrder ? Math.floor((Date.now() - lastOrder) / 86400000) : null
+  const phone = customer.mobile || customer.phone || ''
+  const wa91 = '91' + phone.replace(/\D/g, '')
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background: '#fff', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', maxWidth: 430, maxHeight: '90vh', overflowY: 'auto' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'linear-gradient(135deg,#E24B4A,#ff6b6a)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span style={{ fontSize: 20, fontWeight: 700, color: '#fff' }}>{customer.name?.[0]?.toUpperCase() || 'U'}</span>
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>{customer.name || 'Unknown'}</div>
+              <div style={{ fontSize: 11, color: '#9ca3af' }}>{customer.email || '—'}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: '#f3f4f6', border: 'none', borderRadius: '50%', width: 32, height: 32, fontSize: 16, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* Quick Stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
+          {[
+            { label: 'Orders', val: userOrders.length, color: '#E24B4A', bg: '#fff5f5' },
+            { label: 'Spent', val: '₹' + totalSpent.toLocaleString(), color: '#16a34a', bg: '#f0fdf4' },
+            { label: 'Cancelled', val: cancelled.length, color: '#f59e0b', bg: '#fffbeb' },
+          ].map(s => (
+            <div key={s.label} style={{ background: s.bg, borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.val}</div>
+              <div style={{ fontSize: 10, color: '#6b7280' }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Contact + Last seen */}
+        <div style={{ background: '#f9fafb', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+          {[
+            ['📞 Phone', phone || '—'],
+            ['📧 Email', customer.email || '—'],
+            ['📅 Joined', customer.createdAt?.toDate?.()?.toLocaleDateString('en-IN') || '—'],
+            ['🕐 Last Order', daysSince !== null ? (daysSince === 0 ? 'Today' : `${daysSince} days ago`) : '—'],
+            ['❤️ Fav Vendor', favVendor ? `${favVendor[0]} (${favVendor[1]}x)` : '—'],
+            ['🍽️ Fav Item', favItem ? `${favItem[0]} (${favItem[1]}x)` : '—'],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 11, color: '#6b7280', flexShrink: 0, marginRight: 8 }}>{k}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#1f2937', textAlign: 'right', wordBreak: 'break-all' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Weekly Order Chart */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8 }}>📊 Weekly Order History</div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 60, background: '#f9fafb', borderRadius: 10, padding: '10px 10px 6px' }}>
+            {weeklyData.map(w => (
+              <div key={w.week} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <div style={{ width: '100%', background: w.count > 0 ? '#E24B4A' : '#e5e7eb', borderRadius: '3px 3px 0 0', height: Math.max((w.count / maxWeek) * 40, w.count > 0 ? 6 : 3), transition: 'height 0.3s' }} />
+                <div style={{ fontSize: 8, color: '#9ca3af' }}>{w.week}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          {phone && (
+            <a href={`https://wa.me/${wa91}?text=${encodeURIComponent(broadcastMsg?.replace(/{name}/g, customer.name || 'there') || `Hi ${customer.name || 'there'}! 🍽️ Order from FeedoZone today!`)}`}
+              target="_blank" rel="noreferrer"
+              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px 0', background: '#25D366', borderRadius: 10, textDecoration: 'none' }}>
+              <span style={{ fontSize: 16 }}>💬</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', fontFamily: 'Poppins' }}>WhatsApp</span>
+            </a>
+          )}
+          {customer.email && (
+            <a href={`mailto:${customer.email}?subject=${encodeURIComponent(broadcastTitle || 'Message from FeedoZone')}&body=${encodeURIComponent(broadcastMsg?.replace(/{name}/g, customer.name || 'there') || 'Hi from FeedoZone!')}`}
+              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px 0', background: '#3b82f6', borderRadius: 10, textDecoration: 'none' }}>
+              <span style={{ fontSize: 16 }}>📧</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', fontFamily: 'Poppins' }}>Email</span>
+            </a>
+          )}
+        </div>
+
+        {/* Recent Orders */}
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8 }}>🧾 Recent Orders</div>
+        {userOrders.slice(0, 8).map((o, i) => (
+          <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6' }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937' }}>{o.vendorName}</div>
+              <div style={{ fontSize: 10, color: '#9ca3af' }}>{o.createdAt?.toDate?.()?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 12, fontWeight: 700 }}>₹{o.total}</div>
+              <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 6, fontWeight: 600, background: o.status === 'delivered' ? '#d1fae5' : o.status === 'cancelled' ? '#fee2e2' : '#fef3c7', color: o.status === 'delivered' ? '#065f46' : o.status === 'cancelled' ? '#991b1b' : '#92400e' }}>{o.status}</span>
+            </div>
+          </div>
+        ))}
+        {userOrders.length === 0 && <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No orders yet</div>}
+      </div>
+    </div>
+  )
 }
 
 export default function FounderApp() {
@@ -59,8 +195,6 @@ export default function FounderApp() {
   const [analyticsTab, setAnalyticsTab] = useState('overview')
   const [orderFilter, setOrderFilter] = useState('all')
   const [users, setUsers] = useState([])
-
-  // ── LOCATION FILTER STATE ─────────────────────────────────────────────
   const [selectedTown, setSelectedTown] = useState('all')
 
   // Support ticket states
@@ -91,6 +225,12 @@ export default function FounderApp() {
   const [searchingLoc, setSearchingLoc] = useState(false)
   const [detectingLoc, setDetectingLoc] = useState(false)
 
+  // ── CUSTOMER ANALYTICS STATES ──────────────────────────────────────────
+  const [selectedCustomer, setSelectedCustomer] = useState(null)
+  const [customerFilter, setCustomerFilter] = useState('all')
+  // 'all' | 'repeat' | 'weekly' | 'top' | 'inactive' | 'new'
+  const [customerSearch, setCustomerSearch] = useState('')
+
   // ── BROADCAST STATES ──────────────────────────────────────────────────
   const [broadcastMsg, setBroadcastMsg] = useState('')
   const [broadcastTitle, setBroadcastTitle] = useState('')
@@ -107,12 +247,11 @@ export default function FounderApp() {
   const [pushTitle, setPushTitle] = useState('')
   const [pushBody, setPushBody] = useState('')
   const [pushTarget, setPushTarget] = useState('all')
-  const [pushTown, setPushTown] = useState('all')  // ← NEW: town-targeted push
+  const [pushTown, setPushTown] = useState('all')
   const [sendingPush, setSendingPush] = useState(false)
   const [pushDone, setPushDone] = useState(null)
   const [pushHistory, setPushHistory] = useState([])
   const [pushProgress, setPushProgress] = useState(0)
-  const [pushTestMode, setPushTestMode] = useState(false) // ← NEW: test single push
 
   const PUSH_PRESETS = [
     { icon: '🌞', label: 'Lunch Time', title: '🍛 Hungry? Lunch Time!', body: 'Your favourite food is ready to order on FeedoZone! Order now 🚀' },
@@ -185,32 +324,194 @@ export default function FounderApp() {
   const todayRevenue = todayOrders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
   const subRevenue = vendors.length * 500
 
-  // ── TOWN HELPERS ──────────────────────────────────────────────────────
-  // Extract unique towns from vendors
-  const allTowns = [...new Set(
-    vendors
-      .map(v => v.town || v.locationName || null)
-      .filter(Boolean)
-  )].sort()
+  const allTowns = [...new Set(vendors.map(v => v.town || v.locationName || null).filter(Boolean))].sort()
+  const filteredVendors = selectedTown === 'all' ? vendors : vendors.filter(v => (v.town || v.locationName) === selectedTown)
 
-  // Filter vendors by selected town
-  const filteredVendors = selectedTown === 'all'
-    ? vendors
-    : vendors.filter(v => (v.town || v.locationName) === selectedTown)
+  // ── CUSTOMER ANALYTICS HELPERS ────────────────────────────────────────
+  // Build rich customer map from orders + users
+  const buildCustomerMap = () => {
+    const map = {}
 
-  // ── PUSH NOTIFICATION: get target users ──────────────────────────────
+    // Seed from users collection
+    users.forEach(u => {
+      map[u.id] = {
+        id: u.id,
+        name: u.name || u.displayName || 'Unknown',
+        email: u.email || '',
+        phone: u.mobile || u.phone || '',
+        mobile: u.mobile || u.phone || '',
+        expoPushToken: u.expoPushToken || null,
+        createdAt: u.createdAt || null,
+        orders: [],
+        totalSpent: 0,
+        deliveredCount: 0,
+        cancelledCount: 0,
+        lastOrderDate: null,
+        firstOrderDate: null,
+        weeklyOrders: {},  // ISO week key → count
+      }
+    })
+
+    // Fill order data
+    orders.forEach(o => {
+      const uid = o.userUid
+      if (!uid) return
+      if (!map[uid]) {
+        map[uid] = {
+          id: uid,
+          name: o.userName || 'Unknown',
+          email: o.userEmail || '',
+          phone: o.userPhone || '',
+          mobile: o.userPhone || '',
+          expoPushToken: null,
+          createdAt: null,
+          orders: [],
+          totalSpent: 0,
+          deliveredCount: 0,
+          cancelledCount: 0,
+          lastOrderDate: null,
+          firstOrderDate: null,
+          weeklyOrders: {},
+        }
+      }
+      const c = map[uid]
+      // Keep name/phone updated from orders if missing
+      if (!c.name || c.name === 'Unknown') c.name = o.userName || 'Unknown'
+      if (!c.phone) c.phone = o.userPhone || ''
+      if (!c.mobile) c.mobile = o.userPhone || ''
+
+      c.orders.push(o)
+      const d = o.createdAt?.toDate?.()
+      if (d) {
+        if (!c.lastOrderDate || d > c.lastOrderDate) c.lastOrderDate = d
+        if (!c.firstOrderDate || d < c.firstOrderDate) c.firstOrderDate = d
+        // ISO week key
+        const weekStart = new Date(d)
+        weekStart.setDate(d.getDate() - d.getDay())
+        const wk = weekStart.toISOString().slice(0, 10)
+        c.weeklyOrders[wk] = (c.weeklyOrders[wk] || 0) + 1
+      }
+      if (o.status === 'delivered') { c.deliveredCount++; c.totalSpent += o.total || 0 }
+      if (o.status === 'cancelled') c.cancelledCount++
+    })
+
+    return Object.values(map).filter(c => c.orders.length > 0 || users.find(u => u.id === c.id))
+  }
+
+  const allCustomers = buildCustomerMap()
+
+  // Filter helpers
+  const now = new Date()
+  const thisWeekStart = new Date(now); thisWeekStart.setDate(now.getDate() - now.getDay()); thisWeekStart.setHours(0,0,0,0)
+  const lastWeekStart = new Date(thisWeekStart); lastWeekStart.setDate(thisWeekStart.getDate() - 7)
+  const thirtyAgo = new Date(Date.now() - 30 * 86400000)
+  const sevenAgo = new Date(Date.now() - 7 * 86400000)
+
+  const getFilteredCustomers = () => {
+    let list = [...allCustomers]
+    switch (customerFilter) {
+      case 'repeat':
+        list = list.filter(c => c.deliveredCount >= 2)
+        break
+      case 'weekly':
+        // ordered this week
+        list = list.filter(c => c.lastOrderDate && c.lastOrderDate >= thisWeekStart)
+        break
+      case 'top':
+        list = list.sort((a, b) => b.deliveredCount - a.deliveredCount).slice(0, 20)
+        break
+      case 'inactive':
+        // no order in 30 days but had at least 1 before
+        list = list.filter(c => c.orders.length > 0 && (!c.lastOrderDate || c.lastOrderDate < thirtyAgo))
+        break
+      case 'new':
+        // first order in last 7 days
+        list = list.filter(c => c.firstOrderDate && c.firstOrderDate >= sevenAgo)
+        break
+      case 'highspend':
+        list = list.filter(c => c.totalSpent >= 500).sort((a, b) => b.totalSpent - a.totalSpent)
+        break
+      default:
+        list = list.filter(c => c.orders.length > 0)
+        break
+    }
+    if (customerSearch.trim()) {
+      const q = customerSearch.toLowerCase()
+      list = list.filter(c =>
+        c.name?.toLowerCase().includes(q) ||
+        c.phone?.includes(q) ||
+        c.email?.toLowerCase().includes(q)
+      )
+    }
+    // Default sort: most orders first
+    if (customerFilter !== 'top' && customerFilter !== 'highspend') {
+      list = list.sort((a, b) => b.orders.length - a.orders.length)
+    }
+    return list
+  }
+
+  const filteredCustomers = getFilteredCustomers()
+
+  const customerStats = {
+    total: allCustomers.filter(c => c.orders.length > 0).length,
+    repeat: allCustomers.filter(c => c.deliveredCount >= 2).length,
+    thisWeek: allCustomers.filter(c => c.lastOrderDate && c.lastOrderDate >= thisWeekStart).length,
+    inactive: allCustomers.filter(c => c.orders.length > 0 && (!c.lastOrderDate || c.lastOrderDate < thirtyAgo)).length,
+    newThisWeek: allCustomers.filter(c => c.firstOrderDate && c.firstOrderDate >= sevenAgo).length,
+    withPhone: allCustomers.filter(c => c.phone).length,
+    withEmail: allCustomers.filter(c => c.email).length,
+    withToken: allCustomers.filter(c => c.expoPushToken).length,
+  }
+
+  // ── COPY ALL WHATSAPP NUMBERS ─────────────────────────────────────────
+  const copyAllWhatsApp = (list) => {
+    const nums = list
+      .filter(c => c.phone)
+      .map(c => '91' + c.phone.replace(/\D/g, ''))
+      .join('\n')
+    if (!nums) return toast.error('No phone numbers found')
+    navigator.clipboard?.writeText(nums)
+      .then(() => toast.success(`✅ Copied ${list.filter(c => c.phone).length} numbers!`))
+      .catch(() => {
+        // fallback
+        const ta = document.createElement('textarea')
+        ta.value = nums
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+        toast.success(`✅ Copied ${list.filter(c => c.phone).length} numbers!`)
+      })
+  }
+
+  // ── BULK EMAIL (open mail with ALL BCC, batched) ──────────────────────
+  const sendBulkEmail = (list, title, body) => {
+    const emails = list.filter(c => c.email).map(c => c.email)
+    if (!emails.length) return toast.error('No email addresses found')
+    const batchSize = 50
+    const batches = []
+    for (let i = 0; i < emails.length; i += batchSize) batches.push(emails.slice(i, i + batchSize))
+    toast(`📧 Opening ${batches.length} mail window(s) for ${emails.length} recipients`, { duration: 5000 })
+    batches.forEach((batch, i) => {
+      setTimeout(() => {
+        window.open(
+          `mailto:?bcc=${encodeURIComponent(batch.join(','))}&subject=${encodeURIComponent(title || 'Message from FeedoZone')}&body=${encodeURIComponent(body?.replace(/{name}/g, 'there') || 'Hi from FeedoZone!')}`,
+          '_blank'
+        )
+      }, i * 600)
+    })
+  }
+
+  // ── PUSH NOTIFICATION HELPERS ─────────────────────────────────────────
   const getPushTargetUsers = (target, town) => {
     let targetUsers = users
     if (target === 'active') {
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-      const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyDaysAgo).map(o => o.userUid))
+      const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyAgo).map(o => o.userUid))
       targetUsers = users.filter(u => activeUids.has(u.id))
     } else if (target === 'inactive') {
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-      const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyDaysAgo).map(o => o.userUid))
+      const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyAgo).map(o => o.userUid))
       targetUsers = users.filter(u => !activeUids.has(u.id))
     }
-    // Town filter — users who ordered from vendors in that town
     if (town && town !== 'all') {
       const townVendorIds = new Set(vendors.filter(v => (v.town || v.locationName) === town).map(v => v.id))
       const townUserUids = new Set(orders.filter(o => townVendorIds.has(o.vendorUid)).map(o => o.userUid))
@@ -222,134 +523,65 @@ export default function FounderApp() {
   const getPushTargetCount = (t) => getPushTargetUsers(t, pushTown).length
   const usersWithTokenCount = users.filter(u => u.expoPushToken && u.expoPushToken.startsWith('ExponentPushToken')).length
 
-  // ── PUSH SEND HANDLER ─────────────────────────────────────────────────
-  // KEY FIX: proper Expo push payload with android channel and sound
   const handleSendPush = async () => {
     if (!pushTitle.trim()) return toast.error('Enter a notification title')
     if (!pushBody.trim()) return toast.error('Enter a notification message')
-
-    setSendingPush(true)
-    setPushProgress(0)
-    setPushDone(null)
-
+    setSendingPush(true); setPushProgress(0); setPushDone(null)
     try {
       const targetUsers = getPushTargetUsers(pushTarget, pushTown)
-      const usersWithTokens = targetUsers.filter(u =>
-        u.expoPushToken && u.expoPushToken.startsWith('ExponentPushToken')
-      )
+      const usersWithTokens = targetUsers.filter(u => u.expoPushToken && u.expoPushToken.startsWith('ExponentPushToken'))
       const noToken = targetUsers.length - usersWithTokens.length
-
-      if (usersWithTokens.length === 0) {
-        toast.error('No users have push tokens! Ask them to install & open the app.')
-        setSendingPush(false)
-        return
-      }
-
+      if (usersWithTokens.length === 0) { toast.error('No users have push tokens!'); setSendingPush(false); return }
       const tokens = usersWithTokens.map(u => u.expoPushToken)
-      // Batch into groups of 100 (Expo limit)
-      const batches = []
-      for (let i = 0; i < tokens.length; i += 100) batches.push(tokens.slice(i, i + 100))
-
+      const batches = []; for (let i = 0; i < tokens.length; i += 100) batches.push(tokens.slice(i, i + 100))
       let sent = 0, failed = 0
-
       for (let bi = 0; bi < batches.length; bi++) {
-        const batch = batches[bi]
         try {
-          // ✅ CORRECT EXPO PUSH PAYLOAD — this is what makes it work on killed apps
-          const notifications = batch.map(token => ({
-            to: token,
-            title: pushTitle.trim(),
-            body: pushBody.trim(),
-            sound: 'default',          // required for iOS
-            priority: 'high',          // required for Android background
-            channelId: 'default',      // must match your app's notification channel
-            badge: 1,
-            data: {                    // extra data your app can use
-              type: 'broadcast',
-              screen: 'Home',
-            },
-            // Android-specific — makes it show even when app is killed
-            android: {
-              channelId: 'default',
-              priority: 'high',
-              sound: 'default',
-            },
+          const notifications = batches[bi].map(token => ({
+            to: token, title: pushTitle.trim(), body: pushBody.trim(),
+            sound: 'default', priority: 'high', channelId: 'default', badge: 1,
+            data: { type: 'broadcast', screen: 'Home' },
+            android: { channelId: 'default', priority: 'high', sound: 'default' },
           }))
-
           const result = await sendPushBatch(notifications)
-
-          if (result?.data) {
-            result.data.forEach(r => {
-              if (r.status === 'ok') sent++
-              else {
-                failed++
-                // Log Expo push errors to console for debugging
-                console.warn('Push error for token:', r.details || r.message)
-              }
-            })
-          } else {
-            sent += batch.length
-          }
-        } catch (batchErr) {
-          console.error('Batch failed:', batchErr)
-          failed += batch.length
-        }
-
+          if (result?.data) result.data.forEach(r => r.status === 'ok' ? sent++ : failed++)
+          else sent += batches[bi].length
+        } catch { failed += batches[bi].length }
         setPushProgress(Math.round(((bi + 1) / batches.length) * 100))
       }
-
-      // Save history
       await addDoc(collection(db, 'pushHistory'), {
-        title: pushTitle, body: pushBody,
-        target: pushTarget,
+        title: pushTitle, body: pushBody, target: pushTarget,
         town: pushTown !== 'all' ? pushTown : 'all',
-        totalUsers: targetUsers.length,
-        sent, failed, noToken,
-        sentAt: serverTimestamp(),
-        sentBy: user?.email || 'founder'
+        totalUsers: targetUsers.length, sent, failed, noToken,
+        sentAt: serverTimestamp(), sentBy: user?.email || 'founder'
       })
-
       setPushDone({ sent, failed, noToken, total: targetUsers.length })
       toast.success(`✅ Push sent to ${sent} users!`)
-
-    } catch (err) {
-      console.error('Push broadcast failed:', err)
-      toast.error('Push failed: ' + err.message)
-    }
-
+    } catch (err) { toast.error('Push failed: ' + err.message) }
     setSendingPush(false)
   }
 
-  // ── TEST PUSH to yourself ─────────────────────────────────────────────
   const handleTestPush = async () => {
     const myUser = users.find(u => u.email === user?.email)
-    if (!myUser?.expoPushToken) {
-      toast.error("You don't have a push token. Install the app and log in first.")
-      return
-    }
+    if (!myUser?.expoPushToken) { toast.error("You don't have a push token. Install the app first."); return }
     try {
       const result = await sendPushBatch([{
         to: myUser.expoPushToken,
         title: pushTitle || '🧪 Test Push from FeedoZone',
         body: pushBody || 'If you see this, push notifications are working! ✅',
-        sound: 'default',
-        priority: 'high',
-        channelId: 'default',
+        sound: 'default', priority: 'high', channelId: 'default',
         data: { type: 'test' },
         android: { channelId: 'default', priority: 'high', sound: 'default' },
       }])
-      if (result?.data?.[0]?.status === 'ok') toast.success('✅ Test push sent to your device!')
+      if (result?.data?.[0]?.status === 'ok') toast.success('✅ Test push sent!')
       else toast.error('Test push error: ' + JSON.stringify(result?.data?.[0]))
-    } catch (err) {
-      toast.error('Test failed: ' + err.message)
-    }
+    } catch (err) { toast.error('Test failed: ' + err.message) }
   }
 
   // ── BROADCAST HELPERS ─────────────────────────────────────────────────
   const getBroadcastUsers = () => {
     if (broadcastTarget === 'all') return users
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyDaysAgo).map(o => o.userUid))
+    const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyAgo).map(o => o.userUid))
     if (broadcastTarget === 'active') return users.filter(u => activeUids.has(u.id))
     return users.filter(u => !activeUids.has(u.id))
   }
@@ -391,9 +623,17 @@ export default function FounderApp() {
         const emUsers = targetUsers.filter(u => u.email)
         if (emUsers.length === 0) { toast.error('No users have email addresses') }
         else {
-          const bccList = emUsers.slice(0, 50).map(u => u.email).join(',')
-          const personalised = broadcastMsg.replace(/{name}/g, 'there')
-          window.open(`mailto:?bcc=${encodeURIComponent(bccList)}&subject=${encodeURIComponent(broadcastTitle || 'Message from FeedoZone')}&body=${encodeURIComponent(personalised)}`, '_blank')
+          // Batch: open all windows 50-at-a-time
+          const batchSize = 50
+          const emailBatches = []; for (let i = 0; i < emUsers.length; i += batchSize) emailBatches.push(emUsers.slice(i, i + batchSize))
+          toast(`📧 Opening ${emailBatches.length} mail window(s) for ${emUsers.length} recipients`, { duration: 6000 })
+          emailBatches.forEach((batch, idx) => {
+            setTimeout(() => {
+              const bccList = batch.map(u => u.email).join(',')
+              const personalised = broadcastMsg.replace(/{name}/g, 'there')
+              window.open(`mailto:?bcc=${encodeURIComponent(bccList)}&subject=${encodeURIComponent(broadcastTitle || 'Message from FeedoZone')}&body=${encodeURIComponent(personalised)}`, '_blank')
+            }, idx * 600)
+          })
           sent += emUsers.length
         }
       }
@@ -420,8 +660,7 @@ export default function FounderApp() {
       const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000 }))
       const lat = pos.coords.latitude, lng = pos.coords.longitude
       const name = await reverseGeocode(lat, lng)
-      setNewVendorLoc({ lat, lng })
-      setNewVendorLocName(name)
+      setNewVendorLoc({ lat, lng }); setNewVendorLocName(name)
       toast.success(`📍 ${name}`)
     } catch { toast.error('Could not detect location') }
     setDetectingLoc(false)
@@ -453,8 +692,7 @@ export default function FounderApp() {
     const file = e.target.files[0]
     if (!file) return
     if (file.size > 5 * 1024 * 1024) return toast.error('Photo must be under 5MB')
-    setVendorPhotoFile(file)
-    setVendorPhotoPreview(URL.createObjectURL(file))
+    setVendorPhotoFile(file); setVendorPhotoPreview(URL.createObjectURL(file))
   }
 
   const handleExistingVendorPhoto = async (e, vendorId) => {
@@ -484,9 +722,8 @@ export default function FounderApp() {
     try {
       const vendorUid = await founderCreateVendor(user.uid, {
         email, password, storeName, address, phone, plan, category,
-        location: newVendorLoc,
-        locationName: newVendorLocName,
-        town: town || newVendorLocName || '',   // ← save town for filter
+        location: newVendorLoc, locationName: newVendorLocName,
+        town: town || newVendorLocName || '',
         deliveryCharge: Number(form.deliveryCharge) || 30
       })
       if (vendorPhotoFile && vendorUid) {
@@ -565,16 +802,10 @@ export default function FounderApp() {
       (o.address || '').replace(/,/g, ';')
     ])
     const totalRevenue = data.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
-    rows.push([], ['SUMMARY', '', '', '', '', '', '', '', '', '', '', '', ''])
-    rows.push(['Total Orders', data.length, '', '', '', '', '', '', '', '', '', '', ''])
-    rows.push(['Delivered', data.filter(o => o.status === 'delivered').length, '', '', '', '', '', '', '', '', '', '', ''])
-    rows.push(['Cancelled', data.filter(o => o.status === 'cancelled').length, '', '', '', '', '', '', '', '', '', '', ''])
-    rows.push(['Total Revenue (Delivered)', '', '', '', '', '', '', '', '', '₹' + totalRevenue, '', '', ''])
+    rows.push([], ['SUMMARY'], ['Total Orders', data.length], ['Delivered', data.filter(o => o.status === 'delivered').length], ['Cancelled', data.filter(o => o.status === 'cancelled').length], ['Total Revenue (Delivered)', '', '', '', '', '', '', '', '', '₹' + totalRevenue])
     const csvContent = [headers, ...rows].map(row => row.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(',')).join('\n')
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
-    URL.revokeObjectURL(url)
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url)
     toast.success(`✅ Downloaded: ${filename}`)
   }
 
@@ -589,10 +820,28 @@ export default function FounderApp() {
     })
     const csvContent = rows.map(row => row.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(',')).join('\n')
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'FeedoZone_Vendor_Report.csv'; a.click()
-    URL.revokeObjectURL(url)
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'FeedoZone_Vendor_Report.csv'; a.click(); URL.revokeObjectURL(url)
     toast.success('✅ Vendor report downloaded!')
+  }
+
+  const exportCustomers = () => {
+    const list = filteredCustomers
+    if (!list.length) return toast.error('No customers to export')
+    const rows = [['Name', 'Phone', 'Email', 'Total Orders', 'Delivered', 'Cancelled', 'Total Spent', 'Last Order', 'First Order', 'Push Token']]
+    list.forEach(c => {
+      rows.push([
+        c.name, c.phone, c.email,
+        c.orders.length, c.deliveredCount, c.cancelledCount,
+        '₹' + c.totalSpent,
+        c.lastOrderDate?.toLocaleDateString('en-IN') || '—',
+        c.firstOrderDate?.toLocaleDateString('en-IN') || '—',
+        c.expoPushToken ? 'Yes' : 'No'
+      ])
+    })
+    const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n')
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `FeedoZone_Customers_${customerFilter}.csv`; a.click(); URL.revokeObjectURL(url)
+    toast.success(`✅ Exported ${list.length} customers!`)
   }
 
   const getMostOrdered = () => {
@@ -602,20 +851,28 @@ export default function FounderApp() {
   }
 
   // ── STYLES ────────────────────────────────────────────────────────────
-  const inp = {
-    width: '100%', padding: '11px 13px',
-    borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb',
-    borderRadius: 9, fontSize: 13, fontFamily: 'Poppins,sans-serif',
-    outline: 'none', marginTop: 4, boxSizing: 'border-box'
-  }
+  const inp = { width: '100%', padding: '11px 13px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 9, fontSize: 13, fontFamily: 'Poppins,sans-serif', outline: 'none', marginTop: 4, boxSizing: 'border-box' }
 
   const targetUsers = getBroadcastUsers()
-
-  // ── TOWN STATS (for vendor list header) ──────────────────────────────
-  const townStats = allTowns.map(town => {
+  const allTownsList = allTowns
+  const townStats = allTownsList.map(town => {
     const tvs = vendors.filter(v => (v.town || v.locationName) === town)
     return { town, count: tvs.length, open: tvs.filter(v => v.isOpen).length }
   })
+
+  // Badge for customer filter
+  const getBadge = (filter) => {
+    switch (filter) {
+      case 'all': return allCustomers.filter(c => c.orders.length > 0).length
+      case 'repeat': return customerStats.repeat
+      case 'weekly': return customerStats.thisWeek
+      case 'top': return Math.min(20, allCustomers.filter(c => c.orders.length > 0).length)
+      case 'inactive': return customerStats.inactive
+      case 'new': return customerStats.newThisWeek
+      case 'highspend': return allCustomers.filter(c => c.totalSpent >= 500).length
+      default: return 0
+    }
+  }
 
   return (
     <div style={{ maxWidth: 430, margin: '0 auto', background: '#fff', minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'Poppins,sans-serif' }}>
@@ -653,6 +910,7 @@ export default function FounderApp() {
           { id: 'overview', label: 'Overview' },
           { id: 'orders', label: `Orders (${todayOrders.length})` },
           { id: 'vendors', label: `Vendors (${vendors.length})` },
+          { id: 'customers', label: `👥 Customers (${customerStats.total})` },
           { id: 'addvendor', label: '+ Add Vendor' },
           { id: 'push', label: `🔔 Push${usersWithTokenCount > 0 ? ` (${usersWithTokenCount})` : ''}` },
           { id: 'broadcast', label: `📣 Broadcast${users.length > 0 ? ` (${users.length})` : ''}` },
@@ -673,9 +931,7 @@ export default function FounderApp() {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 14 }}>
 
-        {/* ════════════════════════════════════════════════════════
-            TAB: OVERVIEW
-        ════════════════════════════════════════════════════════ */}
+        {/* ════════════════ TAB: OVERVIEW ════════════════ */}
         {tab === 'overview' && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
@@ -697,8 +953,30 @@ export default function FounderApp() {
               ))}
             </div>
 
-            {/* Town-wise summary */}
-            {allTowns.length > 0 && (
+            {/* Customer quick summary */}
+            <div style={{ background: 'linear-gradient(135deg,#1f2937,#374151)', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 10 }}>👥 Customer Summary</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                {[
+                  { val: customerStats.total, label: 'Total', color: '#fff' },
+                  { val: customerStats.repeat, label: 'Repeat 🔄', color: '#34d399' },
+                  { val: customerStats.thisWeek, label: 'This Week', color: '#60a5fa' },
+                  { val: customerStats.newThisWeek, label: 'New (7d)', color: '#fbbf24' },
+                  { val: customerStats.inactive, label: 'Inactive (30d)', color: '#f87171' },
+                  { val: customerStats.withPhone, label: 'Have WA', color: '#4ade80' },
+                ].map(s => (
+                  <div key={s.label} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: '8px 6px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.val}</div>
+                    <div style={{ fontSize: 9, color: '#9ca3af', lineHeight: 1.2 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setTab('customers')} style={{ width: '100%', marginTop: 12, background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', borderRadius: 9, padding: '9px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                View All Customers →
+              </button>
+            </div>
+
+            {allTownsList.length > 0 && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8 }}>📍 Vendors by Town</div>
                 <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
@@ -714,10 +992,10 @@ export default function FounderApp() {
               </div>
             )}
 
-            <button onClick={() => logoutUser()} style={{ width: '100%', background: 'transparent', color: '#E24B4A', borderWidth: 1, borderStyle: 'solid', borderColor: '#E24B4A', padding: 11, borderRadius: 10, fontSize: 13, cursor: 'pointer', fontFamily: 'Poppins', fontWeight: 500 }}>Logout</button>
+            <button onClick={() => logoutUser()} style={{ width: '100%', background: 'transparent', color: '#E24B4A', borderWidth: 1, borderStyle: 'solid', borderColor: '#E24B4A', padding: 11, borderRadius: 10, fontSize: 13, cursor: 'pointer', fontFamily: 'Poppins', fontWeight: 500, marginBottom: 16 }}>Logout</button>
 
             {/* Excel Export */}
-            <div style={{ marginTop: 16, background: '#f9fafb', borderRadius: 12, padding: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
+            <div style={{ background: '#f9fafb', borderRadius: 12, padding: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                 <span style={{ fontSize: 18 }}>📊</span>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937' }}>Export to Excel</div>
@@ -753,12 +1031,161 @@ export default function FounderApp() {
           </>
         )}
 
-        {/* ════════════════════════════════════════════════════════
-            TAB: PUSH NOTIFICATIONS  (FIXED)
-        ════════════════════════════════════════════════════════ */}
+        {/* ════════════════ TAB: CUSTOMERS ════════════════ */}
+        {tab === 'customers' && (
+          <>
+            {/* Customer profile modal */}
+            {selectedCustomer && (
+              <CustomerProfileModal
+                customer={selectedCustomer}
+                orders={orders}
+                onClose={() => setSelectedCustomer(null)}
+                broadcastMsg={broadcastMsg}
+                broadcastTitle={broadcastTitle}
+              />
+            )}
+
+            {/* Header Stats */}
+            <div style={{ background: 'linear-gradient(135deg,#1f2937,#374151)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+              <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>FeedoZone</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: '#fff', marginBottom: 12 }}>Customer Analytics</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                {[
+                  { val: customerStats.total, label: 'Total', color: '#fff' },
+                  { val: customerStats.repeat, label: '🔄 Repeat', color: '#34d399' },
+                  { val: customerStats.thisWeek, label: 'This Week', color: '#60a5fa' },
+                  { val: customerStats.newThisWeek, label: '🆕 New (7d)', color: '#fbbf24' },
+                  { val: customerStats.inactive, label: '😴 Inactive', color: '#f87171' },
+                  { val: customerStats.withPhone, label: '📱 WhatsApp', color: '#4ade80' },
+                ].map(s => (
+                  <div key={s.label} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: '8px 6px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.val}</div>
+                    <div style={{ fontSize: 9, color: '#9ca3af' }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Filter pills */}
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 10 }}>
+              {[
+                { id: 'all', label: '👥 All', emoji: '' },
+                { id: 'repeat', label: '🔄 Repeat', emoji: '' },
+                { id: 'weekly', label: '📅 This Week', emoji: '' },
+                { id: 'top', label: '🏆 Top 20', emoji: '' },
+                { id: 'new', label: '🆕 New (7d)', emoji: '' },
+                { id: 'inactive', label: '😴 Inactive', emoji: '' },
+                { id: 'highspend', label: '💰 High Spend', emoji: '' },
+              ].map(f2 => (
+                <button key={f2.id} onClick={() => setCustomerFilter(f2.id)}
+                  style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 11, fontWeight: 600, background: customerFilter === f2.id ? '#E24B4A' : '#f3f4f6', color: customerFilter === f2.id ? '#fff' : '#374151' }}>
+                  {f2.label} ({getBadge(f2.id)})
+                </button>
+              ))}
+            </div>
+
+            {/* Search */}
+            <input
+              style={{ ...inp, marginBottom: 12, marginTop: 0, background: '#f9fafb' }}
+              placeholder="🔍 Search by name, phone, email..."
+              value={customerSearch}
+              onChange={e => setCustomerSearch(e.target.value)}
+            />
+
+            {/* Bulk Actions */}
+            <div style={{ background: '#f9fafb', borderRadius: 12, padding: 12, marginBottom: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
+                🎯 Bulk Actions — {filteredCustomers.length} customers
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <button onClick={() => copyAllWhatsApp(filteredCustomers)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', background: '#25D366', color: '#fff', border: 'none', borderRadius: 9, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                  <span>💬</span> Copy All WA Nos ({filteredCustomers.filter(c => c.phone).length})
+                </button>
+                <button onClick={() => sendBulkEmail(filteredCustomers, broadcastTitle, broadcastMsg)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 9, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                  <span>📧</span> Mail All ({filteredCustomers.filter(c => c.email).length})
+                </button>
+                <button onClick={exportCustomers}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', background: '#fff', color: '#374151', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 9, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                  <span>📥</span> Export CSV
+                </button>
+                <button onClick={() => { setTab('broadcast') }}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', background: '#fff5f5', color: '#E24B4A', borderWidth: 1, borderStyle: 'solid', borderColor: '#fecaca', borderRadius: 9, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                  <span>📣</span> Broadcast
+                </button>
+              </div>
+            </div>
+
+            {/* Filter description */}
+            {customerFilter !== 'all' && (
+              <div style={{ background: '#eff6ff', borderRadius: 10, padding: '10px 12px', marginBottom: 12, borderWidth: 1, borderStyle: 'solid', borderColor: '#bfdbfe' }}>
+                <div style={{ fontSize: 11, color: '#1e40af', fontWeight: 600 }}>
+                  {customerFilter === 'repeat' && '🔄 Repeat customers — ordered 2+ times (delivered)'}
+                  {customerFilter === 'weekly' && '📅 Ordered this week — high engagement segment'}
+                  {customerFilter === 'top' && '🏆 Top 20 by order count — your most loyal users'}
+                  {customerFilter === 'new' && '🆕 First order in last 7 days — new acquisitions'}
+                  {customerFilter === 'inactive' && '😴 No order in 30+ days — win-back segment'}
+                  {customerFilter === 'highspend' && '💰 Spent ₹500+ — high value customers'}
+                </div>
+              </div>
+            )}
+
+            {/* Customer List */}
+            {filteredCustomers.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9ca3af' }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>👥</div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>No customers found</div>
+              </div>
+            )}
+            {filteredCustomers.map((c, i) => {
+              const daysSince = c.lastOrderDate ? Math.floor((Date.now() - c.lastOrderDate) / 86400000) : null
+              const isRepeat = c.deliveredCount >= 2
+              const isNewUser = c.firstOrderDate && c.firstOrderDate >= sevenAgo
+              const isInactive = c.orders.length > 0 && (!c.lastOrderDate || c.lastOrderDate < thirtyAgo)
+              return (
+                <div key={c.id} onClick={() => setSelectedCustomer(c)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', cursor: 'pointer' }}>
+                  {/* Avatar with rank */}
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: isRepeat ? 'linear-gradient(135deg,#E24B4A,#ff6b6a)' : '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: isRepeat ? '#fff' : '#374151' }}>{c.name?.[0]?.toUpperCase() || 'U'}</span>
+                    </div>
+                    {customerFilter === 'top' && (
+                      <div style={{ position: 'absolute', top: -4, left: -4, background: '#fbbf24', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800, color: '#92400e' }}>#{i + 1}</div>
+                    )}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                      {isRepeat && <span style={{ fontSize: 8, background: '#dcfce7', color: '#16a34a', padding: '1px 5px', borderRadius: 8, fontWeight: 700, flexShrink: 0 }}>REPEAT</span>}
+                      {isNewUser && <span style={{ fontSize: 8, background: '#dbeafe', color: '#1e40af', padding: '1px 5px', borderRadius: 8, fontWeight: 700, flexShrink: 0 }}>NEW</span>}
+                      {isInactive && <span style={{ fontSize: 8, background: '#fee2e2', color: '#991b1b', padding: '1px 5px', borderRadius: 8, fontWeight: 700, flexShrink: 0 }}>INACTIVE</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#9ca3af' }}>{c.phone || c.email || 'No contact'}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
+                      {c.orders.length} orders · ₹{c.totalSpent.toLocaleString()} spent
+                      {daysSince !== null ? ` · ${daysSince === 0 ? 'Today' : daysSince + 'd ago'}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#E24B4A' }}>{c.deliveredCount}</div>
+                    <div style={{ fontSize: 9, color: '#9ca3af' }}>delivered</div>
+                    <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                      {c.phone && <div style={{ width: 18, height: 18, background: '#dcfce7', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10 }}>💬</div>}
+                      {c.email && <div style={{ width: 18, height: 18, background: '#dbeafe', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10 }}>📧</div>}
+                      {c.expoPushToken && <div style={{ width: 18, height: 18, background: '#fef3c7', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10 }}>🔔</div>}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </>
+        )}
+
+        {/* ════════════════ TAB: PUSH NOTIFICATIONS ════════════════ */}
         {tab === 'push' && (
           <>
-            {/* Header */}
             <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e1b4b)', borderRadius: 14, padding: 16, marginBottom: 16, position: 'relative', overflow: 'hidden' }}>
               <div style={{ position: 'absolute', right: -10, top: -10, fontSize: 60, opacity: 0.08 }}>🔔</div>
               <div style={{ fontSize: 10, color: '#818cf8', fontWeight: 700, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>Zomato-style Notifications</div>
@@ -778,40 +1205,13 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* ── FCM SETUP WARNING ── */}
-            <div style={{ background: '#fffbeb', borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderStyle: 'solid', borderColor: '#fde68a' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>⚙️ For Background Notifications to Work</div>
-              <div style={{ fontSize: 11, color: '#78350f', lineHeight: 1.7 }}>
-                1. Go to <strong>expo.dev → your project → Credentials → Android</strong><br />
-                2. Upload your <strong>google-services.json</strong> FCM key there<br />
-                3. Rebuild your APK with <strong>eas build -p android</strong><br />
-                4. Make sure your app has <strong>notification channel "default"</strong> configured<br />
-                5. Test with the button below ↓
-              </div>
-            </div>
-
-            {/* Test Push Button */}
             <div style={{ background: '#f0fdf4', borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderStyle: 'solid', borderColor: '#bbf7d0' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', marginBottom: 6 }}>🧪 Test Push to Yourself First</div>
-              <div style={{ fontSize: 11, color: '#166534', marginBottom: 10, lineHeight: 1.5 }}>
-                Send a test notification to your own phone to verify everything works before mass sending.
-              </div>
               <button onClick={handleTestPush} style={{ width: '100%', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
                 🧪 Send Test Push to My Phone
               </button>
             </div>
 
-            {/* No token warning */}
-            {usersWithTokenCount === 0 && (
-              <div style={{ background: '#fef3c7', borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderStyle: 'solid', borderColor: '#fde68a' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>⚠️ No Push Tokens Yet</div>
-                <div style={{ fontSize: 11, color: '#92400e', lineHeight: 1.6 }}>
-                  Users need to install your APK and allow notifications. Once they open the app, their token is saved automatically.
-                </div>
-              </div>
-            )}
-
-            {/* Success result */}
             {pushDone && (
               <div style={{ background: '#f0fdf4', borderRadius: 12, padding: 16, marginBottom: 16, borderWidth: 1, borderStyle: 'solid', borderColor: '#bbf7d0' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', marginBottom: 10 }}>✅ Push Notification Sent!</div>
@@ -831,13 +1231,11 @@ export default function FounderApp() {
                     </div>
                   )}
                 </div>
-                <button onClick={() => setPushDone(null)} style={{ width: '100%', background: 'transparent', color: '#16a34a', borderWidth: 1, borderStyle: 'solid', borderColor: '#86efac', padding: '9px 0', borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins', marginTop: 10 }}>
-                  Send Another
-                </button>
+                <button onClick={() => setPushDone(null)} style={{ width: '100%', background: 'transparent', color: '#16a34a', borderWidth: 1, borderStyle: 'solid', borderColor: '#86efac', padding: '9px 0', borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins', marginTop: 10 }}>Send Another</button>
               </div>
             )}
 
-            {/* Step 1: Presets */}
+            {/* Step 1 Presets */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>1</span>
@@ -854,18 +1252,14 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* Step 2: Target Audience */}
+            {/* Step 2 Target */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>2</span>
                 Target Audience
               </div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                {[
-                  { id: 'all', label: 'All Users', icon: '👥' },
-                  { id: 'active', label: 'Active (30d)', icon: '🔥' },
-                  { id: 'inactive', label: 'Inactive', icon: '😴' },
-                ].map(t => (
+                {[{ id: 'all', label: 'All Users', icon: '👥' }, { id: 'active', label: 'Active (30d)', icon: '🔥' }, { id: 'inactive', label: 'Inactive', icon: '😴' }].map(t => (
                   <button key={t.id} onClick={() => setPushTarget(t.id)} style={{ flex: 1, padding: '10px 8px', borderRadius: 10, cursor: 'pointer', fontFamily: 'Poppins', borderWidth: 1.5, borderStyle: 'solid', borderColor: pushTarget === t.id ? '#E24B4A' : '#e5e7eb', background: pushTarget === t.id ? '#fff5f5' : '#fff', textAlign: 'center' }}>
                     <div style={{ fontSize: 18, marginBottom: 2 }}>{t.icon}</div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: pushTarget === t.id ? '#E24B4A' : '#1f2937' }}>{t.label}</div>
@@ -873,94 +1267,57 @@ export default function FounderApp() {
                   </button>
                 ))}
               </div>
-
-              {/* Town filter for push */}
-              {allTowns.length > 0 && (
+              {allTownsList.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6, fontWeight: 500 }}>📍 Filter by Town (optional)</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6, fontWeight: 500 }}>📍 Filter by Town</div>
                   <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
-                    <button onClick={() => setPushTown('all')} style={{ flexShrink: 0, padding: '6px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 11, fontWeight: 600, background: pushTown === 'all' ? '#E24B4A' : '#f3f4f6', color: pushTown === 'all' ? '#fff' : '#6b7280' }}>
-                      All Towns
-                    </button>
-                    {allTowns.map(town => (
-                      <button key={town} onClick={() => setPushTown(town)} style={{ flexShrink: 0, padding: '6px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 11, fontWeight: 600, background: pushTown === town ? '#E24B4A' : '#f3f4f6', color: pushTown === town ? '#fff' : '#6b7280' }}>
-                        📍 {town}
-                      </button>
+                    <button onClick={() => setPushTown('all')} style={{ flexShrink: 0, padding: '6px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 11, fontWeight: 600, background: pushTown === 'all' ? '#E24B4A' : '#f3f4f6', color: pushTown === 'all' ? '#fff' : '#6b7280' }}>All Towns</button>
+                    {allTownsList.map(town => (
+                      <button key={town} onClick={() => setPushTown(town)} style={{ flexShrink: 0, padding: '6px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 11, fontWeight: 600, background: pushTown === town ? '#E24B4A' : '#f3f4f6', color: pushTown === town ? '#fff' : '#6b7280' }}>📍 {town}</button>
                     ))}
                   </div>
-                  {pushTown !== 'all' && (
-                    <div style={{ marginTop: 6, fontSize: 11, color: '#6b7280', background: '#f9fafb', borderRadius: 8, padding: '6px 10px' }}>
-                      Targeting users who ordered from <strong>{pushTown}</strong> vendors
-                    </div>
-                  )}
                 </div>
               )}
             </div>
 
-            {/* Step 3: Write Message */}
+            {/* Step 3 Message */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>3</span>
                 Write Notification
               </div>
               <div style={{ marginBottom: 8 }}>
-                <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 500 }}>Title (bold text users see first)</label>
+                <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 500 }}>Title</label>
                 <input style={inp} placeholder="e.g. 🍛 Lunch Time! Order now on FeedoZone" value={pushTitle} onChange={e => setPushTitle(e.target.value)} />
-                <div style={{ fontSize: 10, color: pushTitle.length > 65 ? '#dc2626' : '#9ca3af', textAlign: 'right', marginTop: 2 }}>
-                  {pushTitle.length}/65 {pushTitle.length > 65 ? '— too long!' : ''}
-                </div>
               </div>
               <div>
                 <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 500 }}>Message body</label>
                 <textarea value={pushBody} onChange={e => setPushBody(e.target.value)}
-                  placeholder="e.g. Your favourite vendors are waiting. Order now! 🚀"
-                  rows={3}
-                  style={{ width: '100%', padding: '12px 14px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, fontSize: 13, fontFamily: 'Poppins', outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.6, color: '#1f2937', marginTop: 4 }}
-                />
-                <div style={{ fontSize: 10, color: pushBody.length > 200 ? '#dc2626' : '#9ca3af', textAlign: 'right', marginTop: 2 }}>
-                  {pushBody.length}/200 {pushBody.length > 200 ? '— keep it short!' : ''}
-                </div>
+                  placeholder="e.g. Your favourite vendors are waiting. Order now! 🚀" rows={3}
+                  style={{ width: '100%', padding: '12px 14px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, fontSize: 13, fontFamily: 'Poppins', outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.6, marginTop: 4 }} />
               </div>
             </div>
 
-            {/* Phone Preview */}
             {(pushTitle || pushBody) && (
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 8 }}>📱 Phone Preview</div>
                 <div style={{ background: '#1f2937', borderRadius: 16, padding: 14 }}>
                   <div style={{ background: '#374151', borderRadius: 12, padding: '10px 12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <div style={{ width: 28, height: 28, background: '#E24B4A', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <span style={{ fontSize: 14 }}>🍽️</span>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#fff' }}>FeedoZone</div>
-                        <div style={{ fontSize: 10, color: '#9ca3af' }}>now</div>
-                      </div>
+                      <div style={{ width: 28, height: 28, background: '#E24B4A', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ fontSize: 14 }}>🍽️</span></div>
+                      <div><div style={{ fontSize: 11, fontWeight: 700, color: '#fff' }}>FeedoZone</div><div style={{ fontSize: 10, color: '#9ca3af' }}>now</div></div>
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 3 }}>{pushTitle || 'Your notification title'}</div>
-                    <div style={{ fontSize: 11, color: '#d1d5db', lineHeight: 1.4 }}>{pushBody || 'Your notification message...'}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 3 }}>{pushTitle}</div>
+                    <div style={{ fontSize: 11, color: '#d1d5db', lineHeight: 1.4 }}>{pushBody}</div>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Send Button */}
             <div style={{ background: '#f9fafb', borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937' }}>Ready to push?</div>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                    Sending to <strong>{getPushTargetCount(pushTarget)} users</strong>
-                    {pushTown !== 'all' && <span style={{ color: '#E24B4A' }}> in {pushTown}</span>}
-                    {' · '}<strong style={{ color: '#34d399' }}>{Math.min(usersWithTokenCount, getPushTargetCount(pushTarget))} can receive</strong>
-                  </div>
-                </div>
-                <div style={{ background: '#dbeafe', borderRadius: 20, padding: '4px 10px' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#1e40af' }}>Instant delivery</span>
-                </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8 }}>
+                Sending to <strong>{getPushTargetCount(pushTarget)} users</strong>{pushTown !== 'all' ? <span style={{ color: '#E24B4A' }}> in {pushTown}</span> : ''}
               </div>
-
               {sendingPush && (
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ background: '#e5e7eb', borderRadius: 8, overflow: 'hidden', height: 8, marginBottom: 6 }}>
@@ -969,33 +1326,13 @@ export default function FounderApp() {
                   <div style={{ fontSize: 11, color: '#6b7280', textAlign: 'center' }}>Sending... {pushProgress}%</div>
                 </div>
               )}
-
-              <button
-                onClick={handleSendPush}
-                disabled={sendingPush || !pushTitle.trim() || !pushBody.trim()}
-                style={{
-                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                  padding: '14px 0',
-                  background: (sendingPush || !pushTitle.trim() || !pushBody.trim()) ? '#d1d5db' : 'linear-gradient(135deg,#E24B4A,#c73232)',
-                  color: '#fff', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 700,
-                  cursor: (sendingPush || !pushTitle.trim() || !pushBody.trim()) ? 'not-allowed' : 'pointer',
-                  fontFamily: 'Poppins'
-                }}
-              >
+              <button onClick={handleSendPush} disabled={sendingPush || !pushTitle.trim() || !pushBody.trim()}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '14px 0', background: (sendingPush || !pushTitle.trim() || !pushBody.trim()) ? '#d1d5db' : 'linear-gradient(135deg,#E24B4A,#c73232)', color: '#fff', border: 'none', borderRadius: 11, fontSize: 14, fontWeight: 700, cursor: (sendingPush || !pushTitle.trim() || !pushBody.trim()) ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
                 <span style={{ fontSize: 20 }}>🔔</span>
                 {sendingPush ? `Sending... ${pushProgress}%` : `Send Push to ${getPushTargetCount(pushTarget)} Users`}
               </button>
-
-              <div style={{ marginTop: 10, padding: '8px 12px', background: '#eff6ff', borderRadius: 8, borderWidth: 1, borderStyle: 'solid', borderColor: '#bfdbfe' }}>
-                <div style={{ fontSize: 11, color: '#1e40af', lineHeight: 1.7 }}>
-                  ✅ <strong>Instant:</strong> Delivered in seconds, even when app is closed<br />
-                  ✅ <strong>Free:</strong> Uses Expo push service, no cost<br />
-                  ✅ <strong>Town filter:</strong> Target users by specific town/area
-                </div>
-              </div>
             </div>
 
-            {/* Push History */}
             {pushHistory.length > 0 && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 10 }}>📋 Recent Push Notifications</div>
@@ -1008,9 +1345,7 @@ export default function FounderApp() {
                       </div>
                     </div>
                     <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>{p.body}</div>
-                    <div style={{ fontSize: 10, color: '#9ca3af' }}>
-                      {p.target}{p.town && p.town !== 'all' ? ` · 📍 ${p.town}` : ''} users · {p.sentAt?.toDate?.()?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) || ''}
-                    </div>
+                    <div style={{ fontSize: 10, color: '#9ca3af' }}>{p.target}{p.town && p.town !== 'all' ? ` · 📍 ${p.town}` : ''} · {p.sentAt?.toDate?.()?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) || ''}</div>
                   </div>
                 ))}
               </div>
@@ -1018,12 +1353,10 @@ export default function FounderApp() {
           </>
         )}
 
-        {/* ════════════════════════════════════════════════════════
-            TAB: BROADCAST (WhatsApp / Email)
-        ════════════════════════════════════════════════════════ */}
+        {/* ════════════════ TAB: BROADCAST ════════════════ */}
         {tab === 'broadcast' && (
           <>
-            <div style={{ background: 'linear-gradient(135deg,#1a1a1a,#2d1a00)', borderRadius: 14, padding: '16px', marginBottom: 16, position: 'relative', overflow: 'hidden' }}>
+            <div style={{ background: 'linear-gradient(135deg,#1a1a1a,#2d1a00)', borderRadius: 14, padding: 16, marginBottom: 16, position: 'relative', overflow: 'hidden' }}>
               <div style={{ position: 'absolute', right: -10, top: -10, fontSize: 60, opacity: 0.08 }}>📣</div>
               <div style={{ fontSize: 10, color: '#fbbf24', fontWeight: 700, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>Customer Retention</div>
               <div style={{ fontSize: 17, fontWeight: 800, color: '#fff', marginBottom: 4 }}>Broadcast Message</div>
@@ -1088,7 +1421,7 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* Send Via */}
+            {/* Send via */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>3</span>
@@ -1105,7 +1438,7 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* Write Message */}
+            {/* Write message */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>4</span>
@@ -1116,10 +1449,8 @@ export default function FounderApp() {
                 <input style={inp} placeholder="e.g. 🎉 New restaurant on FeedoZone!" value={broadcastTitle} onChange={e => setBroadcastTitle(e.target.value)} />
               </div>
               <textarea value={broadcastMsg} onChange={e => setBroadcastMsg(e.target.value)}
-                placeholder={`Write your message here...\n\nTip: Use {name} to personalise!`}
-                rows={8}
-                style={{ width: '100%', padding: '12px 14px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, fontSize: 13, fontFamily: 'Poppins', outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.7, color: '#1f2937' }}
-              />
+                placeholder={`Write your message here...\n\nTip: Use {name} to personalise!`} rows={8}
+                style={{ width: '100%', padding: '12px 14px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, fontSize: 13, fontFamily: 'Poppins', outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.7, color: '#1f2937' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, padding: '7px 10px', background: '#fef3c7', borderRadius: 8 }}>
                 <span style={{ fontSize: 13 }}>💡</span>
                 <span style={{ fontSize: 11, color: '#92400e' }}>Write <strong>{'{name}'}</strong> — replaced with each user's real name!</span>
@@ -1145,33 +1476,23 @@ export default function FounderApp() {
             )}
 
             <div style={{ background: '#f9fafb', borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937' }}>Ready to send?</div>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                    Sending to <strong>{targetUsers.length} users</strong> via <strong>{broadcastType === 'both' ? 'WhatsApp + Email' : broadcastType}</strong>
-                  </div>
-                </div>
-                <div style={{ background: targetUsers.length > 0 ? '#dcfce7' : '#fee2e2', borderRadius: 20, padding: '4px 10px' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: targetUsers.length > 0 ? '#16a34a' : '#dc2626' }}>{targetUsers.length} recipients</span>
-                </div>
-              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 4 }}>Ready to send?</div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>Sending to <strong>{targetUsers.length} users</strong> via <strong>{broadcastType === 'both' ? 'WhatsApp + Email' : broadcastType}</strong></div>
               <div style={{ display: 'flex', gap: 8 }}>
                 {(broadcastType === 'whatsapp' || broadcastType === 'both') && (
                   <button onClick={handleBroadcast} disabled={sendingBroadcast || !broadcastMsg.trim() || targetUsers.length === 0}
                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px 0', background: (!broadcastMsg.trim() || sendingBroadcast) ? '#d1d5db' : '#25D366', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: (!broadcastMsg.trim() || sendingBroadcast) ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
-                    <span style={{ fontSize: 16 }}>💬</span>
-                    {sendingBroadcast ? 'Sending...' : `WhatsApp (${targetUsers.filter(u => u.mobile || u.phone).length})`}
+                    <span>💬</span>{sendingBroadcast ? 'Sending...' : `WhatsApp (${targetUsers.filter(u => u.mobile || u.phone).length})`}
                   </button>
                 )}
                 {(broadcastType === 'email' || broadcastType === 'both') && (
                   <button onClick={handleBroadcast} disabled={sendingBroadcast || !broadcastMsg.trim() || targetUsers.length === 0}
                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px 0', background: (!broadcastMsg.trim() || sendingBroadcast) ? '#d1d5db' : '#3b82f6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: (!broadcastMsg.trim() || sendingBroadcast) ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
-                    <span style={{ fontSize: 16 }}>📧</span>
-                    {sendingBroadcast ? 'Sending...' : `Email (${targetUsers.filter(u => u.email).length})`}
+                    <span>📧</span>{sendingBroadcast ? 'Sending...' : `Email ALL (${targetUsers.filter(u => u.email).length})`}
                   </button>
                 )}
               </div>
+              <div style={{ marginTop: 8, fontSize: 11, color: '#6b7280' }}>📧 Email batches 50 at a time automatically — no more 50-person limit!</div>
             </div>
 
             {broadcastHistory.length > 0 && (
@@ -1187,22 +1508,27 @@ export default function FounderApp() {
                       </div>
                     </div>
                     <div style={{ fontSize: 11, color: '#6b7280' }}>Sent to {b.totalUsers} users · {b.target} · {b.sentAt?.toDate?.()?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) || ''}</div>
-                    <div style={{ marginTop: 6, fontSize: 11, color: '#374151', lineHeight: 1.5, background: '#fff', borderRadius: 6, padding: '6px 8px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
-                      {b.message?.slice(0, 80)}{b.message?.length > 80 ? '...' : ''}
-                    </div>
                   </div>
                 ))}
               </div>
             )}
 
+            {/* All Contacts (full - with copy all button) */}
             <div style={{ background: '#f9fafb', borderRadius: 12, padding: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 10 }}>📱 All User Contacts ({users.length})</div>
-              <button onClick={() => {
-                const nums = users.filter(u => u.mobile || u.phone).map(u => '91' + (u.mobile || u.phone).replace(/\D/g, '')).join('\n')
-                navigator.clipboard?.writeText(nums).then(() => toast.success('All numbers copied!')).catch(() => toast.error('Copy failed'))
-              }} style={{ width: '100%', padding: '9px 0', background: '#fff', color: '#25D366', borderWidth: 1.5, borderStyle: 'solid', borderColor: '#86efac', borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins', marginBottom: 10 }}>
-                📋 Copy All WhatsApp Numbers
-              </button>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                <button onClick={() => {
+                  const allNums = users.filter(u => u.mobile || u.phone).map(u => '91' + (u.mobile || u.phone).replace(/\D/g, '')).join('\n')
+                  if (!allNums) return toast.error('No numbers found')
+                  const ta = document.createElement('textarea'); ta.value = allNums; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta)
+                  toast.success(`✅ Copied all ${users.filter(u => u.mobile || u.phone).length} numbers!`)
+                }} style={{ flex: 1, padding: '9px 0', background: '#25D366', color: '#fff', border: 'none', borderRadius: 9, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                  📋 Copy ALL WA Numbers ({users.filter(u => u.mobile || u.phone).length})
+                </button>
+                <button onClick={() => sendBulkEmail(users.map(u => ({ ...u, phone: u.mobile || u.phone })), broadcastTitle, broadcastMsg)} style={{ flex: 1, padding: '9px 0', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 9, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                  📧 Mail ALL ({users.filter(u => u.email).length})
+                </button>
+              </div>
               {users.slice(0, 20).map((u, i) => (
                 <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottomWidth: i < Math.min(users.length, 20) - 1 ? 1 : 0, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6' }}>
                   <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#E24B4A,#ff6b6a)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -1213,7 +1539,7 @@ export default function FounderApp() {
                     <div style={{ fontSize: 11, color: '#9ca3af' }}>{u.mobile || u.phone || 'No number'}</div>
                   </div>
                   {(u.mobile || u.phone) && (
-                    <a href={`https://wa.me/91${(u.mobile || u.phone).replace(/\D/g, '')}?text=${encodeURIComponent(broadcastMsg.replace(/{name}/g, u.name || 'there') || 'Hi ' + u.name + '! Order from FeedoZone today 🍽️')}`}
+                    <a href={`https://wa.me/91${(u.mobile || u.phone).replace(/\D/g, '')}?text=${encodeURIComponent(broadcastMsg.replace(/{name}/g, u.name || 'there') || 'Hi ' + (u.name || 'there') + '! Order from FeedoZone today 🍽️')}`}
                       target="_blank" rel="noreferrer"
                       style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: '#25D366', borderRadius: 8, textDecoration: 'none', flexShrink: 0 }}>
                       <span style={{ fontSize: 13 }}>💬</span>
@@ -1234,9 +1560,7 @@ export default function FounderApp() {
           </>
         )}
 
-        {/* ════════════════════════════════════════════════════════
-            TAB: ORDERS
-        ════════════════════════════════════════════════════════ */}
+        {/* ════════════════ TAB: ORDERS ════════════════ */}
         {tab === 'orders' && (
           <>
             {selectedOrder && (
@@ -1322,9 +1646,7 @@ export default function FounderApp() {
           </>
         )}
 
-        {/* ════════════════════════════════════════════════════════
-            TAB: SUPPORT
-        ════════════════════════════════════════════════════════ */}
+        {/* ════════════════ TAB: SUPPORT ════════════════ */}
         {tab === 'support' && (
           <>
             {selectedTicket && (
@@ -1384,61 +1706,31 @@ export default function FounderApp() {
           </>
         )}
 
-        {/* ════════════════════════════════════════════════════════
-            TAB: VENDORS  (with LOCATION FILTER)
-        ════════════════════════════════════════════════════════ */}
+        {/* ════════════════ TAB: VENDORS ════════════════ */}
         {tab === 'vendors' && (
           <>
-            {/* ── TOWN FILTER BAR ── */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 8 }}>📍 Filter by Town</div>
               <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
-                <button onClick={() => setSelectedTown('all')}
-                  style={{ flexShrink: 0, padding: '7px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 12, fontWeight: 600, background: selectedTown === 'all' ? '#E24B4A' : '#f3f4f6', color: selectedTown === 'all' ? '#fff' : '#6b7280' }}>
-                  All ({vendors.length})
-                </button>
-                {allTowns.map(town => {
+                <button onClick={() => setSelectedTown('all')} style={{ flexShrink: 0, padding: '7px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 12, fontWeight: 600, background: selectedTown === 'all' ? '#E24B4A' : '#f3f4f6', color: selectedTown === 'all' ? '#fff' : '#6b7280' }}>All ({vendors.length})</button>
+                {allTownsList.map(town => {
                   const count = vendors.filter(v => (v.town || v.locationName) === town).length
-                  const openCount = vendors.filter(v => (v.town || v.locationName) === town && v.isOpen).length
                   return (
-                    <button key={town} onClick={() => setSelectedTown(town)}
-                      style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 12, fontWeight: 600, background: selectedTown === town ? '#E24B4A' : '#f3f4f6', color: selectedTown === town ? '#fff' : '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      📍 {town}
-                      <span style={{ background: selectedTown === town ? 'rgba(255,255,255,0.3)' : '#e5e7eb', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700, color: selectedTown === town ? '#fff' : '#6b7280' }}>{count}</span>
+                    <button key={town} onClick={() => setSelectedTown(town)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 12, fontWeight: 600, background: selectedTown === town ? '#E24B4A' : '#f3f4f6', color: selectedTown === town ? '#fff' : '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      📍 {town} <span style={{ background: selectedTown === town ? 'rgba(255,255,255,0.3)' : '#e5e7eb', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700, color: selectedTown === town ? '#fff' : '#6b7280' }}>{count}</span>
                     </button>
                   )
                 })}
               </div>
-              {/* Town summary row */}
-              {selectedTown !== 'all' && (
-                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                  <div style={{ flex: 1, background: '#f9fafb', borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937' }}>📍 {selectedTown}</div>
-                      <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{filteredVendors.length} vendors total</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a' }}>{filteredVendors.filter(v => v.isOpen).length} open</div>
-                      <div style={{ fontSize: 11, color: '#dc2626' }}>{filteredVendors.filter(v => !v.isOpen).length} closed</div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
-
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
-              {filteredVendors.length} vendor{filteredVendors.length !== 1 ? 's' : ''}{selectedTown !== 'all' ? ` in ${selectedTown}` : ' total'}
-            </div>
-
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>{filteredVendors.length} vendor{filteredVendors.length !== 1 ? 's' : ''}{selectedTown !== 'all' ? ` in ${selectedTown}` : ' total'}</div>
             {filteredVendors.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9ca3af' }}>
                 <div style={{ fontSize: 32, marginBottom: 10 }}>📍</div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#6b7280' }}>No vendors in {selectedTown}</div>
-                <div style={{ fontSize: 12, marginTop: 4 }}>Add a vendor with this town to see them here</div>
                 <button onClick={() => setTab('addvendor')} style={{ marginTop: 14, background: '#E24B4A', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>+ Add Vendor</button>
               </div>
             )}
-
             {filteredVendors.map(v => (
               <div key={v.id} style={{ background: '#fff', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
                 <div style={{ height: 100, position: 'relative', background: 'linear-gradient(135deg,#1a1a1a,#2a2a2a)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1447,14 +1739,8 @@ export default function FounderApp() {
                     style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(0,0,0,0.7)', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'Poppins', fontWeight: 500 }}>
                     {uploadingPhotoFor === v.id ? `${existingProgress}%` : '📷 Change Photo'}
                   </button>
-                  <div style={{ position: 'absolute', top: 8, left: 8, background: v.isOpen ? '#16a34a' : '#dc2626', color: '#fff', fontSize: 10, padding: '3px 8px', borderRadius: 20, fontWeight: 600 }}>
-                    {v.isOpen ? '● Open' : '● Closed'}
-                  </div>
-                  {(v.town || v.locationName) && (
-                    <div style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 10, padding: '3px 8px', borderRadius: 20, fontWeight: 500 }}>
-                      📍 {v.town || v.locationName}
-                    </div>
-                  )}
+                  <div style={{ position: 'absolute', top: 8, left: 8, background: v.isOpen ? '#16a34a' : '#dc2626', color: '#fff', fontSize: 10, padding: '3px 8px', borderRadius: 20, fontWeight: 600 }}>{v.isOpen ? '● Open' : '● Closed'}</div>
+                  {(v.town || v.locationName) && <div style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 10, padding: '3px 8px', borderRadius: 20, fontWeight: 500 }}>📍 {v.town || v.locationName}</div>}
                 </div>
                 <div style={{ padding: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -1463,12 +1749,6 @@ export default function FounderApp() {
                   </div>
                   <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 8 }}>{v.email} · {v.category}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>🚴 Delivery: {v.deliveryCharge === 0 ? 'Free' : ('₹' + (v.deliveryCharge ?? 30))} · 📞 {v.phone || '—'}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: v.expoPushToken ? '#16a34a' : '#d1d5db' }} />
-                    <span style={{ fontSize: 11, color: v.expoPushToken ? '#16a34a' : '#9ca3af' }}>
-                      {v.expoPushToken ? '✅ Push token saved' : 'No push token yet'}
-                    </span>
-                  </div>
                   <button onClick={() => handleDeleteVendor(v.id, v.storeName)} style={{ width: '100%', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 8, padding: '8px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>🗑️ Delete Vendor</button>
                 </div>
               </div>
@@ -1476,9 +1756,7 @@ export default function FounderApp() {
           </>
         )}
 
-        {/* ════════════════════════════════════════════════════════
-            TAB: ANALYTICS
-        ════════════════════════════════════════════════════════ */}
+        {/* ════════════════ TAB: ANALYTICS ════════════════ */}
         {tab === 'analytics' && (
           <>
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>📊 Analytics</div>
@@ -1490,7 +1768,7 @@ export default function FounderApp() {
 
             {analyticsTab === 'overview' && (() => {
               const totalRev = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
-              const activeUsers = [...new Set(orders.filter(o => { const d = o.createdAt?.toDate?.(); const now = new Date(); return d && (now - d) < 30 * 24 * 60 * 60 * 1000 }).map(o => o.userUid))].length
+              const activeUsers = [...new Set(orders.filter(o => { const d = o.createdAt?.toDate?.(); return d && (now - d) < 30 * 86400000 }).map(o => o.userUid))].length
               return (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   {[
@@ -1501,7 +1779,7 @@ export default function FounderApp() {
                     { icon: '⏳', label: 'Pending', val: orders.filter(o => o.status === 'pending').length, bg: '#fffbeb' },
                     { icon: '👥', label: 'Total Users', val: users.length, bg: '#eff6ff' },
                     { icon: '🔥', label: 'Active (30d)', val: activeUsers, bg: '#fff7ed' },
-                    { icon: '🔔', label: 'Push Enabled', val: usersWithTokenCount, bg: '#f0fdf4' },
+                    { icon: '🔄', label: 'Repeat Customers', val: customerStats.repeat, bg: '#f0fdf4' },
                   ].map(s => (
                     <div key={s.label} style={{ background: s.bg, borderRadius: 12, padding: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#f3f4f6' }}>
                       <div style={{ fontSize: 22, marginBottom: 6 }}>{s.icon}</div>
@@ -1606,61 +1884,43 @@ export default function FounderApp() {
               </div>
             )}
 
-            {/* ── TOWNS ANALYTICS (NEW) ── */}
             {analyticsTab === 'towns' && (
               <>
-                {allTowns.length === 0 ? (
+                {allTownsList.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9ca3af' }}>
                     <div style={{ fontSize: 32, marginBottom: 10 }}>📍</div>
                     <div style={{ fontSize: 14, fontWeight: 600 }}>No town data yet</div>
-                    <div style={{ fontSize: 12, marginTop: 4 }}>Set town/location when adding vendors</div>
                   </div>
-                ) : (
-                  allTowns.map(town => {
-                    const tvs = vendors.filter(v => (v.town || v.locationName) === town)
-                    const townOrderIds = new Set(orders.filter(o => tvs.some(v => v.id === o.vendorUid)).map(o => o.id))
-                    const townOrders = orders.filter(o => townOrderIds.has(o.id))
-                    const townRevenue = townOrders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
-                    return (
-                      <div key={town} style={{ background: '#fff', borderRadius: 12, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', padding: 14, marginBottom: 12 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontSize: 20 }}>📍</span>
-                            <div>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: '#1f2937' }}>{town}</div>
-                              <div style={{ fontSize: 11, color: '#9ca3af' }}>{tvs.length} vendors · {tvs.filter(v => v.isOpen).length} open</div>
-                            </div>
-                          </div>
-                          <button onClick={() => { setSelectedTown(town); setTab('vendors') }} style={{ background: '#fff5f5', color: '#E24B4A', borderWidth: 1, borderStyle: 'solid', borderColor: '#fecaca', borderRadius: 8, padding: '6px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>
-                            View Vendors →
-                          </button>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                          <div style={{ background: '#f9fafb', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
-                            <div style={{ fontSize: 16, fontWeight: 700, color: '#E24B4A' }}>{townOrders.length}</div>
-                            <div style={{ fontSize: 10, color: '#6b7280' }}>Orders</div>
-                          </div>
-                          <div style={{ background: '#f0fdf4', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
-                            <div style={{ fontSize: 16, fontWeight: 700, color: '#16a34a' }}>₹{townRevenue.toLocaleString()}</div>
-                            <div style={{ fontSize: 10, color: '#6b7280' }}>Revenue</div>
-                          </div>
-                          <div style={{ background: '#eff6ff', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
-                            <div style={{ fontSize: 16, fontWeight: 700, color: '#3b82f6' }}>{tvs.length}</div>
-                            <div style={{ fontSize: 10, color: '#6b7280' }}>Vendors</div>
+                ) : allTownsList.map(town => {
+                  const tvs = vendors.filter(v => (v.town || v.locationName) === town)
+                  const townOrders = orders.filter(o => tvs.some(v => v.id === o.vendorUid))
+                  const townRevenue = townOrders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
+                  return (
+                    <div key={town} style={{ background: '#fff', borderRadius: 12, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', padding: 14, marginBottom: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 20 }}>📍</span>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#1f2937' }}>{town}</div>
+                            <div style={{ fontSize: 11, color: '#9ca3af' }}>{tvs.length} vendors · {tvs.filter(v => v.isOpen).length} open</div>
                           </div>
                         </div>
+                        <button onClick={() => { setSelectedTown(town); setTab('vendors') }} style={{ background: '#fff5f5', color: '#E24B4A', borderWidth: 1, borderStyle: 'solid', borderColor: '#fecaca', borderRadius: 8, padding: '6px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>View →</button>
                       </div>
-                    )
-                  })
-                )}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                        <div style={{ background: '#f9fafb', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}><div style={{ fontSize: 16, fontWeight: 700, color: '#E24B4A' }}>{townOrders.length}</div><div style={{ fontSize: 10, color: '#6b7280' }}>Orders</div></div>
+                        <div style={{ background: '#f0fdf4', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}><div style={{ fontSize: 16, fontWeight: 700, color: '#16a34a' }}>₹{townRevenue.toLocaleString()}</div><div style={{ fontSize: 10, color: '#6b7280' }}>Revenue</div></div>
+                        <div style={{ background: '#eff6ff', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}><div style={{ fontSize: 16, fontWeight: 700, color: '#3b82f6' }}>{tvs.length}</div><div style={{ fontSize: 10, color: '#6b7280' }}>Vendors</div></div>
+                      </div>
+                    </div>
+                  )
+                })}
               </>
             )}
           </>
         )}
 
-        {/* ════════════════════════════════════════════════════════
-            TAB: ADD VENDOR
-        ════════════════════════════════════════════════════════ */}
+        {/* ════════════════ TAB: ADD VENDOR ════════════════ */}
         {tab === 'addvendor' && (
           <div style={{ borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, padding: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -1688,19 +1948,16 @@ export default function FounderApp() {
                 <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Category</label><select style={{ ...inp, cursor: 'pointer', marginTop: 4 }} {...f('category')}>{['Thali', 'Biryani', 'Chinese', 'Snacks', 'Drinks', 'Sweets', 'Roti', 'Rice'].map(c => <option key={c}>{c}</option>)}</select></div>
                 <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Plan</label><select style={{ ...inp, cursor: 'pointer', marginTop: 4 }} {...f('plan')}><option>₹500/month</option><option>₹1000/month</option><option>Free Trial</option></select></div>
               </div>
-              <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>🚴 Delivery Charge (₹)</label><input style={inp} type="number" placeholder="e.g. 30 (enter 0 for free)" {...f('deliveryCharge')} /></div>
-              {/* Town field */}
+              <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>🚴 Delivery Charge (₹)</label><input style={inp} type="number" placeholder="e.g. 30" {...f('deliveryCharge')} /></div>
               <div>
                 <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>🏘️ Town / Area Name *</label>
                 <input style={inp} placeholder="e.g. Warananagar, Kolhapur, Sangli..." {...f('town')} />
-                {allTowns.length > 0 && (
+                {allTownsList.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 11, color: '#9ca3af' }}>Quick pick:</span>
-                    {allTowns.map(t => (
+                    {allTownsList.map(t => (
                       <button key={t} type="button" onClick={() => setForm(p => ({ ...p, town: t }))}
-                        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, border: 'none', background: form.town === t ? '#E24B4A' : '#f3f4f6', color: form.town === t ? '#fff' : '#374151', cursor: 'pointer', fontFamily: 'Poppins', fontWeight: 500 }}>
-                        {t}
-                      </button>
+                        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, border: 'none', background: form.town === t ? '#E24B4A' : '#f3f4f6', color: form.town === t ? '#fff' : '#374151', cursor: 'pointer', fontFamily: 'Poppins', fontWeight: 500 }}>{t}</button>
                     ))}
                   </div>
                 )}
@@ -1732,20 +1989,15 @@ export default function FounderApp() {
               </button>
             </div>
             <div style={{ marginTop: 14, padding: 12, background: '#f0fdf4', borderRadius: 10, fontSize: 12, color: '#166534' }}>
-              💡 After creating, share the email + password with the vendor. Town name is used for location filtering in the dashboard.
+              💡 After creating, share the email + password with the vendor. Town name is used for location filtering.
             </div>
           </div>
         )}
 
       </div>
 
-      {/* FounderBill modal */}
       {showFounderBill && founderBillOrder && (
-        <FounderBill
-          order={founderBillOrder}
-          vendors={vendors}
-          onClose={() => { setShowFounderBill(false); setFounderBillOrder(null) }}
-        />
+        <FounderBill order={founderBillOrder} vendors={vendors} onClose={() => { setShowFounderBill(false); setFounderBillOrder(null) }} />
       )}
 
     </div>

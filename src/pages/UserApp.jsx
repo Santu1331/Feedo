@@ -13,8 +13,6 @@ import LiveOrderTracking from '../components/LiveOrderTracking'
 import toast from 'react-hot-toast'
 
 // ─── Delivery charge: vendor fixed OR distance-based ─────────────────────────
-// If vendor has distanceBasedDelivery = true → use km slabs
-// Otherwise → always use vendor's fixed deliveryCharge
 function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
   if (useDistanceBased) {
     if (distanceKm === null || distanceKm === undefined) return Number(vendorBaseCharge ?? 0)
@@ -25,7 +23,6 @@ function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
     if (km <= 4) return 40
     return 40
   }
-  // Fixed charge — ignore distance
   return Number(vendorBaseCharge ?? 0)
 }
 
@@ -130,7 +127,6 @@ function MapModal({ userLat, userLng, vendors, onClose }) {
         if (!v.location?.lat || !v.location?.lng) return
         const dist = getDistance(userLat, userLng, v.location.lat, v.location.lng)
         if (dist > MAX_DELIVERY_KM) return
-        // ✅ Pass distanceBasedDelivery flag to map popup charge too
         const charge = calcDeliveryCharge(dist, v.deliveryCharge, v.distanceBasedDelivery)
         const color = v.isOpen ? '#16a34a' : '#6b7280'
         const vendorIcon = L.divIcon({
@@ -177,15 +173,245 @@ function MapModal({ userLat, userLng, vendors, onClose }) {
             <span style={{ fontSize:11, color:'#374151' }}>{l.label}</span>
           </div>
         ))}
-        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-          <div style={{ width:16, height:2, background:'#E24B4A', borderStyle:'dashed' }} />
-          <span style={{ fontSize:11, color:'#374151' }}>{MAX_DELIVERY_KM}km limit</span>
-        </div>
         <div style={{ marginLeft:'auto', fontSize:11, color:'#6b7280' }}>
           🚚 Charges vary by vendor
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── Support Chat Modal ────────────────────────────────────────────────────────
+function SupportChatModal({ user, userData, tickets, onClose, onSendMessage }) {
+  const [msgText, setMsgText] = useState('')
+  const [category, setCategory] = useState('General')
+  const [sending, setSending] = useState(false)
+  const chatEndRef = useRef(null)
+
+  // Build a unified chat timeline from all tickets
+  const chatMessages = []
+  tickets.forEach(t => {
+    // User message
+    chatMessages.push({
+      id: t.id + '_user',
+      type: 'user',
+      text: t.message,
+      category: t.category,
+      time: t.createdAt,
+      ticketId: t.id,
+    })
+    // Founder reply if exists
+    if (t.founderReply) {
+      chatMessages.push({
+        id: t.id + '_reply',
+        type: 'support',
+        text: t.founderReply,
+        time: t.repliedAt || t.createdAt,
+        ticketId: t.id,
+        status: t.status,
+      })
+    }
+  })
+  // Sort by time
+  chatMessages.sort((a, b) => {
+    const ta = a.time?.seconds || 0
+    const tb = b.time?.seconds || 0
+    return ta - tb
+  })
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages.length])
+
+  const handleSend = async () => {
+    if (!msgText.trim()) return
+    setSending(true)
+    await onSendMessage(msgText.trim(), category)
+    setMsgText('')
+    setSending(false)
+  }
+
+  const formatTime = (ts) => {
+    if (!ts) return ''
+    const d = ts?.toDate ? ts.toDate() : new Date(ts.seconds * 1000)
+    return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:2000, display:'flex', flexDirection:'column', justifyContent:'flex-end', fontFamily:'Poppins,sans-serif' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', display:'flex', flexDirection:'column', maxHeight:'88vh', maxWidth:430, width:'100%', margin:'0 auto' }}>
+        {/* Header */}
+        <div style={{ background:'linear-gradient(135deg,#E24B4A,#c73232)', borderRadius:'20px 20px 0 0', padding:'16px 20px', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
+          <div style={{ width:42, height:42, borderRadius:'50%', background:'rgba(255,255,255,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0, borderWidth:2, borderStyle:'solid', borderColor:'rgba(255,255,255,0.4)' }}>
+            🎧
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:'#fff' }}>FeedoZone Support</div>
+            <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:2 }}>
+              <div style={{ width:7, height:7, borderRadius:'50%', background:'#4ade80', animation:'pulse 2s infinite' }} />
+              <span style={{ fontSize:11, color:'rgba(255,255,255,0.85)' }}>Online · Typically replies within 24hrs</span>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+        </div>
+
+        {/* Chat body */}
+        <div style={{ flex:1, overflowY:'auto', padding:'16px 16px 8px', display:'flex', flexDirection:'column', gap:12, minHeight:200 }}>
+          <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+
+          {/* Welcome message */}
+          <div style={{ display:'flex', gap:8, alignItems:'flex-end' }}>
+            <div style={{ width:28, height:28, borderRadius:'50%', background:'#E24B4A', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, flexShrink:0 }}>🎧</div>
+            <div style={{ background:'#f3f4f6', borderRadius:'14px 14px 14px 2px', padding:'10px 13px', maxWidth:'75%' }}>
+              <div style={{ fontSize:13, color:'#1f2937', lineHeight:1.5 }}>Hi {userData?.name?.split(' ')[0] || 'there'}! 👋 Welcome to FeedoZone support. How can I help you today?</div>
+              <div style={{ fontSize:10, color:'#9ca3af', marginTop:4 }}>Support Team</div>
+            </div>
+          </div>
+
+          {chatMessages.length === 0 && (
+            <div style={{ textAlign:'center', padding:'20px 0', color:'#9ca3af' }}>
+              <div style={{ fontSize:32, marginBottom:8 }}>💬</div>
+              <div style={{ fontSize:13 }}>Send us a message and we'll get back to you!</div>
+            </div>
+          )}
+
+          {chatMessages.map(msg => (
+            <div key={msg.id} style={{ display:'flex', gap:8, alignItems:'flex-end', flexDirection: msg.type === 'user' ? 'row-reverse' : 'row' }}>
+              {msg.type === 'support' && (
+                <div style={{ width:28, height:28, borderRadius:'50%', background:'#E24B4A', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, flexShrink:0 }}>🎧</div>
+              )}
+              <div style={{
+                background: msg.type === 'user' ? '#E24B4A' : '#f3f4f6',
+                borderRadius: msg.type === 'user' ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
+                padding:'10px 13px',
+                maxWidth:'75%',
+              }}>
+                {msg.category && msg.type === 'user' && (
+                  <div style={{ fontSize:9, fontWeight:700, color: msg.type === 'user' ? 'rgba(255,255,255,0.7)' : '#9ca3af', marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>{msg.category}</div>
+                )}
+                <div style={{ fontSize:13, color: msg.type === 'user' ? '#fff' : '#1f2937', lineHeight:1.5 }}>{msg.text}</div>
+                <div style={{ fontSize:10, color: msg.type === 'user' ? 'rgba(255,255,255,0.65)' : '#9ca3af', marginTop:4, textAlign: msg.type === 'user' ? 'right' : 'left' }}>
+                  {formatTime(msg.time)}
+                  {msg.type === 'user' && ' ✓✓'}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Category selector */}
+        <div style={{ padding:'8px 16px 0', flexShrink:0 }}>
+          <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:6 }}>
+            {['General','Order Issue','Payment','App Bug','Feedback','Other'].map(cat => (
+              <button key={cat} onClick={() => setCategory(cat)}
+                style={{ flexShrink:0, padding:'4px 10px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:10, fontWeight:600, background:category===cat?'#E24B4A':'#f3f4f6', color:category===cat?'#fff':'#6b7280', whiteSpace:'nowrap' }}>
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Input */}
+        <div style={{ padding:'8px 16px 16px', display:'flex', gap:8, alignItems:'flex-end', flexShrink:0 }}>
+          <textarea
+            value={msgText}
+            onChange={e => setMsgText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+            placeholder="Type your message..."
+            rows={1}
+            style={{ flex:1, padding:'11px 14px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:20, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', lineHeight:1.5, maxHeight:100, overflowY:'auto' }}
+          />
+          <button
+            onClick={handleSend}
+            disabled={sending || !msgText.trim()}
+            style={{ width:42, height:42, borderRadius:'50%', border:'none', background:(!msgText.trim()||sending)?'#f3f4f6':'#E24B4A', color:(!msgText.trim()||sending)?'#9ca3af':'#fff', cursor:(!msgText.trim()||sending)?'not-allowed':'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.2s' }}>
+            {sending ? '...' : '➤'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Floating Support Reply Popup (WhatsApp-style) ────────────────────────────
+function SupportReplyPopup({ reply, onOpen, onDismiss }) {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    // Animate in
+    setTimeout(() => setVisible(true), 50)
+    // Auto dismiss after 8 seconds
+    const id = setTimeout(() => {
+      setVisible(false)
+      setTimeout(onDismiss, 350)
+    }, 8000)
+    return () => clearTimeout(id)
+  }, [])
+
+  const handleOpen = () => {
+    setVisible(false)
+    setTimeout(onOpen, 200)
+    setTimeout(onDismiss, 300)
+  }
+
+  const handleClose = (e) => {
+    e.stopPropagation()
+    setVisible(false)
+    setTimeout(onDismiss, 350)
+  }
+
+  return (
+    <>
+      <style>{`
+        @keyframes slideUpPop {
+          from { transform: translateY(100px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes slideDownPop {
+          from { transform: translateY(0); opacity: 1; }
+          to { transform: translateY(100px); opacity: 0; }
+        }
+        .popup-slide-in { animation: slideUpPop 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+        .popup-slide-out { animation: slideDownPop 0.3s ease-in forwards; }
+      `}</style>
+      <div
+        className={visible ? 'popup-slide-in' : 'popup-slide-out'}
+        onClick={handleOpen}
+        style={{
+          position:'fixed', bottom:80, left:'50%', transform:'translateX(-50%)',
+          width:'calc(100% - 32px)', maxWidth:400,
+          background:'#fff', borderRadius:16,
+          boxShadow:'0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.1)',
+          padding:'12px 14px', zIndex:3000, cursor:'pointer',
+          borderWidth:1.5, borderStyle:'solid', borderColor:'#fecaca',
+          fontFamily:'Poppins,sans-serif',
+          display:'flex', alignItems:'center', gap:12,
+        }}>
+        {/* Avatar */}
+        <div style={{ width:44, height:44, borderRadius:'50%', background:'linear-gradient(135deg,#E24B4A,#c73232)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0, position:'relative' }}>
+          🎧
+          <div style={{ position:'absolute', bottom:1, right:1, width:12, height:12, borderRadius:'50%', background:'#4ade80', borderWidth:2, borderStyle:'solid', borderColor:'#fff' }} />
+        </div>
+        {/* Content */}
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:2 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>FeedoZone Support</div>
+            <div style={{ fontSize:10, color:'#9ca3af' }}>now</div>
+          </div>
+          <div style={{ fontSize:12, color:'#374151', lineHeight:1.4, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'90%' }}>{reply}</div>
+          <div style={{ fontSize:10, color:'#E24B4A', fontWeight:600, marginTop:4 }}>Tap to view reply →</div>
+        </div>
+        {/* Close */}
+        <button
+          onClick={handleClose}
+          style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:24, height:24, fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+          ✕
+        </button>
+      </div>
+    </>
   )
 }
 
@@ -216,23 +442,17 @@ export default function UserApp() {
   const [submittingReview, setSubmittingReview] = useState(false)
   const [showBill, setShowBill] = useState(false)
   const [billOrder, setBillOrder] = useState(null)
-  const [showSupport, setShowSupport] = useState(false)
   const [showTerms, setShowTerms] = useState(false)
   const [showPrivacy, setShowPrivacy] = useState(false)
-  const [supportMsg, setSupportMsg] = useState('')
-  const [supportCategory, setSupportCategory] = useState('General')
-  const [sendingSupport, setSendingSupport] = useState(false)
-  const [supportSent, setSupportSent] = useState(false)
-  const [myTickets, setMyTickets] = useState([])
-
-  const [showFeedback, setShowFeedback] = useState(false)
-  const [feedbackText, setFeedbackText] = useState('')
-  const [feedbackType, setFeedbackType] = useState('suggestion')
-  const [feedbackRating, setFeedbackRating] = useState(5)
-  const [sendingFeedback, setSendingFeedback] = useState(false)
-  const [feedbackSent, setFeedbackSent] = useState(false)
 
   const [menuCatFilter, setMenuCatFilter] = useState('All')
+
+  // ── Support Chat States ──────────────────────────────────────────────
+  const [showSupportChat, setShowSupportChat] = useState(false)
+  const [myTickets, setMyTickets] = useState([])
+  const [supportReplyPopup, setSupportReplyPopup] = useState(null) // { text, ticketId }
+  const seenRepliesRef = useRef(new Set()) // track already-seen founderReplies so we don't re-popup
+  const [supportUnreadCount, setSupportUnreadCount] = useState(0)
 
   // ── Location state ──
   const [userLat, setUserLat] = useState(null)
@@ -243,7 +463,6 @@ export default function UserApp() {
   const [locationSearch, setLocationSearch] = useState('')
   const [locationSuggestions, setLocationSuggestions] = useState([])
   const [searchingLocation, setSearchingLocation] = useState(false)
-  const [locationGranted, setLocationGranted] = useState(true)
   const [showMap, setShowMap] = useState(false)
 
   const [deliveryName, setDeliveryName] = useState('')
@@ -282,11 +501,10 @@ export default function UserApp() {
     const token = window.expoPushToken || localStorage.getItem('expoPushToken')
     if (token && token.startsWith('ExponentPushToken')) {
       saveExpoPushToken(user.uid, token, 'user')
-      console.log('✅ Token saved on login:', token)
     }
   }, [user?.uid])
 
-  // ── Auto-detect location silently on mount ──
+  // ── Auto-detect location ──
   useEffect(() => {
     const cached = localStorage.getItem('feedo_location')
     if (cached) {
@@ -316,6 +534,98 @@ export default function UserApp() {
       )
     }
   }, [])
+
+  // ── Real-time support tickets listener with popup ──────────────────────────
+  useEffect(() => {
+    if (!user) return
+    let unsub
+    const loadStoredSeen = () => {
+      try {
+        const stored = localStorage.getItem('feedo_seen_replies_' + user.uid)
+        if (stored) {
+          JSON.parse(stored).forEach(id => seenRepliesRef.current.add(id))
+        }
+      } catch {}
+    }
+    loadStoredSeen()
+
+    import('firebase/firestore').then(({ collection, query, where, onSnapshot, orderBy }) => {
+      const q = query(
+        collection(db, 'supportTickets'),
+        where('userUid', '==', user.uid)
+      )
+      unsub = onSnapshot(q, snap => {
+        const tickets = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        tickets.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
+        setMyTickets(tickets)
+
+        // Check for new founder replies that we haven't shown popup for
+        let newUnread = 0
+        tickets.forEach(ticket => {
+          if (ticket.founderReply) {
+            const seenKey = ticket.id + '_reply'
+            if (!seenRepliesRef.current.has(seenKey)) {
+              // New reply! Show popup
+              setSupportReplyPopup({ text: ticket.founderReply, ticketId: ticket.id })
+              // Vibrate if supported
+              try { navigator.vibrate?.([200, 100, 200]) } catch {}
+              // Toast too
+              toast('💬 Support replied!', { icon: '🎧', duration: 3000 })
+            }
+          }
+          // Count unread (not yet opened in chat)
+          if (ticket.founderReply && !seenRepliesRef.current.has(ticket.id + '_reply_read')) {
+            newUnread++
+          }
+        })
+        setSupportUnreadCount(newUnread)
+      })
+    })
+    return () => unsub?.()
+  }, [user])
+
+  // Mark all replies as seen when user opens support chat
+  const handleOpenSupportChat = () => {
+    setShowSupportChat(true)
+    setSupportReplyPopup(null)
+    // Mark all as seen
+    myTickets.forEach(ticket => {
+      if (ticket.founderReply) {
+        const seenKey = ticket.id + '_reply'
+        const readKey = ticket.id + '_reply_read'
+        seenRepliesRef.current.add(seenKey)
+        seenRepliesRef.current.add(readKey)
+      }
+    })
+    setSupportUnreadCount(0)
+    // Persist seen state
+    try {
+      localStorage.setItem(
+        'feedo_seen_replies_' + user?.uid,
+        JSON.stringify([...seenRepliesRef.current])
+      )
+    } catch {}
+  }
+
+  // Send a support message
+  const handleSendSupportMessage = async (text, category) => {
+    try {
+      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
+      await addDoc(collection(db, 'supportTickets'), {
+        userUid: user.uid,
+        userName: userData?.name || 'User',
+        userEmail: user.email,
+        userPhone: userData?.mobile || '',
+        category,
+        message: text,
+        status: 'open',
+        founderReply: '',
+        createdAt: serverTimestamp()
+      })
+    } catch {
+      toast.error('Failed to send. Try again.')
+    }
+  }
 
   useEffect(() => {
     window.history.pushState({ tab }, '', window.location.href)
@@ -426,7 +736,6 @@ export default function UserApp() {
     const dist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
       ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
       : null
-    // ✅ Pass distanceBasedDelivery flag
     const dynamicCharge = calcDeliveryCharge(dist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
 
     setCartVendor({ ...selectedVendor, deliveryCharge: dynamicCharge, distanceKm: dist })
@@ -445,7 +754,6 @@ export default function UserApp() {
     const dist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
       ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
       : null
-    // ✅ Pass distanceBasedDelivery flag
     const dynamicCharge = calcDeliveryCharge(dist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
 
     setCartVendor({ ...selectedVendor, deliveryCharge: dynamicCharge, distanceKm: dist })
@@ -472,71 +780,25 @@ export default function UserApp() {
   const minOrder = Number(cartVendor?.minOrderAmount ?? 0)
   const minOrderShortfall = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
   const meetsMinOrder = minOrderShortfall === 0
+
   const handleCancelOrder = async (order) => {
-  if (cancellingOrder) return
-  setCancellingOrder(true)
-  try {
-    await updateOrderStatus(order.id, 'cancelled', {
-      userUid: order.userUid,
-      vendorUid: order.vendorUid,
-      vendorName: order.vendorName,
-      cancellationReason: 'Cancelled by customer within 5 minutes',
-    })
-    toast.success('Order cancelled successfully.')
-    setShowCancelConfirm(false)
-    setOrderToCancel(null)
-    if (selectedOrder?.id === order.id) setSelectedOrder(null)
-  } catch (e) {
-    console.error(e)
-    toast.error('Failed to cancel. Please try again.')
-  }
-  setCancellingOrder(false)
-}
-
-  useEffect(() => {
-    if (!user) return
-    let unsub
-    import('firebase/firestore').then(({ collection, query, where, onSnapshot }) => {
-      const q = query(collection(db, 'supportTickets'), where('userUid', '==', user.uid))
-      unsub = onSnapshot(q, snap => {
-        const tickets = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        tickets.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
-        setMyTickets(tickets)
-      })
-    })
-    return () => unsub?.()
-  }, [user])
-
-  const handleSendSupport = async () => {
-    if (!supportMsg.trim()) return toast.error('Please describe your issue')
-    setSendingSupport(true)
+    if (cancellingOrder) return
+    setCancellingOrder(true)
     try {
-      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
-      await addDoc(collection(db, 'supportTickets'), {
-        userUid: user.uid, userName: userData?.name || 'User', userEmail: user.email,
-        userPhone: userData?.mobile || '', category: supportCategory,
-        message: supportMsg.trim(), status: 'open', founderReply: '', createdAt: serverTimestamp()
+      await updateOrderStatus(order.id, 'cancelled', {
+        userUid: order.userUid,
+        vendorUid: order.vendorUid,
+        vendorName: order.vendorName,
+        cancellationReason: 'Cancelled by customer within 5 minutes',
       })
-      setSupportSent(true); setSupportMsg(''); toast.success('Support request sent! ✅')
-    } catch { toast.error('Failed to send. Try again.') }
-    setSendingSupport(false)
-  }
-
-  const handleSendFeedback = async () => {
-    if (!feedbackText.trim()) return toast.error('Please write your feedback')
-    setSendingFeedback(true)
-    try {
-      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
-      await addDoc(collection(db, 'supportTickets'), {
-        userUid: user.uid, userName: userData?.name || 'User', userEmail: user.email,
-        userPhone: userData?.mobile || '',
-        category: feedbackType==='suggestion'?'Feedback':feedbackType==='bug'?'App Bug':'General',
-        message: feedbackText.trim(), appRating: feedbackRating,
-        status: 'open', founderReply: '', isFeedback: true, createdAt: serverTimestamp()
-      })
-      setFeedbackSent(true); setFeedbackText(''); toast.success('Thank you for your feedback! 🙏')
-    } catch { toast.error('Failed to send. Try again.') }
-    setSendingFeedback(false)
+      toast.success('Order cancelled successfully.')
+      setShowCancelConfirm(false)
+      setOrderToCancel(null)
+      if (selectedOrder?.id === order.id) setSelectedOrder(null)
+    } catch (e) {
+      toast.error('Failed to cancel. Please try again.')
+    }
+    setCancellingOrder(false)
   }
 
   const handlePlaceOrder = async () => {
@@ -572,7 +834,7 @@ export default function UserApp() {
       })
       setCart([]); setCartVendor(null); setShowCheckout(false)
       setDeliveryNote(''); setDeliveryHostel('')
-    } catch (e) { console.error(e); toast.error('Failed to place order. Try again.') }
+    } catch (e) { toast.error('Failed to place order. Try again.') }
   }
 
   const handleSubmitReview = async () => {
@@ -754,6 +1016,34 @@ export default function UserApp() {
   return (
     <div style={S.shell}>
 
+      {/* ── FLOATING SUPPORT REPLY POPUP ── */}
+      {supportReplyPopup && (
+        <SupportReplyPopup
+          reply={supportReplyPopup.text}
+          onOpen={handleOpenSupportChat}
+          onDismiss={() => {
+            // mark as seen even if dismissed (but not as read)
+            const seenKey = supportReplyPopup.ticketId + '_reply'
+            seenRepliesRef.current.add(seenKey)
+            try {
+              localStorage.setItem('feedo_seen_replies_' + user?.uid, JSON.stringify([...seenRepliesRef.current]))
+            } catch {}
+            setSupportReplyPopup(null)
+          }}
+        />
+      )}
+
+      {/* ── SUPPORT CHAT MODAL ── */}
+      {showSupportChat && (
+        <SupportChatModal
+          user={user}
+          userData={userData}
+          tickets={myTickets}
+          onClose={() => setShowSupportChat(false)}
+          onSendMessage={handleSendSupportMessage}
+        />
+      )}
+
       {/* ── HEADER ── */}
       <div style={S.redHdr}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
@@ -862,8 +1152,6 @@ export default function UserApp() {
         {/* ── HOME ── */}
         {tab==='home' && (
           <div style={{ background:'#fff', minHeight:'100%' }}>
-
-            {/* ✅ Updated banner — no longer says "distance-based" since it varies by vendor */}
             <div style={{ background:'linear-gradient(90deg,#fff7ed,#fef3c7)', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#fed7aa', padding:'8px 16px', display:'flex', alignItems:'center', gap:10 }}>
               <span style={{ fontSize:16 }}>🚚</span>
               <div style={{ flex:1 }}>
@@ -918,7 +1206,6 @@ export default function UserApp() {
             <div style={{ padding:'0 16px' }}>
               {filteredVendors.map(v => {
                 const vMinOrder = Number(v.minOrderAmount ?? 0)
-                // ✅ Vendor-first delivery charge
                 const dynamicCharge = calcDeliveryCharge(v.distance, v.deliveryCharge, v.distanceBasedDelivery)
                 return (
                   <div key={v.id} onClick={() => openVendor(v)}
@@ -958,7 +1245,6 @@ export default function UserApp() {
                         <span style={{ fontSize:12, fontWeight:700, background:dynamicCharge===0?'#dcfce7':'#fef3c7', color:dynamicCharge===0?'#16a34a':'#92400e', borderRadius:6, padding:'2px 8px' }}>
                           {dynamicCharge===0 ? '🎉 Free delivery' : `🚚 ₹${dynamicCharge} delivery`}
                         </span>
-                        {/* ✅ Show badge if vendor uses distance-based pricing */}
                         {v.distanceBasedDelivery && v.distance !== null && (
                           <span style={{ fontSize:10, fontWeight:600, background:'#eff6ff', color:'#3b82f6', borderRadius:6, padding:'2px 7px' }}>
                             📍 Distance-based
@@ -1004,7 +1290,6 @@ export default function UserApp() {
           const vendorDist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
             ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
             : null
-          // ✅ Pass distanceBasedDelivery flag
           const dynamicCharge = calcDeliveryCharge(vendorDist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
 
           return (
@@ -1023,7 +1308,6 @@ export default function UserApp() {
                 <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px' }}>
                   🚚 {dynamicCharge === 0 ? 'Free delivery 🎉' : `₹${dynamicCharge} delivery`}
                 </span>
-                {/* ✅ Show distance-based badge in vendor menu too */}
                 {selectedVendor.distanceBasedDelivery && vendorDist !== null && (
                   <span style={{ fontSize:10, fontWeight:600, background:'#eff6ff', color:'#3b82f6', borderRadius:6, padding:'2px 7px' }}>
                     📍 Distance-based
@@ -1198,7 +1482,6 @@ export default function UserApp() {
                   )}
                 </div>
 
-                {/* ✅ Delivery charge type info row */}
                 <div style={{ display:'flex', gap:14, padding:'14px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', alignItems:'center' }}>
                   <div style={{ width:38, height:38, borderRadius:10, background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><span style={{ fontSize:17 }}>🚚</span></div>
                   <div style={{ flex:1 }}>
@@ -1321,7 +1604,6 @@ export default function UserApp() {
               <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:10, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
                 <span style={{ fontSize:16 }}>🚚</span>
                 <div style={{ flex:1 }}>
-                  {/* ✅ Show correct label based on charge type */}
                   <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>
                     {cartVendor.distanceBasedDelivery ? 'Distance-based delivery charge' : 'Delivery charge'}
                   </div>
@@ -1532,16 +1814,28 @@ export default function UserApp() {
               <button onClick={() => setLang(l=>l==='en'?'mr':'en')} style={{ background:'#FCEBEB', color:'#A32D2D', border:'none', padding:'5px 12px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>{lang==='en'?'Switch to Marathi':'English वर जा'}</button>
             </div>
             <button onClick={() => { localStorage.removeItem('feedo_location'); logoutUser() }} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500, marginBottom:16 }}>Logout</button>
+            
             <div style={{ marginBottom:4, fontSize:11, color:'#9ca3af', fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>Help & Legal</div>
             <div style={{ background:'#fafafa', borderRadius:12, overflow:'hidden', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', marginBottom:80 }}>
               {[
-                {icon:'💬',label:'Contact Support',sub:'Report issue or ask a question',action:()=>{setShowSupport(true);setSupportSent(false)}},
+                {icon:'💬',label:'Contact Support',sub:'Chat with our support team',badge: supportUnreadCount > 0 ? supportUnreadCount : null, action: handleOpenSupportChat},
                 {icon:'📜',label:'Terms & Conditions',sub:'Our terms of service',action:()=>setShowTerms(true)},
                 {icon:'🔒',label:'Privacy Policy',sub:'How we handle your data',action:()=>setShowPrivacy(true)}
               ].map((item,i,arr)=>(
                 <button key={item.label} onClick={item.action} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', background:'transparent', border:'none', borderBottomWidth:i<arr.length-1?1:0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}>
-                  <div style={{ width:36, height:36, borderRadius:10, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>{item.icon}</div>
-                  <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{item.label}</div><div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{item.sub}</div></div>
+                  <div style={{ width:36, height:36, borderRadius:10, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0, position:'relative' }}>
+                    {item.icon}
+                    {item.badge && (
+                      <div style={{ position:'absolute', top:-4, right:-4, background:'#E24B4A', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{item.badge}</div>
+                    )}
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:'#1f2937', display:'flex', alignItems:'center', gap:6 }}>
+                      {item.label}
+                      {item.badge && <span style={{ fontSize:9, background:'#fee2e2', color:'#dc2626', padding:'1px 6px', borderRadius:10, fontWeight:700 }}>NEW REPLY</span>}
+                    </div>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{item.sub}</div>
+                  </div>
                   <span style={{ fontSize:14, color:'#d1d5db' }}>›</span>
                 </button>
               ))}
@@ -1593,40 +1887,6 @@ export default function UserApp() {
             </button>
             <button onClick={()=>{const latestOrder=orders[0];setOrderSuccess(null);setTab('orders');if(latestOrder)setTimeout(()=>setSelectedOrder(latestOrder),100)}} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10 }}>📋 Track My Order</button>
             <button onClick={()=>{setOrderSuccess(null);setTab('home')}} style={{ width:'100%', background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>🏠 Back to Home</button>
-          </div>
-        </div>
-      )}
-
-      {/* ── SUPPORT MODAL ── */}
-      {showSupport && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }} onClick={e=>{if(e.target===e.currentTarget)setShowSupport(false)}}>
-          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'90vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
-            <div style={{ padding:'16px 20px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, background:'#fff', zIndex:1 }}>
-              <div><div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>💬 Contact Support</div><div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>We typically reply within 24 hours</div></div>
-              <button onClick={()=>setShowSupport(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
-            </div>
-            <div style={{ padding:20 }}>
-              {!supportSent ? (
-                <>
-                  <div style={{ marginBottom:12 }}>
-                    <div style={{ fontSize:12, color:'#6b7280', fontWeight:500, marginBottom:6 }}>Category</div>
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-                      {['General','Order Issue','Payment','App Bug','Feedback','Other'].map(cat=>(
-                        <button key={cat} onClick={()=>setSupportCategory(cat)} style={{ padding:'6px 12px', borderRadius:20, border:'none', cursor:'pointer', fontFamily:'Poppins', fontSize:11, fontWeight:600, background:supportCategory===cat?'#E24B4A':'#f3f4f6', color:supportCategory===cat?'#fff':'#6b7280' }}>{cat}</button>
-                      ))}
-                    </div>
-                  </div>
-                  <textarea value={supportMsg} onChange={e=>setSupportMsg(e.target.value)} placeholder="Tell us what's wrong..." rows={5} style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', lineHeight:1.6, marginBottom:14 }} />
-                  <button onClick={handleSendSupport} disabled={sendingSupport} style={{ width:'100%', background:sendingSupport?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:12, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>{sendingSupport?'Sending...':'📩 Send Support Request'}</button>
-                </>
-              ) : (
-                <div style={{ textAlign:'center', padding:'20px 0' }}>
-                  <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
-                  <div style={{ fontSize:16, fontWeight:700, color:'#1f2937', marginBottom:6 }}>Request Sent!</div>
-                  <button onClick={()=>setSupportSent(false)} style={{ background:'#f3f4f6', border:'none', padding:'10px 20px', borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', color:'#374151' }}>Send Another</button>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       )}
@@ -1722,6 +1982,16 @@ export default function UserApp() {
             <span style={{ fontSize:10, color:tab===item.id?'#E24B4A':'#6b7280', fontWeight:tab===item.id?600:400 }}>{item.label}</span>
           </button>
         ))}
+        {/* Support Chat Button in nav - shows when there's unread */}
+        {supportUnreadCount > 0 && (
+          <button style={S.bnItem()} onClick={handleOpenSupportChat}>
+            <div style={{ position:'relative' }}>
+              <span style={{ fontSize:20 }}>🎧</span>
+              <div style={{ position:'absolute', top:-4, right:-4, background:'#E24B4A', color:'#fff', borderRadius:'50%', width:14, height:14, fontSize:8, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{supportUnreadCount}</div>
+            </div>
+            <span style={{ fontSize:10, color:'#E24B4A', fontWeight:600 }}>Support</span>
+          </button>
+        )}
       </div>
 
       {/* UserBill Modal */}
