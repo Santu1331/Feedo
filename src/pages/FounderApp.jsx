@@ -6,7 +6,7 @@ import {
 } from '../firebase/services'
 import {
   doc, deleteDoc, getDocs, query, where, collection, addDoc,
-  serverTimestamp, orderBy, limit, onSnapshot
+  serverTimestamp, orderBy, limit, onSnapshot, updateDoc
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import toast from 'react-hot-toast'
@@ -33,19 +33,15 @@ function CustomerProfileModal({ customer, orders, onClose, broadcastMsg, broadca
   const delivered = userOrders.filter(o => o.status === 'delivered')
   const totalSpent = delivered.reduce((s, o) => s + (o.total || 0), 0)
   const cancelled = userOrders.filter(o => o.status === 'cancelled')
-  const pending = userOrders.filter(o => o.status === 'pending')
 
-  // Favourite vendor
   const vendorCount = {}
   userOrders.forEach(o => { vendorCount[o.vendorName] = (vendorCount[o.vendorName] || 0) + 1 })
   const favVendor = Object.entries(vendorCount).sort((a, b) => b[1] - a[1])[0]
 
-  // Favourite item
   const itemCount = {}
   userOrders.forEach(o => { o.items?.forEach(i => { itemCount[i.name] = (itemCount[i.name] || 0) + i.qty }) })
   const favItem = Object.entries(itemCount).sort((a, b) => b[1] - a[1])[0]
 
-  // Weekly order pattern (last 8 weeks)
   const weeklyData = []
   for (let w = 7; w >= 0; w--) {
     const start = new Date(); start.setDate(start.getDate() - (w + 1) * 7)
@@ -67,7 +63,6 @@ function CustomerProfileModal({ customer, orders, onClose, broadcastMsg, broadca
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div style={{ background: '#fff', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', maxWidth: 430, maxHeight: '90vh', overflowY: 'auto' }}>
-        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'linear-gradient(135deg,#E24B4A,#ff6b6a)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -81,7 +76,6 @@ function CustomerProfileModal({ customer, orders, onClose, broadcastMsg, broadca
           <button onClick={onClose} style={{ background: '#f3f4f6', border: 'none', borderRadius: '50%', width: 32, height: 32, fontSize: 16, cursor: 'pointer' }}>✕</button>
         </div>
 
-        {/* Quick Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
           {[
             { label: 'Orders', val: userOrders.length, color: '#E24B4A', bg: '#fff5f5' },
@@ -95,7 +89,6 @@ function CustomerProfileModal({ customer, orders, onClose, broadcastMsg, broadca
           ))}
         </div>
 
-        {/* Contact + Last seen */}
         <div style={{ background: '#f9fafb', borderRadius: 10, padding: 12, marginBottom: 12 }}>
           {[
             ['📞 Phone', phone || '—'],
@@ -112,20 +105,18 @@ function CustomerProfileModal({ customer, orders, onClose, broadcastMsg, broadca
           ))}
         </div>
 
-        {/* Weekly Order Chart */}
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8 }}>📊 Weekly Order History</div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 60, background: '#f9fafb', borderRadius: 10, padding: '10px 10px 6px' }}>
             {weeklyData.map(w => (
               <div key={w.week} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                <div style={{ width: '100%', background: w.count > 0 ? '#E24B4A' : '#e5e7eb', borderRadius: '3px 3px 0 0', height: Math.max((w.count / maxWeek) * 40, w.count > 0 ? 6 : 3), transition: 'height 0.3s' }} />
+                <div style={{ width: '100%', background: w.count > 0 ? '#E24B4A' : '#e5e7eb', borderRadius: '3px 3px 0 0', height: Math.max((w.count / maxWeek) * 40, w.count > 0 ? 6 : 3) }} />
                 <div style={{ fontSize: 8, color: '#9ca3af' }}>{w.week}</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Action Buttons */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           {phone && (
             <a href={`https://wa.me/${wa91}?text=${encodeURIComponent(broadcastMsg?.replace(/{name}/g, customer.name || 'there') || `Hi ${customer.name || 'there'}! 🍽️ Order from FeedoZone today!`)}`}
@@ -144,7 +135,6 @@ function CustomerProfileModal({ customer, orders, onClose, broadcastMsg, broadca
           )}
         </div>
 
-        {/* Recent Orders */}
         <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8 }}>🧾 Recent Orders</div>
         {userOrders.slice(0, 8).map((o, i) => (
           <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6' }}>
@@ -159,6 +149,172 @@ function CustomerProfileModal({ customer, orders, onClose, broadcastMsg, broadca
           </div>
         ))}
         {userOrders.length === 0 && <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No orders yet</div>}
+      </div>
+    </div>
+  )
+}
+
+// ── VENDOR REORDER MODAL ─────────────────────────────────────────────────────
+function VendorReorderModal({ vendors, onClose, onSave }) {
+  const [list, setList] = useState(() =>
+    [...vendors].sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999))
+  )
+  const [saving, setSaving] = useState(false)
+  const dragIdx = useRef(null)
+  const dragOverIdx = useRef(null)
+
+  const moveUp = (i) => {
+    if (i === 0) return
+    const next = [...list]
+    ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
+    setList(next)
+  }
+
+  const moveDown = (i) => {
+    if (i === list.length - 1) return
+    const next = [...list]
+    ;[next[i], next[i + 1]] = [next[i + 1], next[i]]
+    setList(next)
+  }
+
+  const moveToTop = (i) => {
+    if (i === 0) return
+    const next = [...list]
+    const [item] = next.splice(i, 1)
+    next.unshift(item)
+    setList(next)
+  }
+
+  const moveToBottom = (i) => {
+    if (i === list.length - 1) return
+    const next = [...list]
+    const [item] = next.splice(i, 1)
+    next.push(item)
+    setList(next)
+  }
+
+  // Drag and drop handlers
+  const handleDragStart = (i) => { dragIdx.current = i }
+  const handleDragOver = (e, i) => {
+    e.preventDefault()
+    dragOverIdx.current = i
+  }
+  const handleDrop = () => {
+    const from = dragIdx.current
+    const to = dragOverIdx.current
+    if (from === null || to === null || from === to) return
+    const next = [...list]
+    const [item] = next.splice(from, 1)
+    next.splice(to, 0, item)
+    setList(next)
+    dragIdx.current = null
+    dragOverIdx.current = null
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await Promise.all(
+        list.map((v, i) => updateDoc(doc(db, 'vendors', v.id), { sortOrder: i }))
+      )
+      toast.success('✅ Vendor order saved!')
+      onSave(list)
+      onClose()
+    } catch (err) {
+      toast.error('Failed to save order: ' + err.message)
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background: '#fff', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 430, maxHeight: '90vh', display: 'flex', flexDirection: 'column', fontFamily: 'Poppins,sans-serif' }}>
+        {/* Header */}
+        <div style={{ padding: '16px 16px 12px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', flexShrink: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>🔢 Set Vendor Display Order</div>
+            <button onClick={onClose} style={{ background: '#f3f4f6', border: 'none', borderRadius: '50%', width: 32, height: 32, fontSize: 16, cursor: 'pointer' }}>✕</button>
+          </div>
+          <div style={{ fontSize: 11, color: '#9ca3af' }}>Drag vendors or use arrows · #1 appears first for customers</div>
+        </div>
+
+        {/* List */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
+          {list.map((v, i) => (
+            <div
+              key={v.id}
+              draggable
+              onDragStart={() => handleDragStart(i)}
+              onDragOver={(e) => handleDragOver(e, i)}
+              onDrop={handleDrop}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                background: '#fff', borderRadius: 12, padding: '10px 12px',
+                marginBottom: 8, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb',
+                cursor: 'grab', userSelect: 'none',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
+              }}>
+              {/* Rank badge */}
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                background: i === 0 ? 'linear-gradient(135deg,#fbbf24,#f59e0b)' : i === 1 ? '#d1d5db' : i === 2 ? '#f97316' : '#f3f4f6',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 800,
+                color: i < 3 ? '#fff' : '#6b7280'
+              }}>
+                {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
+              </div>
+
+              {/* Photo */}
+              <div style={{ width: 38, height: 38, borderRadius: 9, overflow: 'hidden', flexShrink: 0, background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {v.photo ? <img src={v.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 18 }}>🏪</span>}
+              </div>
+
+              {/* Info */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.storeName}</div>
+                <div style={{ fontSize: 10, color: '#9ca3af' }}>
+                  {v.category}{v.town ? ` · 📍${v.town}` : ''}
+                  <span style={{ marginLeft: 6, color: v.isOpen ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{v.isOpen ? '● Open' : '● Closed'}</span>
+                </div>
+              </div>
+
+              {/* Controls */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+                <div style={{ display: 'flex', gap: 3 }}>
+                  <button onClick={() => moveToTop(i)} disabled={i === 0} title="Move to top"
+                    style={{ width: 26, height: 22, borderRadius: 5, border: 'none', background: i === 0 ? '#f9fafb' : '#fff5f5', color: i === 0 ? '#d1d5db' : '#E24B4A', cursor: i === 0 ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⏫</button>
+                  <button onClick={() => moveUp(i)} disabled={i === 0} title="Move up"
+                    style={{ width: 26, height: 22, borderRadius: 5, border: 'none', background: i === 0 ? '#f9fafb' : '#fff5f5', color: i === 0 ? '#d1d5db' : '#E24B4A', cursor: i === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700 }}>↑</button>
+                </div>
+                <div style={{ display: 'flex', gap: 3 }}>
+                  <button onClick={() => moveToBottom(i)} disabled={i === list.length - 1} title="Move to bottom"
+                    style={{ width: 26, height: 22, borderRadius: 5, border: 'none', background: i === list.length - 1 ? '#f9fafb' : '#fff5f5', color: i === list.length - 1 ? '#d1d5db' : '#E24B4A', cursor: i === list.length - 1 ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: 700 }}>⏬</button>
+                  <button onClick={() => moveDown(i)} disabled={i === list.length - 1} title="Move down"
+                    style={{ width: 26, height: 22, borderRadius: 5, border: 'none', background: i === list.length - 1 ? '#f9fafb' : '#fff5f5', color: i === list.length - 1 ? '#d1d5db' : '#E24B4A', cursor: i === list.length - 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700 }}>↓</button>
+                </div>
+              </div>
+
+              {/* Drag handle */}
+              <div style={{ color: '#d1d5db', fontSize: 16, cursor: 'grab', paddingLeft: 4 }}>⠿</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '12px 16px', borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: '#f3f4f6', flexShrink: 0 }}>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 10, textAlign: 'center' }}>
+            💡 This order is shown to customers on the home screen
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onClose} style={{ flex: 1, background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>Cancel</button>
+            <button onClick={handleSave} disabled={saving}
+              style={{ flex: 2, background: saving ? '#f09595' : '#E24B4A', color: '#fff', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
+              {saving ? 'Saving...' : '✅ Save Order'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -197,7 +353,6 @@ export default function FounderApp() {
   const [users, setUsers] = useState([])
   const [selectedTown, setSelectedTown] = useState('all')
 
-  // Support ticket states
   const [supportTickets, setSupportTickets] = useState([])
   const [selectedTicket, setSelectedTicket] = useState(null)
   const [replyText, setReplyText] = useState('')
@@ -209,7 +364,6 @@ export default function FounderApp() {
   const [exportMonth, setExportMonth] = useState(new Date().getMonth())
   const [exportYear, setExportYear] = useState(new Date().getFullYear())
 
-  // Photo states
   const [vendorPhotoFile, setVendorPhotoFile] = useState(null)
   const [vendorPhotoPreview, setVendorPhotoPreview] = useState(null)
   const [photoProgress, setPhotoProgress] = useState(0)
@@ -217,7 +371,6 @@ export default function FounderApp() {
   const [existingProgress, setExistingProgress] = useState(0)
   const photoRef = useRef()
 
-  // Location for new vendor
   const [newVendorLoc, setNewVendorLoc] = useState(null)
   const [newVendorLocName, setNewVendorLocName] = useState('')
   const [locSearch, setLocSearch] = useState('')
@@ -225,13 +378,10 @@ export default function FounderApp() {
   const [searchingLoc, setSearchingLoc] = useState(false)
   const [detectingLoc, setDetectingLoc] = useState(false)
 
-  // ── CUSTOMER ANALYTICS STATES ──────────────────────────────────────────
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [customerFilter, setCustomerFilter] = useState('all')
-  // 'all' | 'repeat' | 'weekly' | 'top' | 'inactive' | 'new'
   const [customerSearch, setCustomerSearch] = useState('')
 
-  // ── BROADCAST STATES ──────────────────────────────────────────────────
   const [broadcastMsg, setBroadcastMsg] = useState('')
   const [broadcastTitle, setBroadcastTitle] = useState('')
   const [broadcastType, setBroadcastType] = useState('both')
@@ -243,7 +393,6 @@ export default function FounderApp() {
   const [broadcastHistory, setBroadcastHistory] = useState([])
   const [previewMode, setPreviewMode] = useState(false)
 
-  // ── PUSH NOTIFICATION STATES ──────────────────────────────────────────
   const [pushTitle, setPushTitle] = useState('')
   const [pushBody, setPushBody] = useState('')
   const [pushTarget, setPushTarget] = useState('all')
@@ -252,6 +401,10 @@ export default function FounderApp() {
   const [pushDone, setPushDone] = useState(null)
   const [pushHistory, setPushHistory] = useState([])
   const [pushProgress, setPushProgress] = useState(0)
+
+  // ── VENDOR REORDER STATE ──────────────────────────────────────────────
+  const [showReorderModal, setShowReorderModal] = useState(false)
+  const [vendorOrderMode, setVendorOrderMode] = useState(false) // inline quick reorder
 
   const PUSH_PRESETS = [
     { icon: '🌞', label: 'Lunch Time', title: '🍛 Hungry? Lunch Time!', body: 'Your favourite food is ready to order on FeedoZone! Order now 🚀' },
@@ -325,14 +478,22 @@ export default function FounderApp() {
   const subRevenue = vendors.length * 500
 
   const allTowns = [...new Set(vendors.map(v => v.town || v.locationName || null).filter(Boolean))].sort()
-  const filteredVendors = selectedTown === 'all' ? vendors : vendors.filter(v => (v.town || v.locationName) === selectedTown)
+
+  // ── SORTED VENDORS (respects manual sortOrder) ────────────────────────
+  const sortedVendors = [...vendors].sort((a, b) => {
+    const sa = a.sortOrder ?? 9999
+    const sb = b.sortOrder ?? 9999
+    if (sa !== sb) return sa - sb
+    return (a.storeName || '').localeCompare(b.storeName || '')
+  })
+
+  const filteredVendors = selectedTown === 'all'
+    ? sortedVendors
+    : sortedVendors.filter(v => (v.town || v.locationName) === selectedTown)
 
   // ── CUSTOMER ANALYTICS HELPERS ────────────────────────────────────────
-  // Build rich customer map from orders + users
   const buildCustomerMap = () => {
     const map = {}
-
-    // Seed from users collection
     users.forEach(u => {
       map[u.id] = {
         id: u.id,
@@ -348,11 +509,9 @@ export default function FounderApp() {
         cancelledCount: 0,
         lastOrderDate: null,
         firstOrderDate: null,
-        weeklyOrders: {},  // ISO week key → count
+        weeklyOrders: {},
       }
     })
-
-    // Fill order data
     orders.forEach(o => {
       const uid = o.userUid
       if (!uid) return
@@ -375,17 +534,14 @@ export default function FounderApp() {
         }
       }
       const c = map[uid]
-      // Keep name/phone updated from orders if missing
       if (!c.name || c.name === 'Unknown') c.name = o.userName || 'Unknown'
       if (!c.phone) c.phone = o.userPhone || ''
       if (!c.mobile) c.mobile = o.userPhone || ''
-
       c.orders.push(o)
       const d = o.createdAt?.toDate?.()
       if (d) {
         if (!c.lastOrderDate || d > c.lastOrderDate) c.lastOrderDate = d
         if (!c.firstOrderDate || d < c.firstOrderDate) c.firstOrderDate = d
-        // ISO week key
         const weekStart = new Date(d)
         weekStart.setDate(d.getDate() - d.getDay())
         const wk = weekStart.toISOString().slice(0, 10)
@@ -394,46 +550,26 @@ export default function FounderApp() {
       if (o.status === 'delivered') { c.deliveredCount++; c.totalSpent += o.total || 0 }
       if (o.status === 'cancelled') c.cancelledCount++
     })
-
     return Object.values(map).filter(c => c.orders.length > 0 || users.find(u => u.id === c.id))
   }
 
   const allCustomers = buildCustomerMap()
 
-  // Filter helpers
   const now = new Date()
-  const thisWeekStart = new Date(now); thisWeekStart.setDate(now.getDate() - now.getDay()); thisWeekStart.setHours(0,0,0,0)
-  const lastWeekStart = new Date(thisWeekStart); lastWeekStart.setDate(thisWeekStart.getDate() - 7)
+  const thisWeekStart = new Date(now); thisWeekStart.setDate(now.getDate() - now.getDay()); thisWeekStart.setHours(0, 0, 0, 0)
   const thirtyAgo = new Date(Date.now() - 30 * 86400000)
   const sevenAgo = new Date(Date.now() - 7 * 86400000)
 
   const getFilteredCustomers = () => {
     let list = [...allCustomers]
     switch (customerFilter) {
-      case 'repeat':
-        list = list.filter(c => c.deliveredCount >= 2)
-        break
-      case 'weekly':
-        // ordered this week
-        list = list.filter(c => c.lastOrderDate && c.lastOrderDate >= thisWeekStart)
-        break
-      case 'top':
-        list = list.sort((a, b) => b.deliveredCount - a.deliveredCount).slice(0, 20)
-        break
-      case 'inactive':
-        // no order in 30 days but had at least 1 before
-        list = list.filter(c => c.orders.length > 0 && (!c.lastOrderDate || c.lastOrderDate < thirtyAgo))
-        break
-      case 'new':
-        // first order in last 7 days
-        list = list.filter(c => c.firstOrderDate && c.firstOrderDate >= sevenAgo)
-        break
-      case 'highspend':
-        list = list.filter(c => c.totalSpent >= 500).sort((a, b) => b.totalSpent - a.totalSpent)
-        break
-      default:
-        list = list.filter(c => c.orders.length > 0)
-        break
+      case 'repeat': list = list.filter(c => c.deliveredCount >= 2); break
+      case 'weekly': list = list.filter(c => c.lastOrderDate && c.lastOrderDate >= thisWeekStart); break
+      case 'top': list = list.sort((a, b) => b.deliveredCount - a.deliveredCount).slice(0, 20); break
+      case 'inactive': list = list.filter(c => c.orders.length > 0 && (!c.lastOrderDate || c.lastOrderDate < thirtyAgo)); break
+      case 'new': list = list.filter(c => c.firstOrderDate && c.firstOrderDate >= sevenAgo); break
+      case 'highspend': list = list.filter(c => c.totalSpent >= 500).sort((a, b) => b.totalSpent - a.totalSpent); break
+      default: list = list.filter(c => c.orders.length > 0); break
     }
     if (customerSearch.trim()) {
       const q = customerSearch.toLowerCase()
@@ -443,7 +579,6 @@ export default function FounderApp() {
         c.email?.toLowerCase().includes(q)
       )
     }
-    // Default sort: most orders first
     if (customerFilter !== 'top' && customerFilter !== 'highspend') {
       list = list.sort((a, b) => b.orders.length - a.orders.length)
     }
@@ -463,17 +598,12 @@ export default function FounderApp() {
     withToken: allCustomers.filter(c => c.expoPushToken).length,
   }
 
-  // ── COPY ALL WHATSAPP NUMBERS ─────────────────────────────────────────
   const copyAllWhatsApp = (list) => {
-    const nums = list
-      .filter(c => c.phone)
-      .map(c => '91' + c.phone.replace(/\D/g, ''))
-      .join('\n')
+    const nums = list.filter(c => c.phone).map(c => '91' + c.phone.replace(/\D/g, '')).join('\n')
     if (!nums) return toast.error('No phone numbers found')
     navigator.clipboard?.writeText(nums)
       .then(() => toast.success(`✅ Copied ${list.filter(c => c.phone).length} numbers!`))
       .catch(() => {
-        // fallback
         const ta = document.createElement('textarea')
         ta.value = nums
         document.body.appendChild(ta)
@@ -484,7 +614,6 @@ export default function FounderApp() {
       })
   }
 
-  // ── BULK EMAIL (open mail with ALL BCC, batched) ──────────────────────
   const sendBulkEmail = (list, title, body) => {
     const emails = list.filter(c => c.email).map(c => c.email)
     if (!emails.length) return toast.error('No email addresses found')
@@ -623,7 +752,6 @@ export default function FounderApp() {
         const emUsers = targetUsers.filter(u => u.email)
         if (emUsers.length === 0) { toast.error('No users have email addresses') }
         else {
-          // Batch: open all windows 50-at-a-time
           const batchSize = 50
           const emailBatches = []; for (let i = 0; i < emUsers.length; i += batchSize) emailBatches.push(emUsers.slice(i, i + batchSize))
           toast(`📧 Opening ${emailBatches.length} mail window(s) for ${emUsers.length} recipients`, { duration: 6000 })
@@ -720,11 +848,14 @@ export default function FounderApp() {
     if (password !== confirmPass) return toast.error('Passwords do not match')
     setCreating(true)
     try {
+      // Set sortOrder to end of list by default
+      const maxOrder = vendors.reduce((m, v) => Math.max(m, v.sortOrder ?? 0), 0)
       const vendorUid = await founderCreateVendor(user.uid, {
         email, password, storeName, address, phone, plan, category,
         location: newVendorLoc, locationName: newVendorLocName,
         town: town || newVendorLocName || '',
-        deliveryCharge: Number(form.deliveryCharge) || 30
+        deliveryCharge: Number(form.deliveryCharge) || 30,
+        sortOrder: maxOrder + 1
       })
       if (vendorPhotoFile && vendorUid) {
         setPhotoProgress(0)
@@ -777,6 +908,39 @@ export default function FounderApp() {
     } catch (err) { toast.error('Delete failed: ' + err.message) }
   }
 
+  // ── INLINE QUICK REORDER (move up/down in vendors tab) ───────────────
+  const handleInlineMoveUp = async (vendorId) => {
+    const idx = filteredVendors.findIndex(v => v.id === vendorId)
+    if (idx <= 0) return
+    const prev = filteredVendors[idx - 1]
+    const curr = filteredVendors[idx]
+    const prevOrder = prev.sortOrder ?? idx - 1
+    const currOrder = curr.sortOrder ?? idx
+    try {
+      await Promise.all([
+        updateDoc(doc(db, 'vendors', curr.id), { sortOrder: prevOrder }),
+        updateDoc(doc(db, 'vendors', prev.id), { sortOrder: currOrder }),
+      ])
+      toast.success('✅ Moved up!')
+    } catch { toast.error('Failed to reorder') }
+  }
+
+  const handleInlineMoveDown = async (vendorId) => {
+    const idx = filteredVendors.findIndex(v => v.id === vendorId)
+    if (idx >= filteredVendors.length - 1) return
+    const next = filteredVendors[idx + 1]
+    const curr = filteredVendors[idx]
+    const nextOrder = next.sortOrder ?? idx + 1
+    const currOrder = curr.sortOrder ?? idx
+    try {
+      await Promise.all([
+        updateDoc(doc(db, 'vendors', curr.id), { sortOrder: nextOrder }),
+        updateDoc(doc(db, 'vendors', next.id), { sortOrder: currOrder }),
+      ])
+      toast.success('✅ Moved down!')
+    } catch { toast.error('Failed to reorder') }
+  }
+
   // ── EXPORT ────────────────────────────────────────────────────────────
   const exportToExcel = (type) => {
     let data = []
@@ -811,12 +975,12 @@ export default function FounderApp() {
 
   const exportVendorWise = () => {
     if (vendors.length === 0) return toast.error('No vendors found!')
-    const rows = [['Vendor Name', 'Email', 'Phone', 'Category', 'Plan', 'Town', 'Total Orders', 'Delivered', 'Revenue', 'Status']]
-    vendors.forEach(v => {
+    const rows = [['Sort Order', 'Vendor Name', 'Email', 'Phone', 'Category', 'Plan', 'Town', 'Total Orders', 'Delivered', 'Revenue', 'Status']]
+    sortedVendors.forEach((v, i) => {
       const vOrders = orders.filter(o => o.vendorUid === v.id)
       const delivered = vOrders.filter(o => o.status === 'delivered')
       const revenue = delivered.reduce((s, o) => s + (o.total || 0), 0)
-      rows.push([v.storeName || '', v.email || '', v.phone || '', v.category || '', v.plan || '', v.town || v.locationName || '', vOrders.length, delivered.length, '₹' + revenue, v.isOpen ? 'Open' : 'Closed'])
+      rows.push([i + 1, v.storeName || '', v.email || '', v.phone || '', v.category || '', v.plan || '', v.town || v.locationName || '', vOrders.length, delivered.length, '₹' + revenue, v.isOpen ? 'Open' : 'Closed'])
     })
     const csvContent = rows.map(row => row.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(',')).join('\n')
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -860,7 +1024,6 @@ export default function FounderApp() {
     return { town, count: tvs.length, open: tvs.filter(v => v.isOpen).length }
   })
 
-  // Badge for customer filter
   const getBadge = (filter) => {
     switch (filter) {
       case 'all': return allCustomers.filter(c => c.orders.length > 0).length
@@ -876,6 +1039,15 @@ export default function FounderApp() {
 
   return (
     <div style={{ maxWidth: 430, margin: '0 auto', background: '#fff', minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'Poppins,sans-serif' }}>
+
+      {/* ── VENDOR REORDER MODAL ── */}
+      {showReorderModal && (
+        <VendorReorderModal
+          vendors={filteredVendors}
+          onClose={() => setShowReorderModal(false)}
+          onSave={() => { }}
+        />
+      )}
 
       {/* ── NEW ORDER ALERT ── */}
       {newOrderAlert && (
@@ -953,7 +1125,6 @@ export default function FounderApp() {
               ))}
             </div>
 
-            {/* Customer quick summary */}
             <div style={{ background: 'linear-gradient(135deg,#1f2937,#374151)', borderRadius: 12, padding: 14, marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 10 }}>👥 Customer Summary</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
@@ -1031,10 +1202,120 @@ export default function FounderApp() {
           </>
         )}
 
+        {/* ════════════════ TAB: VENDORS ════════════════ */}
+        {tab === 'vendors' && (
+          <>
+            {/* ── VENDOR ORDER CONTROL BAR ── */}
+            <div style={{ background: 'linear-gradient(135deg,#1f2937,#111827)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>🔢 Vendor Display Order</div>
+                  <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>Control which vendor appears first for customers</div>
+                </div>
+                <button onClick={() => setShowReorderModal(true)}
+                  style={{ background: '#E24B4A', color: '#fff', border: 'none', borderRadius: 10, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  🔢 Reorder
+                </button>
+              </div>
+              {/* Current order preview */}
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+                {sortedVendors.slice(0, 5).map((v, i) => (
+                  <div key={v.id} style={{ flexShrink: 0, background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 6, borderWidth: 1, borderStyle: 'solid', borderColor: 'rgba(255,255,255,0.1)' }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: i === 0 ? '#fbbf24' : '#9ca3af' }}>#{i + 1}</span>
+                    <div style={{ width: 22, height: 22, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: '#374151', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {v.photo ? <img src={v.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 11 }}>🏪</span>}
+                    </div>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: '#e5e7eb', whiteSpace: 'nowrap', maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.storeName?.split(' ')[0]}</span>
+                  </div>
+                ))}
+                {sortedVendors.length > 5 && (
+                  <div style={{ flexShrink: 0, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '6px 10px', display: 'flex', alignItems: 'center' }}>
+                    <span style={{ fontSize: 10, color: '#6b7280' }}>+{sortedVendors.length - 5} more</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Town filter */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 8 }}>📍 Filter by Town</div>
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+                <button onClick={() => setSelectedTown('all')} style={{ flexShrink: 0, padding: '7px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 12, fontWeight: 600, background: selectedTown === 'all' ? '#E24B4A' : '#f3f4f6', color: selectedTown === 'all' ? '#fff' : '#6b7280' }}>All ({vendors.length})</button>
+                {allTownsList.map(town => {
+                  const count = vendors.filter(v => (v.town || v.locationName) === town).length
+                  return (
+                    <button key={town} onClick={() => setSelectedTown(town)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 12, fontWeight: 600, background: selectedTown === town ? '#E24B4A' : '#f3f4f6', color: selectedTown === town ? '#fff' : '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      📍 {town} <span style={{ background: selectedTown === town ? 'rgba(255,255,255,0.3)' : '#e5e7eb', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700, color: selectedTown === town ? '#fff' : '#6b7280' }}>{count}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+              {filteredVendors.length} vendor{filteredVendors.length !== 1 ? 's' : ''}{selectedTown !== 'all' ? ` in ${selectedTown}` : ' total'} · sorted by your custom order
+            </div>
+
+            {filteredVendors.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9ca3af' }}>
+                <div style={{ fontSize: 32, marginBottom: 10 }}>📍</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#6b7280' }}>No vendors in {selectedTown}</div>
+                <button onClick={() => setTab('addvendor')} style={{ marginTop: 14, background: '#E24B4A', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>+ Add Vendor</button>
+              </div>
+            )}
+
+            {filteredVendors.map((v, idx) => (
+              <div key={v.id} style={{ background: '#fff', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
+                <div style={{ height: 100, position: 'relative', background: 'linear-gradient(135deg,#1a1a1a,#2a2a2a)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {v.photo ? <img src={v.photo} alt={v.storeName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 32 }}>🏪</span>}
+                  <button onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*'; input.onchange = (e) => handleExistingVendorPhoto(e, v.id); input.click() }}
+                    style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(0,0,0,0.7)', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'Poppins', fontWeight: 500 }}>
+                    {uploadingPhotoFor === v.id ? `${existingProgress}%` : '📷 Change Photo'}
+                  </button>
+                  <div style={{ position: 'absolute', top: 8, left: 8, background: v.isOpen ? '#16a34a' : '#dc2626', color: '#fff', fontSize: 10, padding: '3px 8px', borderRadius: 20, fontWeight: 600 }}>{v.isOpen ? '● Open' : '● Closed'}</div>
+
+                  {/* Rank badge on vendor card */}
+                  <div style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.75)', color: idx === 0 ? '#fbbf24' : '#fff', fontSize: 10, padding: '3px 10px', borderRadius: 20, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    {idx === 0 ? '🥇 #1 Top Vendor' : `#${idx + 1}`}
+                  </div>
+
+                  {(v.town || v.locationName) && <div style={{ position: 'absolute', bottom: 8, left: 8, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 10, padding: '3px 8px', borderRadius: 20, fontWeight: 500 }}>📍 {v.town || v.locationName}</div>}
+                </div>
+
+                <div style={{ padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>{v.storeName}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 8, background: v.subscriptionStatus === 'active' ? '#d1fae5' : '#fee2e2', color: v.subscriptionStatus === 'active' ? '#065f46' : '#991b1b' }}>{v.subscriptionStatus === 'active' ? 'Paid' : 'Due'}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 8 }}>{v.email} · {v.category}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 10 }}>🚴 Delivery: {v.deliveryCharge === 0 ? 'Free' : ('₹' + (v.deliveryCharge ?? 30))} · 📞 {v.phone || '—'}</div>
+
+                  {/* Inline reorder controls */}
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                    <button onClick={() => handleInlineMoveUp(v.id)} disabled={idx === 0}
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '7px 0', background: idx === 0 ? '#f9fafb' : '#fff5f5', color: idx === 0 ? '#d1d5db' : '#E24B4A', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: idx === 0 ? 'not-allowed' : 'pointer', fontFamily: 'Poppins', borderWidth: 1, borderStyle: 'solid', borderColor: idx === 0 ? '#f3f4f6' : '#fecaca' }}>
+                      ↑ Move Up
+                    </button>
+                    <button onClick={() => handleInlineMoveDown(v.id)} disabled={idx === filteredVendors.length - 1}
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '7px 0', background: idx === filteredVendors.length - 1 ? '#f9fafb' : '#fff5f5', color: idx === filteredVendors.length - 1 ? '#d1d5db' : '#E24B4A', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: idx === filteredVendors.length - 1 ? 'not-allowed' : 'pointer', fontFamily: 'Poppins', borderWidth: 1, borderStyle: 'solid', borderColor: idx === filteredVendors.length - 1 ? '#f3f4f6' : '#fecaca' }}>
+                      ↓ Move Down
+                    </button>
+                    <button onClick={() => setShowReorderModal(true)}
+                      style={{ padding: '7px 12px', background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins', whiteSpace: 'nowrap' }}>
+                      🔢 Full Order
+                    </button>
+                  </div>
+
+                  <button onClick={() => handleDeleteVendor(v.id, v.storeName)} style={{ width: '100%', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 8, padding: '8px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>🗑️ Delete Vendor</button>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+
         {/* ════════════════ TAB: CUSTOMERS ════════════════ */}
         {tab === 'customers' && (
           <>
-            {/* Customer profile modal */}
             {selectedCustomer && (
               <CustomerProfileModal
                 customer={selectedCustomer}
@@ -1045,7 +1326,6 @@ export default function FounderApp() {
               />
             )}
 
-            {/* Header Stats */}
             <div style={{ background: 'linear-gradient(135deg,#1f2937,#374151)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
               <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>FeedoZone</div>
               <div style={{ fontSize: 17, fontWeight: 800, color: '#fff', marginBottom: 12 }}>Customer Analytics</div>
@@ -1066,16 +1346,15 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* Filter pills */}
             <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 10 }}>
               {[
-                { id: 'all', label: '👥 All', emoji: '' },
-                { id: 'repeat', label: '🔄 Repeat', emoji: '' },
-                { id: 'weekly', label: '📅 This Week', emoji: '' },
-                { id: 'top', label: '🏆 Top 20', emoji: '' },
-                { id: 'new', label: '🆕 New (7d)', emoji: '' },
-                { id: 'inactive', label: '😴 Inactive', emoji: '' },
-                { id: 'highspend', label: '💰 High Spend', emoji: '' },
+                { id: 'all', label: '👥 All' },
+                { id: 'repeat', label: '🔄 Repeat' },
+                { id: 'weekly', label: '📅 This Week' },
+                { id: 'top', label: '🏆 Top 20' },
+                { id: 'new', label: '🆕 New (7d)' },
+                { id: 'inactive', label: '😴 Inactive' },
+                { id: 'highspend', label: '💰 High Spend' },
               ].map(f2 => (
                 <button key={f2.id} onClick={() => setCustomerFilter(f2.id)}
                   style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 11, fontWeight: 600, background: customerFilter === f2.id ? '#E24B4A' : '#f3f4f6', color: customerFilter === f2.id ? '#fff' : '#374151' }}>
@@ -1084,7 +1363,6 @@ export default function FounderApp() {
               ))}
             </div>
 
-            {/* Search */}
             <input
               style={{ ...inp, marginBottom: 12, marginTop: 0, background: '#f9fafb' }}
               placeholder="🔍 Search by name, phone, email..."
@@ -1092,7 +1370,6 @@ export default function FounderApp() {
               onChange={e => setCustomerSearch(e.target.value)}
             />
 
-            {/* Bulk Actions */}
             <div style={{ background: '#f9fafb', borderRadius: 12, padding: 12, marginBottom: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
                 🎯 Bulk Actions — {filteredCustomers.length} customers
@@ -1117,21 +1394,6 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* Filter description */}
-            {customerFilter !== 'all' && (
-              <div style={{ background: '#eff6ff', borderRadius: 10, padding: '10px 12px', marginBottom: 12, borderWidth: 1, borderStyle: 'solid', borderColor: '#bfdbfe' }}>
-                <div style={{ fontSize: 11, color: '#1e40af', fontWeight: 600 }}>
-                  {customerFilter === 'repeat' && '🔄 Repeat customers — ordered 2+ times (delivered)'}
-                  {customerFilter === 'weekly' && '📅 Ordered this week — high engagement segment'}
-                  {customerFilter === 'top' && '🏆 Top 20 by order count — your most loyal users'}
-                  {customerFilter === 'new' && '🆕 First order in last 7 days — new acquisitions'}
-                  {customerFilter === 'inactive' && '😴 No order in 30+ days — win-back segment'}
-                  {customerFilter === 'highspend' && '💰 Spent ₹500+ — high value customers'}
-                </div>
-              </div>
-            )}
-
-            {/* Customer List */}
             {filteredCustomers.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9ca3af' }}>
                 <div style={{ fontSize: 32, marginBottom: 8 }}>👥</div>
@@ -1146,7 +1408,6 @@ export default function FounderApp() {
               return (
                 <div key={c.id} onClick={() => setSelectedCustomer(c)}
                   style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', cursor: 'pointer' }}>
-                  {/* Avatar with rank */}
                   <div style={{ position: 'relative', flexShrink: 0 }}>
                     <div style={{ width: 40, height: 40, borderRadius: '50%', background: isRepeat ? 'linear-gradient(135deg,#E24B4A,#ff6b6a)' : '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <span style={{ fontSize: 16, fontWeight: 700, color: isRepeat ? '#fff' : '#374151' }}>{c.name?.[0]?.toUpperCase() || 'U'}</span>
@@ -1235,7 +1496,6 @@ export default function FounderApp() {
               </div>
             )}
 
-            {/* Step 1 Presets */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>1</span>
@@ -1252,7 +1512,6 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* Step 2 Target */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>2</span>
@@ -1280,7 +1539,6 @@ export default function FounderApp() {
               )}
             </div>
 
-            {/* Step 3 Message */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>3</span>
@@ -1387,7 +1645,6 @@ export default function FounderApp() {
               </div>
             )}
 
-            {/* Template */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>1</span>
@@ -1404,7 +1661,6 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* Target */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>2</span>
@@ -1421,7 +1677,6 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* Send via */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>3</span>
@@ -1438,7 +1693,6 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* Write message */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: '#E24B4A', color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>4</span>
@@ -1492,7 +1746,6 @@ export default function FounderApp() {
                   </button>
                 )}
               </div>
-              <div style={{ marginTop: 8, fontSize: 11, color: '#6b7280' }}>📧 Email batches 50 at a time automatically — no more 50-person limit!</div>
             </div>
 
             {broadcastHistory.length > 0 && (
@@ -1513,7 +1766,6 @@ export default function FounderApp() {
               </div>
             )}
 
-            {/* All Contacts (full - with copy all button) */}
             <div style={{ background: '#f9fafb', borderRadius: 12, padding: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 10 }}>📱 All User Contacts ({users.length})</div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -1706,56 +1958,6 @@ export default function FounderApp() {
           </>
         )}
 
-        {/* ════════════════ TAB: VENDORS ════════════════ */}
-        {tab === 'vendors' && (
-          <>
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 8 }}>📍 Filter by Town</div>
-              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
-                <button onClick={() => setSelectedTown('all')} style={{ flexShrink: 0, padding: '7px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 12, fontWeight: 600, background: selectedTown === 'all' ? '#E24B4A' : '#f3f4f6', color: selectedTown === 'all' ? '#fff' : '#6b7280' }}>All ({vendors.length})</button>
-                {allTownsList.map(town => {
-                  const count = vendors.filter(v => (v.town || v.locationName) === town).length
-                  return (
-                    <button key={town} onClick={() => setSelectedTown(town)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 12, fontWeight: 600, background: selectedTown === town ? '#E24B4A' : '#f3f4f6', color: selectedTown === town ? '#fff' : '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      📍 {town} <span style={{ background: selectedTown === town ? 'rgba(255,255,255,0.3)' : '#e5e7eb', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700, color: selectedTown === town ? '#fff' : '#6b7280' }}>{count}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>{filteredVendors.length} vendor{filteredVendors.length !== 1 ? 's' : ''}{selectedTown !== 'all' ? ` in ${selectedTown}` : ' total'}</div>
-            {filteredVendors.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9ca3af' }}>
-                <div style={{ fontSize: 32, marginBottom: 10 }}>📍</div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#6b7280' }}>No vendors in {selectedTown}</div>
-                <button onClick={() => setTab('addvendor')} style={{ marginTop: 14, background: '#E24B4A', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>+ Add Vendor</button>
-              </div>
-            )}
-            {filteredVendors.map(v => (
-              <div key={v.id} style={{ background: '#fff', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
-                <div style={{ height: 100, position: 'relative', background: 'linear-gradient(135deg,#1a1a1a,#2a2a2a)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {v.photo ? <img src={v.photo} alt={v.storeName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 32 }}>🏪</span>}
-                  <button onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*'; input.onchange = (e) => handleExistingVendorPhoto(e, v.id); input.click() }}
-                    style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(0,0,0,0.7)', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'Poppins', fontWeight: 500 }}>
-                    {uploadingPhotoFor === v.id ? `${existingProgress}%` : '📷 Change Photo'}
-                  </button>
-                  <div style={{ position: 'absolute', top: 8, left: 8, background: v.isOpen ? '#16a34a' : '#dc2626', color: '#fff', fontSize: 10, padding: '3px 8px', borderRadius: 20, fontWeight: 600 }}>{v.isOpen ? '● Open' : '● Closed'}</div>
-                  {(v.town || v.locationName) && <div style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 10, padding: '3px 8px', borderRadius: 20, fontWeight: 500 }}>📍 {v.town || v.locationName}</div>}
-                </div>
-                <div style={{ padding: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600 }}>{v.storeName}</span>
-                    <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 8, background: v.subscriptionStatus === 'active' ? '#d1fae5' : '#fee2e2', color: v.subscriptionStatus === 'active' ? '#065f46' : '#991b1b' }}>{v.subscriptionStatus === 'active' ? 'Paid' : 'Due'}</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 8 }}>{v.email} · {v.category}</div>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>🚴 Delivery: {v.deliveryCharge === 0 ? 'Free' : ('₹' + (v.deliveryCharge ?? 30))} · 📞 {v.phone || '—'}</div>
-                  <button onClick={() => handleDeleteVendor(v.id, v.storeName)} style={{ width: '100%', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 8, padding: '8px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>🗑️ Delete Vendor</button>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-
         {/* ════════════════ TAB: ANALYTICS ════════════════ */}
         {tab === 'analytics' && (
           <>
@@ -1843,12 +2045,13 @@ export default function FounderApp() {
 
             {analyticsTab === 'vendors' && (
               <div style={{ background: '#fff', borderRadius: 12, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', overflow: 'hidden' }}>
-                <div style={{ padding: '12px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', fontSize: 12, fontWeight: 600, color: '#6b7280' }}>TOP VENDORS BY ORDERS</div>
-                {vendors.map(v => {
+                <div style={{ padding: '12px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', fontSize: 12, fontWeight: 600, color: '#6b7280' }}>VENDORS BY ORDERS (sorted by your display order)</div>
+                {sortedVendors.map((v, idx) => {
                   const vOrders = orders.filter(o => o.vendorUid === v.id)
                   const vRevenue = vOrders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
                   return (
                     <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f9fafb' }}>
+                      <div style={{ width: 22, height: 22, borderRadius: '50%', background: idx === 0 ? '#fbbf24' : '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: idx === 0 ? '#92400e' : '#6b7280', flexShrink: 0 }}>#{idx + 1}</div>
                       <div style={{ width: 36, height: 36, borderRadius: 9, overflow: 'hidden', background: '#fee2e2', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {v.photo ? <img src={v.photo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : <span>🏪</span>}
                       </div>
@@ -1989,7 +2192,7 @@ export default function FounderApp() {
               </button>
             </div>
             <div style={{ marginTop: 14, padding: 12, background: '#f0fdf4', borderRadius: 10, fontSize: 12, color: '#166534' }}>
-              💡 After creating, share the email + password with the vendor. Town name is used for location filtering.
+              💡 After creating, share the email + password with the vendor. New vendor will be added at the end of the display order. You can reorder from the Vendors tab.
             </div>
           </div>
         )}

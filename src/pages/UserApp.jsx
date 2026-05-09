@@ -188,10 +188,8 @@ function SupportChatModal({ user, userData, tickets, onClose, onSendMessage }) {
   const [sending, setSending] = useState(false)
   const chatEndRef = useRef(null)
 
-  // Build a unified chat timeline from all tickets
   const chatMessages = []
   tickets.forEach(t => {
-    // User message
     chatMessages.push({
       id: t.id + '_user',
       type: 'user',
@@ -200,7 +198,6 @@ function SupportChatModal({ user, userData, tickets, onClose, onSendMessage }) {
       time: t.createdAt,
       ticketId: t.id,
     })
-    // Founder reply if exists
     if (t.founderReply) {
       chatMessages.push({
         id: t.id + '_reply',
@@ -212,7 +209,6 @@ function SupportChatModal({ user, userData, tickets, onClose, onSendMessage }) {
       })
     }
   })
-  // Sort by time
   chatMessages.sort((a, b) => {
     const ta = a.time?.seconds || 0
     const tb = b.time?.seconds || 0
@@ -241,7 +237,6 @@ function SupportChatModal({ user, userData, tickets, onClose, onSendMessage }) {
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:2000, display:'flex', flexDirection:'column', justifyContent:'flex-end', fontFamily:'Poppins,sans-serif' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', display:'flex', flexDirection:'column', maxHeight:'88vh', maxWidth:430, width:'100%', margin:'0 auto' }}>
-        {/* Header */}
         <div style={{ background:'linear-gradient(135deg,#E24B4A,#c73232)', borderRadius:'20px 20px 0 0', padding:'16px 20px', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
           <div style={{ width:42, height:42, borderRadius:'50%', background:'rgba(255,255,255,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0, borderWidth:2, borderStyle:'solid', borderColor:'rgba(255,255,255,0.4)' }}>
             🎧
@@ -256,11 +251,9 @@ function SupportChatModal({ user, userData, tickets, onClose, onSendMessage }) {
           <button onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
         </div>
 
-        {/* Chat body */}
         <div style={{ flex:1, overflowY:'auto', padding:'16px 16px 8px', display:'flex', flexDirection:'column', gap:12, minHeight:200 }}>
           <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
 
-          {/* Welcome message */}
           <div style={{ display:'flex', gap:8, alignItems:'flex-end' }}>
             <div style={{ width:28, height:28, borderRadius:'50%', background:'#E24B4A', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, flexShrink:0 }}>🎧</div>
             <div style={{ background:'#f3f4f6', borderRadius:'14px 14px 14px 2px', padding:'10px 13px', maxWidth:'75%' }}>
@@ -302,7 +295,6 @@ function SupportChatModal({ user, userData, tickets, onClose, onSendMessage }) {
           <div ref={chatEndRef} />
         </div>
 
-        {/* Category selector */}
         <div style={{ padding:'8px 16px 0', flexShrink:0 }}>
           <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:6 }}>
             {['General','Order Issue','Payment','App Bug','Feedback','Other'].map(cat => (
@@ -314,7 +306,6 @@ function SupportChatModal({ user, userData, tickets, onClose, onSendMessage }) {
           </div>
         </div>
 
-        {/* Input */}
         <div style={{ padding:'8px 16px 16px', display:'flex', gap:8, alignItems:'flex-end', flexShrink:0 }}>
           <textarea
             value={msgText}
@@ -336,14 +327,12 @@ function SupportChatModal({ user, userData, tickets, onClose, onSendMessage }) {
   )
 }
 
-// ─── Floating Support Reply Popup (WhatsApp-style) ────────────────────────────
+// ─── Floating Support Reply Popup ─────────────────────────────────────────────
 function SupportReplyPopup({ reply, onOpen, onDismiss }) {
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
-    // Animate in
     setTimeout(() => setVisible(true), 50)
-    // Auto dismiss after 8 seconds
     const id = setTimeout(() => {
       setVisible(false)
       setTimeout(onDismiss, 350)
@@ -367,12 +356,12 @@ function SupportReplyPopup({ reply, onOpen, onDismiss }) {
     <>
       <style>{`
         @keyframes slideUpPop {
-          from { transform: translateY(100px); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
+          from { transform: translateX(-50%) translateY(100px); opacity: 0; }
+          to { transform: translateX(-50%) translateY(0); opacity: 1; }
         }
         @keyframes slideDownPop {
-          from { transform: translateY(0); opacity: 1; }
-          to { transform: translateY(100px); opacity: 0; }
+          from { transform: translateX(-50%) translateY(0); opacity: 1; }
+          to { transform: translateX(-50%) translateY(100px); opacity: 0; }
         }
         .popup-slide-in { animation: slideUpPop 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards; }
         .popup-slide-out { animation: slideDownPop 0.3s ease-in forwards; }
@@ -381,7 +370,7 @@ function SupportReplyPopup({ reply, onOpen, onDismiss }) {
         className={visible ? 'popup-slide-in' : 'popup-slide-out'}
         onClick={handleOpen}
         style={{
-          position:'fixed', bottom:80, left:'50%', transform:'translateX(-50%)',
+          position:'fixed', bottom:80, left:'50%',
           width:'calc(100% - 32px)', maxWidth:400,
           background:'#fff', borderRadius:16,
           boxShadow:'0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.1)',
@@ -390,12 +379,10 @@ function SupportReplyPopup({ reply, onOpen, onDismiss }) {
           fontFamily:'Poppins,sans-serif',
           display:'flex', alignItems:'center', gap:12,
         }}>
-        {/* Avatar */}
         <div style={{ width:44, height:44, borderRadius:'50%', background:'linear-gradient(135deg,#E24B4A,#c73232)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0, position:'relative' }}>
           🎧
           <div style={{ position:'absolute', bottom:1, right:1, width:12, height:12, borderRadius:'50%', background:'#4ade80', borderWidth:2, borderStyle:'solid', borderColor:'#fff' }} />
         </div>
-        {/* Content */}
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:2 }}>
             <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>FeedoZone Support</div>
@@ -404,7 +391,6 @@ function SupportReplyPopup({ reply, onOpen, onDismiss }) {
           <div style={{ fontSize:12, color:'#374151', lineHeight:1.4, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'90%' }}>{reply}</div>
           <div style={{ fontSize:10, color:'#E24B4A', fontWeight:600, marginTop:4 }}>Tap to view reply →</div>
         </div>
-        {/* Close */}
         <button
           onClick={handleClose}
           style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:24, height:24, fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -447,14 +433,12 @@ export default function UserApp() {
 
   const [menuCatFilter, setMenuCatFilter] = useState('All')
 
-  // ── Support Chat States ──────────────────────────────────────────────
   const [showSupportChat, setShowSupportChat] = useState(false)
   const [myTickets, setMyTickets] = useState([])
-  const [supportReplyPopup, setSupportReplyPopup] = useState(null) // { text, ticketId }
-  const seenRepliesRef = useRef(new Set()) // track already-seen founderReplies so we don't re-popup
+  const [supportReplyPopup, setSupportReplyPopup] = useState(null)
+  const seenRepliesRef = useRef(new Set())
   const [supportUnreadCount, setSupportUnreadCount] = useState(0)
 
-  // ── Location state ──
   const [userLat, setUserLat] = useState(null)
   const [userLng, setUserLng] = useState(null)
   const [locationName, setLocationName] = useState(null)
@@ -535,7 +519,7 @@ export default function UserApp() {
     }
   }, [])
 
-  // ── Real-time support tickets listener with popup ──────────────────────────
+  // ── Real-time support tickets listener ───────────────────────────────────
   useEffect(() => {
     if (!user) return
     let unsub
@@ -549,7 +533,7 @@ export default function UserApp() {
     }
     loadStoredSeen()
 
-    import('firebase/firestore').then(({ collection, query, where, onSnapshot, orderBy }) => {
+    import('firebase/firestore').then(({ collection, query, where, onSnapshot }) => {
       const q = query(
         collection(db, 'supportTickets'),
         where('userUid', '==', user.uid)
@@ -559,21 +543,16 @@ export default function UserApp() {
         tickets.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
         setMyTickets(tickets)
 
-        // Check for new founder replies that we haven't shown popup for
         let newUnread = 0
         tickets.forEach(ticket => {
           if (ticket.founderReply) {
             const seenKey = ticket.id + '_reply'
             if (!seenRepliesRef.current.has(seenKey)) {
-              // New reply! Show popup
               setSupportReplyPopup({ text: ticket.founderReply, ticketId: ticket.id })
-              // Vibrate if supported
               try { navigator.vibrate?.([200, 100, 200]) } catch {}
-              // Toast too
               toast('💬 Support replied!', { icon: '🎧', duration: 3000 })
             }
           }
-          // Count unread (not yet opened in chat)
           if (ticket.founderReply && !seenRepliesRef.current.has(ticket.id + '_reply_read')) {
             newUnread++
           }
@@ -584,11 +563,9 @@ export default function UserApp() {
     return () => unsub?.()
   }, [user])
 
-  // Mark all replies as seen when user opens support chat
   const handleOpenSupportChat = () => {
     setShowSupportChat(true)
     setSupportReplyPopup(null)
-    // Mark all as seen
     myTickets.forEach(ticket => {
       if (ticket.founderReply) {
         const seenKey = ticket.id + '_reply'
@@ -598,7 +575,6 @@ export default function UserApp() {
       }
     })
     setSupportUnreadCount(0)
-    // Persist seen state
     try {
       localStorage.setItem(
         'feedo_seen_replies_' + user?.uid,
@@ -607,7 +583,6 @@ export default function UserApp() {
     } catch {}
   }
 
-  // Send a support message
   const handleSendSupportMessage = async (text, category) => {
     try {
       const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
@@ -863,7 +838,10 @@ export default function UserApp() {
     } catch { setReviews([]) }
   }
 
-  // ── Filter vendors ──
+  // ── Filter & Sort vendors ─────────────────────────────────────────────────
+  // PRIMARY sort: founder's sortOrder (set in founder panel)
+  // SECONDARY: open vendors before closed
+  // Distance is shown as info only, NOT used for sorting
   const filteredVendors = vendors
     .filter(v => {
       const matchCat = catFilter === 'All' || v.category === catFilter || (catFilter !== 'All' && v.customCategories?.includes(catFilter))
@@ -878,12 +856,17 @@ export default function UserApp() {
         : null,
     }))
     .filter(v => {
+      // Still filter out vendors beyond MAX_DELIVERY_KM if location is known
       if (!userLat || !userLng) return true
       if (v.distance === null) return true
       return v.distance <= MAX_DELIVERY_KM
     })
     .sort((a, b) => {
-      if (a.distance !== null && b.distance !== null) return a.distance - b.distance
+      // PRIMARY: founder's sortOrder (lower number = appears first)
+      const sa = a.sortOrder ?? 9999
+      const sb = b.sortOrder ?? 9999
+      if (sa !== sb) return sa - sb
+      // SECONDARY: open before closed
       if (a.isOpen && !b.isOpen) return -1
       if (!a.isOpen && b.isOpen) return 1
       return 0
@@ -1022,7 +1005,6 @@ export default function UserApp() {
           reply={supportReplyPopup.text}
           onOpen={handleOpenSupportChat}
           onDismiss={() => {
-            // mark as seen even if dismissed (but not as read)
             const seenKey = supportReplyPopup.ticketId + '_reply'
             seenRepliesRef.current.add(seenKey)
             try {
@@ -1191,7 +1173,8 @@ export default function UserApp() {
 
             <div style={{ padding:'12px 16px 6px', fontSize:15, fontWeight:600, color:'#1f2937', display:'flex', alignItems:'center', gap:6 }}>
               {searchQuery.trim() ? '🔍 Search Results' : t('Restaurants Near You','तुमच्या जवळची रेस्टॉरंट')}
-              <span style={{ fontSize:11, color:'#16a34a', fontWeight:400 }}>· within {MAX_DELIVERY_KM}km · sorted by distance</span>
+              {/* ── Updated subtitle: reflects founder ordering ── */}
+              <span style={{ fontSize:11, color:'#16a34a', fontWeight:400 }}>· curated order · within {MAX_DELIVERY_KM}km</span>
             </div>
 
             {filteredVendors.length===0 && !searchQuery && (
@@ -1204,9 +1187,11 @@ export default function UserApp() {
             )}
 
             <div style={{ padding:'0 16px' }}>
-              {filteredVendors.map(v => {
+              {filteredVendors.map((v, idx) => {
                 const vMinOrder = Number(v.minOrderAmount ?? 0)
                 const dynamicCharge = calcDeliveryCharge(v.distance, v.deliveryCharge, v.distanceBasedDelivery)
+                // Show rank badge for top 3 (based on founder's order)
+                const rankEmoji = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
                 return (
                   <div key={v.id} onClick={() => openVendor(v)}
                     style={{ background:'#fff', borderRadius:16, overflow:'hidden', marginBottom:16, cursor:v.isOpen?'pointer':'not-allowed', boxShadow:'0 2px 12px rgba(0,0,0,0.08)', borderWidth:1, borderStyle:'solid', borderColor:v.isOpen?'#f3f4f6':'#fecaca', opacity:v.isOpen?1:0.6 }}>
@@ -1225,6 +1210,14 @@ export default function UserApp() {
                       )}
                       <div style={{ position:'absolute', top:10, left:10, background:'#E24B4A', color:'#fff', fontSize:10, padding:'3px 10px', borderRadius:20, fontWeight:600 }}>{v.category||'Food'}</div>
                       <div style={{ position:'absolute', top:10, right:10, background:v.isOpen?'#16a34a':'#6b7280', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:600 }}>{v.isOpen?'● Open':'● Closed'}</div>
+
+                      {/* ── Rank badge (top 3 by founder order) ── */}
+                      {rankEmoji && (
+                        <div style={{ position:'absolute', top:10, left:'50%', transform:'translateX(-50%)', background:'rgba(0,0,0,0.72)', color:'#fff', fontSize:11, padding:'3px 10px', borderRadius:20, fontWeight:700, display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>
+                          {rankEmoji} {idx === 0 ? '' : idx === 1 ? '' : ''}
+                        </div>
+                      )}
+
                       {v.distance !== null && (
                         <div style={{ position:'absolute', bottom:10, left:10, background:'rgba(0,0,0,0.7)', color:'#fff', fontSize:10, padding:'4px 10px', borderRadius:20, fontWeight:600, display:'flex', alignItems:'center', gap:5 }}>
                           <span>📍</span>
@@ -1982,7 +1975,6 @@ export default function UserApp() {
             <span style={{ fontSize:10, color:tab===item.id?'#E24B4A':'#6b7280', fontWeight:tab===item.id?600:400 }}>{item.label}</span>
           </button>
         ))}
-        {/* Support Chat Button in nav - shows when there's unread */}
         {supportUnreadCount > 0 && (
           <button style={S.bnItem()} onClick={handleOpenSupportChat}>
             <div style={{ position:'relative' }}>
