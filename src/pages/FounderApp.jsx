@@ -193,12 +193,8 @@ function VendorReorderModal({ vendors, onClose, onSave }) {
     setList(next)
   }
 
-  // Drag and drop handlers
   const handleDragStart = (i) => { dragIdx.current = i }
-  const handleDragOver = (e, i) => {
-    e.preventDefault()
-    dragOverIdx.current = i
-  }
+  const handleDragOver = (e, i) => { e.preventDefault(); dragOverIdx.current = i }
   const handleDrop = () => {
     const from = dragIdx.current
     const to = dragOverIdx.current
@@ -230,7 +226,6 @@ function VendorReorderModal({ vendors, onClose, onSave }) {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div style={{ background: '#fff', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 430, maxHeight: '90vh', display: 'flex', flexDirection: 'column', fontFamily: 'Poppins,sans-serif' }}>
-        {/* Header */}
         <div style={{ padding: '16px 16px 12px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>🔢 Set Vendor Display Order</div>
@@ -239,7 +234,6 @@ function VendorReorderModal({ vendors, onClose, onSave }) {
           <div style={{ fontSize: 11, color: '#9ca3af' }}>Drag vendors or use arrows · #1 appears first for customers</div>
         </div>
 
-        {/* List */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
           {list.map((v, i) => (
             <div
@@ -255,7 +249,6 @@ function VendorReorderModal({ vendors, onClose, onSave }) {
                 cursor: 'grab', userSelect: 'none',
                 boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
               }}>
-              {/* Rank badge */}
               <div style={{
                 width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
                 background: i === 0 ? 'linear-gradient(135deg,#fbbf24,#f59e0b)' : i === 1 ? '#d1d5db' : i === 2 ? '#f97316' : '#f3f4f6',
@@ -265,13 +258,9 @@ function VendorReorderModal({ vendors, onClose, onSave }) {
               }}>
                 {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
               </div>
-
-              {/* Photo */}
               <div style={{ width: 38, height: 38, borderRadius: 9, overflow: 'hidden', flexShrink: 0, background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {v.photo ? <img src={v.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 18 }}>🏪</span>}
               </div>
-
-              {/* Info */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.storeName}</div>
                 <div style={{ fontSize: 10, color: '#9ca3af' }}>
@@ -279,8 +268,6 @@ function VendorReorderModal({ vendors, onClose, onSave }) {
                   <span style={{ marginLeft: 6, color: v.isOpen ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{v.isOpen ? '● Open' : '● Closed'}</span>
                 </div>
               </div>
-
-              {/* Controls */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
                 <div style={{ display: 'flex', gap: 3 }}>
                   <button onClick={() => moveToTop(i)} disabled={i === 0} title="Move to top"
@@ -295,14 +282,11 @@ function VendorReorderModal({ vendors, onClose, onSave }) {
                     style={{ width: 26, height: 22, borderRadius: 5, border: 'none', background: i === list.length - 1 ? '#f9fafb' : '#fff5f5', color: i === list.length - 1 ? '#d1d5db' : '#E24B4A', cursor: i === list.length - 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700 }}>↓</button>
                 </div>
               </div>
-
-              {/* Drag handle */}
               <div style={{ color: '#d1d5db', fontSize: 16, cursor: 'grab', paddingLeft: 4 }}>⠿</div>
             </div>
           ))}
         </div>
 
-        {/* Footer */}
         <div style={{ padding: '12px 16px', borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: '#f3f4f6', flexShrink: 0 }}>
           <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 10, textAlign: 'center' }}>
             💡 This order is shown to customers on the home screen
@@ -402,9 +386,14 @@ export default function FounderApp() {
   const [pushHistory, setPushHistory] = useState([])
   const [pushProgress, setPushProgress] = useState(0)
 
-  // ── VENDOR REORDER STATE ──────────────────────────────────────────────
   const [showReorderModal, setShowReorderModal] = useState(false)
-  const [vendorOrderMode, setVendorOrderMode] = useState(false) // inline quick reorder
+  const [vendorOrderMode, setVendorOrderMode] = useState(false)
+
+  // ── NEW: Vendor toggle loading state ─────────────────────────────────
+  const [togglingVendor, setTogglingVendor] = useState(null)
+
+  // ── NEW: User DB export filter ────────────────────────────────────────
+  const [userExportFilter, setUserExportFilter] = useState('all')
 
   const PUSH_PRESETS = [
     { icon: '🌞', label: 'Lunch Time', title: '🍛 Hungry? Lunch Time!', body: 'Your favourite food is ready to order on FeedoZone! Order now 🚀' },
@@ -479,7 +468,6 @@ export default function FounderApp() {
 
   const allTowns = [...new Set(vendors.map(v => v.town || v.locationName || null).filter(Boolean))].sort()
 
-  // ── SORTED VENDORS (respects manual sortOrder) ────────────────────────
   const sortedVendors = [...vendors].sort((a, b) => {
     const sa = a.sortOrder ?? 9999
     const sb = b.sortOrder ?? 9999
@@ -629,6 +617,121 @@ export default function FounderApp() {
         )
       }, i * 600)
     })
+  }
+
+  // ── NEW: EXPORT FULL USER DATABASE ────────────────────────────────────
+  const exportUserDatabase = (filterType = 'all') => {
+    let list = [...users]
+
+    if (filterType === 'with_phone') {
+      list = list.filter(u => u.mobile || u.phone)
+    } else if (filterType === 'with_email') {
+      list = list.filter(u => u.email)
+    } else if (filterType === 'with_token') {
+      list = list.filter(u => u.expoPushToken && u.expoPushToken.startsWith('ExponentPushToken'))
+    } else if (filterType === 'active') {
+      const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyAgo).map(o => o.userUid))
+      list = list.filter(u => activeUids.has(u.id))
+    } else if (filterType === 'inactive') {
+      const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyAgo).map(o => o.userUid))
+      list = list.filter(u => !activeUids.has(u.id))
+    }
+
+    if (!list.length) return toast.error('No users found for this filter!')
+
+    // Build customer map for order stats
+    const customerMap = {}
+    allCustomers.forEach(c => { customerMap[c.id] = c })
+
+    const headers = [
+      'Sr No', 'Name', 'WhatsApp Number', 'Email', 'WhatsApp Link',
+      'Total Orders', 'Delivered Orders', 'Cancelled Orders', 'Total Spent (₹)',
+      'Last Order Date', 'First Order Date', 'Days Since Last Order',
+      'Customer Type', 'Push Token', 'Has App', 'Joined Date', 'User ID'
+    ]
+
+    const rows = list.map((u, idx) => {
+      const c = customerMap[u.id]
+      const phone = u.mobile || u.phone || ''
+      const cleanPhone = phone.replace(/\D/g, '')
+      const waNumber = cleanPhone ? '91' + cleanPhone : ''
+      const waLink = waNumber ? `https://wa.me/${waNumber}` : ''
+      const daysSince = c?.lastOrderDate ? Math.floor((Date.now() - c.lastOrderDate) / 86400000) : ''
+      const isRepeat = (c?.deliveredCount || 0) >= 2
+      const isNew = c?.firstOrderDate && c.firstOrderDate >= sevenAgo
+      const isInactive = c?.orders?.length > 0 && (!c?.lastOrderDate || c.lastOrderDate < thirtyAgo)
+      let customerType = 'New User'
+      if (isRepeat) customerType = 'Repeat Customer'
+      else if (isInactive) customerType = 'Inactive'
+      else if (isNew) customerType = 'New Customer'
+      else if ((c?.orders?.length || 0) > 0) customerType = 'One-time'
+
+      return [
+        idx + 1,
+        u.name || u.displayName || '—',
+        phone || '—',
+        u.email || '—',
+        waLink || '—',
+        c?.orders?.length || 0,
+        c?.deliveredCount || 0,
+        c?.cancelledCount || 0,
+        c?.totalSpent || 0,
+        c?.lastOrderDate?.toLocaleDateString('en-IN') || '—',
+        c?.firstOrderDate?.toLocaleDateString('en-IN') || '—',
+        daysSince !== '' ? (daysSince === 0 ? 'Today' : daysSince + ' days') : '—',
+        customerType,
+        u.expoPushToken ? u.expoPushToken : '—',
+        u.expoPushToken ? 'Yes' : 'No',
+        u.createdAt?.toDate?.()?.toLocaleDateString('en-IN') || '—',
+        u.id
+      ]
+    })
+
+    // Summary rows
+    const withPhone = list.filter(u => u.mobile || u.phone).length
+    const withEmail = list.filter(u => u.email).length
+    const withToken = list.filter(u => u.expoPushToken).length
+    const totalRevenue = list.reduce((s, u) => s + (customerMap[u.id]?.totalSpent || 0), 0)
+
+    rows.push(
+      [],
+      ['=== SUMMARY ==='],
+      ['Total Users Exported', list.length],
+      ['Users with WhatsApp', withPhone],
+      ['Users with Email', withEmail],
+      ['Users with App (Push Token)', withToken],
+      ['Total Revenue from these users', '₹' + totalRevenue.toLocaleString()],
+      ['Exported on', new Date().toLocaleString('en-IN')],
+      ['Exported by', user?.email || 'Founder']
+    )
+
+    const filterLabel = filterType === 'all' ? 'All' : filterType === 'with_phone' ? 'WithPhone' : filterType === 'with_email' ? 'WithEmail' : filterType === 'with_token' ? 'WithApp' : filterType === 'active' ? 'Active' : 'Inactive'
+    const filename = `FeedoZone_Users_${filterLabel}_${new Date().toLocaleDateString('en-IN').replace(/\//g, '-')}.csv`
+
+    const csvContent = [headers, ...rows].map(row =>
+      row.map(cell => '"' + String(cell ?? '').replace(/"/g, '""') + '"').join(',')
+    ).join('\n')
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success(`✅ Downloaded ${list.length} users — ${filename}`)
+  }
+
+  // ── NEW: VENDOR ON/OFF TOGGLE ─────────────────────────────────────────
+  const handleToggleVendor = async (vendorId, currentStatus) => {
+    setTogglingVendor(vendorId)
+    try {
+      await updateDoc(doc(db, 'vendors', vendorId), { isOpen: !currentStatus })
+      toast.success(!currentStatus ? '✅ Vendor is now OPEN' : '🔴 Vendor is now CLOSED')
+    } catch (err) {
+      toast.error('Failed to update vendor: ' + err.message)
+    }
+    setTogglingVendor(null)
   }
 
   // ── PUSH NOTIFICATION HELPERS ─────────────────────────────────────────
@@ -848,7 +951,6 @@ export default function FounderApp() {
     if (password !== confirmPass) return toast.error('Passwords do not match')
     setCreating(true)
     try {
-      // Set sortOrder to end of list by default
       const maxOrder = vendors.reduce((m, v) => Math.max(m, v.sortOrder ?? 0), 0)
       const vendorUid = await founderCreateVendor(user.uid, {
         email, password, storeName, address, phone, plan, category,
@@ -908,7 +1010,7 @@ export default function FounderApp() {
     } catch (err) { toast.error('Delete failed: ' + err.message) }
   }
 
-  // ── INLINE QUICK REORDER (move up/down in vendors tab) ───────────────
+  // ── INLINE QUICK REORDER ─────────────────────────────────────────────
   const handleInlineMoveUp = async (vendorId) => {
     const idx = filteredVendors.findIndex(v => v.id === vendorId)
     if (idx <= 0) return
@@ -1040,7 +1142,6 @@ export default function FounderApp() {
   return (
     <div style={{ maxWidth: 430, margin: '0 auto', background: '#fff', minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'Poppins,sans-serif' }}>
 
-      {/* ── VENDOR REORDER MODAL ── */}
       {showReorderModal && (
         <VendorReorderModal
           vendors={filteredVendors}
@@ -1049,7 +1150,6 @@ export default function FounderApp() {
         />
       )}
 
-      {/* ── NEW ORDER ALERT ── */}
       {newOrderAlert && (
         <div style={{ position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)', zIndex: 9999, width: '100%', maxWidth: 430, padding: '12px 16px', background: 'linear-gradient(135deg,#E24B4A,#c73232)', fontFamily: 'Poppins,sans-serif', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1084,6 +1184,7 @@ export default function FounderApp() {
           { id: 'vendors', label: `Vendors (${vendors.length})` },
           { id: 'customers', label: `👥 Customers (${customerStats.total})` },
           { id: 'addvendor', label: '+ Add Vendor' },
+          { id: 'userdb', label: `🗄️ User DB (${users.length})` },
           { id: 'push', label: `🔔 Push${usersWithTokenCount > 0 ? ` (${usersWithTokenCount})` : ''}` },
           { id: 'broadcast', label: `📣 Broadcast${users.length > 0 ? ` (${users.length})` : ''}` },
           { id: 'support', label: `💬 Support${supportTickets.filter(t => t.status === 'open').length > 0 ? ` (${supportTickets.filter(t => t.status === 'open').length})` : ''}` },
@@ -1176,6 +1277,7 @@ export default function FounderApp() {
                   { icon: '📅', label: "Today's Orders", sub: `${todayOrders.length} orders · ₹${todayRevenue}`, fn: () => exportToExcel('today') },
                   { icon: '📦', label: 'All Orders', sub: `${orders.length} total orders`, fn: () => exportToExcel('all') },
                   { icon: '🏪', label: 'Vendor-wise Report', sub: `${vendors.length} vendors`, fn: exportVendorWise },
+                  { icon: '👥', label: 'Full User Database', sub: `${users.length} users · all details`, fn: () => { setTab('userdb') } },
                 ].map(b => (
                   <button key={b.label} onClick={b.fn} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: '#fff', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 10, cursor: 'pointer', fontFamily: 'Poppins', textAlign: 'left' }}>
                     <span style={{ fontSize: 18 }}>{b.icon}</span>
@@ -1202,6 +1304,158 @@ export default function FounderApp() {
           </>
         )}
 
+        {/* ════════════════ TAB: USER DATABASE ════════════════ */}
+        {tab === 'userdb' && (
+          <>
+            {/* Header card */}
+            <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 14, padding: 16, marginBottom: 16, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', right: -10, top: -10, fontSize: 60, opacity: 0.06 }}>🗄️</div>
+              <div style={{ fontSize: 10, color: '#818cf8', fontWeight: 700, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>Complete User Database</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: '#fff', marginBottom: 6 }}>Download User Data</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 4 }}>
+                {[
+                  { val: users.length, label: 'Total Users', color: '#fff' },
+                  { val: users.filter(u => u.mobile || u.phone).length, label: 'Have WhatsApp', color: '#4ade80' },
+                  { val: users.filter(u => u.email).length, label: 'Have Email', color: '#60a5fa' },
+                  { val: users.filter(u => u.expoPushToken).length, label: 'Have App', color: '#fbbf24' },
+                  { val: allCustomers.filter(c => c.deliveredCount >= 2).length, label: 'Repeat Buyers', color: '#f472b6' },
+                  { val: allCustomers.filter(c => c.orders.length > 0 && (!c.lastOrderDate || c.lastOrderDate < thirtyAgo)).length, label: 'Inactive 30d', color: '#f87171' },
+                ].map(s => (
+                  <div key={s.label} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: '8px 6px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.val}</div>
+                    <div style={{ fontSize: 9, color: '#94a3b8', lineHeight: 1.3 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Quick download buttons */}
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 10 }}>⚡ Quick Download</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+              {[
+                { id: 'all', icon: '👥', label: 'ALL Users', sub: `${users.length} users — complete database`, color: '#E24B4A', bg: '#fff5f5', border: '#fecaca' },
+                { id: 'with_phone', icon: '💬', label: 'WhatsApp Numbers', sub: `${users.filter(u => u.mobile || u.phone).length} users with phone`, color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
+                { id: 'with_email', icon: '📧', label: 'Email Addresses', sub: `${users.filter(u => u.email).length} users with email`, color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe' },
+                { id: 'with_token', icon: '🔔', label: 'App Users', sub: `${users.filter(u => u.expoPushToken).length} users with push token`, color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
+                { id: 'active', icon: '🔥', label: 'Active (30 days)', sub: `${getPushTargetCount('active')} recently ordered`, color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
+                { id: 'inactive', icon: '😴', label: 'Inactive Users', sub: `${getPushTargetCount('inactive')} not ordered in 30d`, color: '#64748b', bg: '#f8fafc', border: '#e2e8f0' },
+              ].map(opt => (
+                <button key={opt.id} onClick={() => exportUserDatabase(opt.id)}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 12, background: opt.bg, borderWidth: 1.5, borderStyle: 'solid', borderColor: opt.border, borderRadius: 12, cursor: 'pointer', fontFamily: 'Poppins', textAlign: 'left' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 22 }}>{opt.icon}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, background: opt.color, color: '#fff', padding: '2px 8px', borderRadius: 20 }}>↓ CSV</span>
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: opt.color }}>{opt.label}</div>
+                  <div style={{ fontSize: 10, color: '#6b7280', lineHeight: 1.3 }}>{opt.sub}</div>
+                </button>
+              ))}
+            </div>
+
+            {/* What's included */}
+            <div style={{ background: '#f9fafb', borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 10 }}>📋 What's Included in Each Export</div>
+              {[
+                '✅ Sr No, Full Name',
+                '✅ WhatsApp Number (raw + wa.me link)',
+                '✅ Email Address',
+                '✅ Total Orders, Delivered, Cancelled',
+                '✅ Total Money Spent (₹)',
+                '✅ First & Last Order Dates',
+                '✅ Days Since Last Order',
+                '✅ Customer Type (Repeat / New / Inactive)',
+                '✅ Has App (Push Token: Yes/No)',
+                '✅ Joined Date & User ID',
+              ].map((item, i) => (
+                <div key={i} style={{ fontSize: 11, color: '#374151', padding: '4px 0', borderBottomWidth: i < 9 ? 1 : 0, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6' }}>{item}</div>
+              ))}
+            </div>
+
+            {/* Live user list preview */}
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 10 }}>👁️ Preview — All {users.length} Users</div>
+            <div style={{ background: '#fff', borderRadius: 12, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', overflow: 'hidden', marginBottom: 16 }}>
+              <div style={{ background: '#f9fafb', padding: '8px 14px', display: 'flex', gap: 8, overflowX: 'auto' }}>
+                {['all', 'with_phone', 'with_email', 'with_token', 'active', 'inactive'].map(f2 => {
+                  const counts = { all: users.length, with_phone: users.filter(u => u.mobile || u.phone).length, with_email: users.filter(u => u.email).length, with_token: users.filter(u => u.expoPushToken).length, active: getPushTargetCount('active'), inactive: getPushTargetCount('inactive') }
+                  const labels = { all: 'All', with_phone: '📱 WA', with_email: '📧 Email', with_token: '🔔 App', active: '🔥 Active', inactive: '😴 Inactive' }
+                  return (
+                    <button key={f2} onClick={() => setUserExportFilter(f2)}
+                      style={{ flexShrink: 0, padding: '5px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 11, fontWeight: 600, background: userExportFilter === f2 ? '#E24B4A' : '#fff', color: userExportFilter === f2 ? '#fff' : '#374151', borderWidth: 1, borderStyle: 'solid', borderColor: userExportFilter === f2 ? '#E24B4A' : '#e5e7eb' }}>
+                      {labels[f2]} ({counts[f2]})
+                    </button>
+                  )
+                })}
+              </div>
+              {(() => {
+                const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyAgo).map(o => o.userUid))
+                let previewList = [...users]
+                if (userExportFilter === 'with_phone') previewList = previewList.filter(u => u.mobile || u.phone)
+                else if (userExportFilter === 'with_email') previewList = previewList.filter(u => u.email)
+                else if (userExportFilter === 'with_token') previewList = previewList.filter(u => u.expoPushToken)
+                else if (userExportFilter === 'active') previewList = previewList.filter(u => activeUids.has(u.id))
+                else if (userExportFilter === 'inactive') previewList = previewList.filter(u => !activeUids.has(u.id))
+                const customerMap = {}
+                allCustomers.forEach(c => { customerMap[c.id] = c })
+                return (
+                  <>
+                    {previewList.slice(0, 25).map((u, i) => {
+                      const c = customerMap[u.id]
+                      const phone = u.mobile || u.phone || ''
+                      const isRepeat = (c?.deliveredCount || 0) >= 2
+                      return (
+                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottomWidth: i < Math.min(previewList.length, 25) - 1 ? 1 : 0, borderBottomStyle: 'solid', borderBottomColor: '#f9fafb' }}>
+                          <div style={{ width: 34, height: 34, borderRadius: '50%', background: isRepeat ? 'linear-gradient(135deg,#E24B4A,#ff6b6a)' : 'linear-gradient(135deg,#374151,#1f2937)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{(u.name || u.displayName || 'U')[0].toUpperCase()}</span>
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name || u.displayName || '—'}</div>
+                              {isRepeat && <span style={{ fontSize: 8, background: '#dcfce7', color: '#16a34a', padding: '1px 4px', borderRadius: 6, fontWeight: 700, flexShrink: 0 }}>REPEAT</span>}
+                            </div>
+                            <div style={{ fontSize: 10, color: '#9ca3af' }}>{phone || 'No phone'} · {u.email || 'No email'}</div>
+                          </div>
+                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#E24B4A' }}>{c?.orders?.length || 0}</div>
+                            <div style={{ fontSize: 9, color: '#9ca3af' }}>orders</div>
+                            <div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end', marginTop: 3 }}>
+                              {phone && <span style={{ fontSize: 10 }}>💬</span>}
+                              {u.email && <span style={{ fontSize: 10 }}>📧</span>}
+                              {u.expoPushToken && <span style={{ fontSize: 10 }}>🔔</span>}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {previewList.length > 25 && (
+                      <div style={{ padding: '12px 14px', background: '#f9fafb', textAlign: 'center' }}>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>+{previewList.length - 25} more users not shown in preview</div>
+                        <button onClick={() => exportUserDatabase(userExportFilter)}
+                          style={{ background: '#E24B4A', color: '#fff', border: 'none', borderRadius: 9, padding: '9px 20px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                          ↓ Download All {previewList.length} Users as Excel
+                        </button>
+                      </div>
+                    )}
+                    {previewList.length === 0 && (
+                      <div style={{ padding: '30px 14px', textAlign: 'center', color: '#9ca3af' }}>
+                        <div style={{ fontSize: 28, marginBottom: 8 }}>👥</div>
+                        <div style={{ fontSize: 13 }}>No users match this filter</div>
+                      </div>
+                    )}
+                    {previewList.length > 0 && previewList.length <= 25 && (
+                      <div style={{ padding: '10px 14px', background: '#f9fafb', textAlign: 'center' }}>
+                        <button onClick={() => exportUserDatabase(userExportFilter)}
+                          style={{ background: '#E24B4A', color: '#fff', border: 'none', borderRadius: 9, padding: '9px 20px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                          ↓ Download All {previewList.length} Users as Excel
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
+          </>
+        )}
+
         {/* ════════════════ TAB: VENDORS ════════════════ */}
         {tab === 'vendors' && (
           <>
@@ -1217,7 +1471,6 @@ export default function FounderApp() {
                   🔢 Reorder
                 </button>
               </div>
-              {/* Current order preview */}
               <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
                 {sortedVendors.slice(0, 5).map((v, i) => (
                   <div key={v.id} style={{ flexShrink: 0, background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 6, borderWidth: 1, borderStyle: 'solid', borderColor: 'rgba(255,255,255,0.1)' }}>
@@ -1233,6 +1486,53 @@ export default function FounderApp() {
                     <span style={{ fontSize: 10, color: '#6b7280' }}>+{sortedVendors.length - 5} more</span>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* ── NEW: QUICK ON/OFF TOGGLE PANEL ── */}
+            <div style={{ background: '#f9fafb', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', marginBottom: 10 }}>
+                ⚡ Quick Vendor On/Off
+                <span style={{ fontSize: 10, fontWeight: 500, color: '#9ca3af', marginLeft: 8 }}>
+                  {vendors.filter(v => v.isOpen).length} open · {vendors.filter(v => !v.isOpen).length} closed
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {sortedVendors.map(v => (
+                  <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 10, padding: '10px 12px', borderWidth: 1, borderStyle: 'solid', borderColor: v.isOpen ? '#bbf7d0' : '#fecaca' }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 9, overflow: 'hidden', flexShrink: 0, background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {v.photo ? <img src={v.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 16 }}>🏪</span>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.storeName}</div>
+                      <div style={{ fontSize: 10, color: '#9ca3af' }}>{v.category}{v.town ? ` · ${v.town}` : ''}</div>
+                    </div>
+                    {/* Toggle Switch */}
+                    <button
+                      onClick={() => handleToggleVendor(v.id, v.isOpen)}
+                      disabled={togglingVendor === v.id}
+                      style={{
+                        position: 'relative', width: 52, height: 28, borderRadius: 14,
+                        background: togglingVendor === v.id ? '#e5e7eb' : v.isOpen ? '#16a34a' : '#dc2626',
+                        border: 'none', cursor: togglingVendor === v.id ? 'not-allowed' : 'pointer',
+                        transition: 'background 0.2s', flexShrink: 0, padding: 0,
+                        display: 'flex', alignItems: 'center',
+                        paddingLeft: v.isOpen ? 26 : 4, paddingRight: v.isOpen ? 4 : 26,
+                      }}>
+                      <div style={{
+                        width: 20, height: 20, background: '#fff', borderRadius: '50%',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                        transition: 'transform 0.2s',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10
+                      }}>
+                        {togglingVendor === v.id ? '⏳' : v.isOpen ? '✓' : '✕'}
+                      </div>
+                    </button>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: v.isOpen ? '#16a34a' : '#dc2626', minWidth: 36, textAlign: 'right', flexShrink: 0 }}>
+                      {togglingVendor === v.id ? '...' : v.isOpen ? 'OPEN' : 'CLOSED'}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -1273,12 +1573,9 @@ export default function FounderApp() {
                     {uploadingPhotoFor === v.id ? `${existingProgress}%` : '📷 Change Photo'}
                   </button>
                   <div style={{ position: 'absolute', top: 8, left: 8, background: v.isOpen ? '#16a34a' : '#dc2626', color: '#fff', fontSize: 10, padding: '3px 8px', borderRadius: 20, fontWeight: 600 }}>{v.isOpen ? '● Open' : '● Closed'}</div>
-
-                  {/* Rank badge on vendor card */}
                   <div style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.75)', color: idx === 0 ? '#fbbf24' : '#fff', fontSize: 10, padding: '3px 10px', borderRadius: 20, fontWeight: 700, whiteSpace: 'nowrap' }}>
                     {idx === 0 ? '🥇 #1 Top Vendor' : `#${idx + 1}`}
                   </div>
-
                   {(v.town || v.locationName) && <div style={{ position: 'absolute', bottom: 8, left: 8, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 10, padding: '3px 8px', borderRadius: 20, fontWeight: 500 }}>📍 {v.town || v.locationName}</div>}
                 </div>
 
@@ -1289,6 +1586,37 @@ export default function FounderApp() {
                   </div>
                   <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 8 }}>{v.email} · {v.category}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 10 }}>🚴 Delivery: {v.deliveryCharge === 0 ? 'Free' : ('₹' + (v.deliveryCharge ?? 30))} · 📞 {v.phone || '—'}</div>
+
+                  {/* ── NEW: On/Off Toggle in card ── */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: v.isOpen ? '#f0fdf4' : '#fff5f5', borderRadius: 10, padding: '10px 14px', marginBottom: 10, borderWidth: 1, borderStyle: 'solid', borderColor: v.isOpen ? '#bbf7d0' : '#fecaca' }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: v.isOpen ? '#15803d' : '#dc2626' }}>
+                        {v.isOpen ? '🟢 Vendor is OPEN' : '🔴 Vendor is CLOSED'}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>
+                        {v.isOpen ? 'Customers can order now' : 'Customers cannot place orders'}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleToggleVendor(v.id, v.isOpen)}
+                      disabled={togglingVendor === v.id}
+                      style={{
+                        position: 'relative', width: 56, height: 30, borderRadius: 15,
+                        background: togglingVendor === v.id ? '#e5e7eb' : v.isOpen ? '#16a34a' : '#dc2626',
+                        border: 'none', cursor: togglingVendor === v.id ? 'not-allowed' : 'pointer',
+                        flexShrink: 0, padding: 0,
+                        display: 'flex', alignItems: 'center',
+                        paddingLeft: v.isOpen ? 28 : 4, paddingRight: v.isOpen ? 4 : 28,
+                      }}>
+                      <div style={{
+                        width: 22, height: 22, background: '#fff', borderRadius: '50%',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11
+                      }}>
+                        {togglingVendor === v.id ? '⏳' : v.isOpen ? '✓' : '✕'}
+                      </div>
+                    </button>
+                  </div>
 
                   {/* Inline reorder controls */}
                   <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
