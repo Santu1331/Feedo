@@ -2451,7 +2451,7 @@ export default function FounderApp() {
           </>
         )}
 
-        {/* ════════════════ TAB: ADD VENDOR ════════════════ */}
+        {/* ════════════════ TAB:ADD VENDOR ════════════════ */}
         {tab === 'addvendor' && (
           <div style={{ borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, padding: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
