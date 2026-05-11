@@ -1,6 +1,7 @@
 // ============================================================
 // FILE: src/components/VendorBill.jsx
 // FIXED: gstNumber + upiId now shown on bill (matching Firestore field names)
+// UPDATED: Phone + Address hidden for delivered/cancelled orders (privacy)
 // ============================================================
 
 import { useRef } from 'react'
@@ -9,6 +10,9 @@ export default function VendorBill({ order, vendorData, onClose }) {
   const billRef = useRef()
 
   if (!order) return null
+
+  // ✅ PRIVACY: hide contact details for delivered OR cancelled orders
+  const isPrivate = order?.status === 'delivered' || order?.status === 'cancelled'
 
   const billNo = order.billNo || ('FZ-' + order.id?.slice(-6).toUpperCase())
   const items = order.items || []
@@ -65,8 +69,9 @@ export default function VendorBill({ order, vendorData, onClose }) {
           <div class="meta-row"><span>Date</span><span>${dateStr}</span></div>
           <div class="meta-row"><span>Time</span><span>${timeStr}</span></div>
           <div class="meta-row"><span>Customer</span><span>${order.userName}</span></div>
-          <div class="meta-row"><span>Phone</span><span>${order.userPhone || '—'}</span></div>
-          <div class="meta-row"><span>Address</span><span style="max-width:180px;text-align:right">${order.address || '—'}</span></div>
+          ${!isPrivate ? `<div class="meta-row"><span>Phone</span><span>${order.userPhone || '—'}</span></div>` : ''}
+          ${!isPrivate && order.address ? `<div class="meta-row"><span>Address</span><span style="max-width:180px;text-align:right">${order.address || '—'}</span></div>` : ''}
+          ${isPrivate ? `<div style="margin-top:6px;background:${order.status === 'delivered' ? '#f0fdf4' : '#fff5f5'};border:1px solid ${order.status === 'delivered' ? '#bbf7d0' : '#fecaca'};border-radius:6px;padding:7px 10px;font-size:10px;font-weight:bold;color:${order.status === 'delivered' ? '#166634' : '#991b1b'}">🔒 Contact details hidden after order ${order.status === 'delivered' ? 'delivery' : 'cancellation'}</div>` : ''}
         </div>
         <div style="border-top:1px dashed #999;padding-top:6px;margin-bottom:4px;">
           <div class="items-header">
@@ -174,17 +179,41 @@ export default function VendorBill({ order, vendorData, onClose }) {
               ['Date', dateStr, false],
               ['Time', timeStr, false],
               ['Customer', order.userName, false],
-              ['Phone', order.userPhone || '—', false],
+              // ✅ PRIVACY: Phone row only shown when NOT private
+              ...(!isPrivate ? [['Phone', order.userPhone || '—', false]] : []),
             ].map(([label, val, bold]) => (
               <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#374151', marginBottom: 4 }}>
                 <span style={{ color: '#6b7280' }}>{label}</span>
                 <span style={{ fontWeight: bold ? 700 : 500 }}>{val}</span>
               </div>
             ))}
-            {order.address && (
+
+            {/* ✅ PRIVACY: Address only shown when NOT private */}
+            {!isPrivate && order.address && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#374151', gap: 8 }}>
                 <span style={{ color: '#6b7280', flexShrink: 0 }}>Address</span>
                 <span style={{ textAlign: 'right', lineHeight: 1.4 }}>{order.address}</span>
+              </div>
+            )}
+
+            {/* ✅ PRIVACY: lock notice shown instead of phone/address */}
+            {isPrivate && (
+              <div style={{
+                marginTop: 6,
+                background: order.status === 'delivered' ? '#f0fdf4' : '#fff5f5',
+                borderRadius: 8,
+                padding: '8px 10px',
+                display: 'flex',
+                gap: 8,
+                alignItems: 'center',
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderColor: order.status === 'delivered' ? '#bbf7d0' : '#fecaca',
+              }}>
+                <span style={{ fontSize: 15, flexShrink: 0 }}>🔒</span>
+                <span style={{ fontSize: 11, color: order.status === 'delivered' ? '#166534' : '#991b1b', fontWeight: 600, fontFamily: 'Poppins, sans-serif', lineHeight: 1.4 }}>
+                  Contact details hidden after order {order.status === 'delivered' ? 'delivery' : 'cancellation'}
+                </span>
               </div>
             )}
           </div>
@@ -264,11 +293,21 @@ export default function VendorBill({ order, vendorData, onClose }) {
           <button
             onClick={() => {
               const text = `*${storeName}*\nBill: ${billNo} | ${dateStr}\n\n${items.map(i => `${i.qty}x ${i.name} - ₹${i.price * i.qty}`).join('\n')}\n\nSubtotal: ₹${subtotal}\nDelivery: ${deliveryFee === 0 ? 'FREE' : '₹' + deliveryFee}\n*TOTAL: ₹${total}*${upiId ? `\n\n📱 Pay via UPI: ${upiId}` : ''}\n\nThank you!`
-              window.open(`https://wa.me/91${order.userPhone}?text=${encodeURIComponent(text)}`, '_blank')
+              // ✅ PRIVACY: phone hidden for delivered/cancelled — copy to clipboard instead
+              if (!isPrivate && order.userPhone) {
+                window.open(`https://wa.me/91${order.userPhone}?text=${encodeURIComponent(text)}`, '_blank')
+              } else {
+                navigator.clipboard?.writeText(text).then(() => {
+                  alert('Bill text copied! Share it manually.')
+                }).catch(() => {
+                  alert('Phone hidden. Please use Print Bill instead.')
+                })
+              }
             }}
-            style={{ flex: 1, padding: '11px 0', borderRadius: 10, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins, sans-serif', background: '#25D366', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            style={{ flex: 1, padding: '11px 0', borderRadius: 10, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins, sans-serif', background: isPrivate ? '#6b7280' : '#25D366', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
           >
-            💬 Send Bill
+            {/* ✅ PRIVACY: label changes to Copy Bill when phone is hidden */}
+            {isPrivate ? '📋 Copy Bill' : '💬 Send Bill'}
           </button>
         </div>
 

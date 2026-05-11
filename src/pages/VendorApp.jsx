@@ -36,7 +36,6 @@ const ORDER_FILTERS = [
 
 // ── SCHEDULE HELPERS ──────────────────────────────────────────────────────────
 function parseTimeToMinutes(timeStr) {
-  // Accepts "HH:MM" (24h)
   if (!timeStr || !timeStr.includes(':')) return null
   const [h, m] = timeStr.split(':').map(Number)
   if (isNaN(h) || isNaN(m)) return null
@@ -51,13 +50,11 @@ function getCurrentMinutes() {
 function isWithinSchedule(openTime, closeTime) {
   const open  = parseTimeToMinutes(openTime)
   const close = parseTimeToMinutes(closeTime)
-  if (open === null || close === null) return null // schedule not set
+  if (open === null || close === null) return null
   const now = getCurrentMinutes()
   if (open <= close) {
-    // e.g. 09:00 – 22:00 (same day)
     return now >= open && now < close
   } else {
-    // overnight e.g. 22:00 – 02:00
     return now >= open || now < close
   }
 }
@@ -71,8 +68,6 @@ function formatTime12(timeStr) {
 }
 
 // ── SCHEDULE HOOK ─────────────────────────────────────────────────────────────
-// Runs every 60 s. Auto-opens/closes the store based on schedule.
-// scheduleOverride=true means vendor manually closed during scheduled hours → don't auto-reopen until next open window.
 function useStoreSchedule({ uid, openTime, closeTime, isOpen, scheduleOverride, onScheduleChange }) {
   const prevWindowRef = useRef(null)
 
@@ -83,24 +78,19 @@ function useStoreSchedule({ uid, openTime, closeTime, isOpen, scheduleOverride, 
       const inWindow = isWithinSchedule(openTime, closeTime)
       if (inWindow === null) return
 
-      // Detect window transition: were we outside, now inside → new open window started
       const crossedIntoOpen = (prevWindowRef.current === false && inWindow === true)
       prevWindowRef.current = inWindow
 
       if (inWindow) {
-        // Inside scheduled hours
         if (crossedIntoOpen) {
-          // New open window just started → clear any override and auto-open
           await updateVendorStore(uid, { isOpen: true, scheduleOverride: false })
           onScheduleChange(true, false)
           toast.success('🟢 Store automatically opened (scheduled)', { duration: 4000 })
         } else if (!scheduleOverride && !isOpen) {
-          // Was somehow closed without override → restore open
           await updateVendorStore(uid, { isOpen: true })
           onScheduleChange(true, false)
         }
       } else {
-        // Outside scheduled hours → auto-close if open and no override pending
         if (isOpen && !scheduleOverride) {
           await updateVendorStore(uid, { isOpen: false, scheduleOverride: false })
           onScheduleChange(false, false)
@@ -109,9 +99,7 @@ function useStoreSchedule({ uid, openTime, closeTime, isOpen, scheduleOverride, 
       }
     }
 
-    // Run immediately
     check()
-    // Then every 60 s
     const id = setInterval(check, 60_000)
     return () => clearInterval(id)
   }, [uid, openTime, closeTime, isOpen, scheduleOverride])
@@ -135,7 +123,7 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
 }
 
-// ── MINI CUSTOMER MAP (embedded in order detail) ──────────────────────────────
+// ── MINI CUSTOMER MAP ──────────────────────────────────────────────────────────
 function MiniCustomerMap({ order, onExpand }) {
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
@@ -705,7 +693,7 @@ export default function VendorApp() {
 
   useNotifications(user?.uid, 'vendor')
 
-  // ── SCHEDULE HOOK: auto open/close ────────────────────────────────────────
+  // ── SCHEDULE HOOK ─────────────────────────────────────────────────────────
   useStoreSchedule({
     uid: user?.uid,
     openTime,
@@ -835,19 +823,16 @@ export default function VendorApp() {
     const newVal = !isOpen
 
     if (!newVal && inWindow) {
-      // Vendor is manually closing during scheduled open hours → set override
       await updateVendorStore(user.uid, { isOpen: false, scheduleOverride: true })
       setIsOpen(false)
       setScheduleOverride(true)
       toast('🔴 Store closed manually. Auto-schedule paused until next open window.', { icon: '⚠️', duration: 5000 })
     } else if (newVal && inWindow && scheduleOverride) {
-      // Vendor manually re-opening during scheduled hours → clear override
       await updateVendorStore(user.uid, { isOpen: true, scheduleOverride: false })
       setIsOpen(true)
       setScheduleOverride(false)
       toast.success('🟢 Store is now Open!')
     } else {
-      // No schedule set or outside window — simple toggle
       await updateVendorStore(user.uid, { isOpen: newVal, scheduleOverride: false })
       setIsOpen(newVal)
       setScheduleOverride(false)
@@ -1043,6 +1028,10 @@ export default function VendorApp() {
     color: status==='pending'?'#92400e': status==='accepted'?'#1e40af': status==='preparing'?'#6d28d9': status==='ready'?'#15803d': status==='out_for_delivery'?'#0369a1': status==='delivered'?'#065f46':'#991b1b',
   })
 
+  // ── PRIVACY HELPER: hide contact details for delivered OR cancelled orders ──
+  // ✅ UPDATED: now covers both 'delivered' and 'cancelled' statuses
+  const isPrivate = (order) => order?.status === 'delivered' || order?.status === 'cancelled'
+
   const ComboItemPicker = ({ comboState, setComboState }) => (
     <div>
       <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Select Items for Combo *</label>
@@ -1108,7 +1097,6 @@ export default function VendorApp() {
             <div>
               <div style={{ fontSize:15, fontWeight:600, color:'#fff' }}>{userData?.storeName || 'My Store'}</div>
               <div style={{ fontSize:10, color:'#888', marginTop:1 }}>📷 Tap photo to change · {userData?.category||'Food'}</div>
-              {/* ── SCHEDULE STATUS in header ── */}
               {hasSchedule && (
                 <div style={{ fontSize:10, color: inScheduleWindow && !scheduleOverride ? '#4ade80' : scheduleOverride ? '#fbbf24' : '#9ca3af', marginTop:2, fontWeight:600 }}>
                   {scheduleStatusLabel()}
@@ -1123,7 +1111,6 @@ export default function VendorApp() {
                 <div style={{ position:'absolute', width:18, height:18, background:'#fff', borderRadius:'50%', top:3, left: isOpen?23:3, transition:'left 0.2s' }} />
               </div>
             </div>
-            {/* Override badge */}
             {scheduleOverride && (
               <div style={{ background:'rgba(251,191,36,0.2)', borderRadius:6, padding:'2px 7px', borderWidth:1, borderStyle:'solid', borderColor:'rgba(251,191,36,0.4)' }}>
                 <span style={{ fontSize:9, color:'#fbbf24', fontWeight:700 }}>⚠️ MANUAL OVERRIDE</span>
@@ -1172,37 +1159,71 @@ export default function VendorApp() {
                 </div>
 
                 <div style={{ padding:'16px 16px 100px', marginTop:-8 }}>
+                  {/* ── CUSTOMER DETAILS CARD ── */}
                   <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
                     <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:12, textTransform:'uppercase' }}>Customer Details</div>
-                    <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
-                      <div style={{ width:46, height:46, borderRadius:12, background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                        <span style={{ fontSize:20, fontWeight:700, color:'#fff' }}>{selectedVendorOrder.userName?.[0]?.toUpperCase() || '👤'}</span>
-                      </div>
-                      <div>
-                        <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>{selectedVendorOrder.userName}</div>
-                        <div style={{ fontSize:13, color:'#6b7280', marginTop:2 }}>📱 {selectedVendorOrder.userPhone || 'No phone'}</div>
-                      </div>
-                    </div>
-                    <div style={{ background:'#f9fafb', borderRadius:10, padding:'10px 14px', display:'flex', gap:10, alignItems:'flex-start' }}>
-                      <span style={{ fontSize:18, flexShrink:0 }}>📍</span>
-                      <div>
-                        <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:3 }}>DELIVERY ADDRESS</div>
-                        <div style={{ fontSize:13, color:'#1f2937', fontWeight:500, lineHeight:1.5 }}>{selectedVendorOrder.address || 'No address provided'}</div>
-                      </div>
-                    </div>
-                    {selectedVendorOrder.userPhone && (
-                      <div style={{ display:'flex', gap:8, marginTop:10 }}>
-                        <a href={`tel:+91${selectedVendorOrder.userPhone}`} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'10px 0', background:'#E24B4A', borderRadius:10, textDecoration:'none' }}>
-                          <span style={{ fontSize:16 }}>📞</span><span style={{ fontSize:12, fontWeight:600, color:'#fff', fontFamily:'Poppins' }}>Call Customer</span>
-                        </a>
-                        <a href={`https://wa.me/91${selectedVendorOrder.userPhone}`} target="_blank" rel="noreferrer" style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'10px 0', background:'#25D366', borderRadius:10, textDecoration:'none' }}>
-                          <span style={{ fontSize:16 }}>💬</span><span style={{ fontSize:12, fontWeight:600, color:'#fff', fontFamily:'Poppins' }}>WhatsApp</span>
-                        </a>
-                      </div>
+
+                    {/* ✅ UPDATED: isPrivate covers both delivered AND cancelled */}
+                    {isPrivate(selectedVendorOrder) ? (
+                      /* ── PRIVACY MODE: order completed/cancelled — hide phone & address ── */
+                      <>
+                        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
+                          <div style={{ width:46, height:46, borderRadius:12, background: selectedVendorOrder.status==='delivered' ? 'linear-gradient(135deg,#d1fae5,#a7f3d0)' : 'linear-gradient(135deg,#fee2e2,#fecaca)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                            <span style={{ fontSize:22 }}>{selectedVendorOrder.status==='delivered' ? '✅' : '❌'}</span>
+                          </div>
+                          <div>
+                            <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>{selectedVendorOrder.userName}</div>
+                            <div style={{ fontSize:12, color: selectedVendorOrder.status==='delivered' ? '#16a34a' : '#dc2626', fontWeight:600, marginTop:2 }}>
+                              {selectedVendorOrder.status==='delivered' ? 'Order Delivered Successfully' : 'Order Cancelled'}
+                            </div>
+                          </div>
+                        </div>
+                        {/* Privacy notice */}
+                        <div style={{ background: selectedVendorOrder.status==='delivered' ? '#f0fdf4' : '#fff5f5', borderRadius:10, padding:'10px 14px', display:'flex', gap:10, alignItems:'flex-start', borderWidth:1, borderStyle:'solid', borderColor: selectedVendorOrder.status==='delivered' ? '#bbf7d0' : '#fecaca' }}>
+                          <span style={{ fontSize:18, flexShrink:0 }}>🔒</span>
+                          <div>
+                            <div style={{ fontSize:12, fontWeight:700, color: selectedVendorOrder.status==='delivered' ? '#15803d' : '#dc2626', marginBottom:2 }}>Contact Details Hidden</div>
+                            <div style={{ fontSize:11, color: selectedVendorOrder.status==='delivered' ? '#166534' : '#991b1b', lineHeight:1.6 }}>
+                              Customer's phone number and delivery address are hidden after order {selectedVendorOrder.status==='delivered' ? 'delivery' : 'cancellation'} to protect privacy.
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      /* ── NORMAL MODE: show all details ── */
+                      <>
+                        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
+                          <div style={{ width:46, height:46, borderRadius:12, background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                            <span style={{ fontSize:20, fontWeight:700, color:'#fff' }}>{selectedVendorOrder.userName?.[0]?.toUpperCase() || '👤'}</span>
+                          </div>
+                          <div>
+                            <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>{selectedVendorOrder.userName}</div>
+                            <div style={{ fontSize:13, color:'#6b7280', marginTop:2 }}>📱 {selectedVendorOrder.userPhone || 'No phone'}</div>
+                          </div>
+                        </div>
+                        <div style={{ background:'#f9fafb', borderRadius:10, padding:'10px 14px', display:'flex', gap:10, alignItems:'flex-start' }}>
+                          <span style={{ fontSize:18, flexShrink:0 }}>📍</span>
+                          <div>
+                            <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:3 }}>DELIVERY ADDRESS</div>
+                            <div style={{ fontSize:13, color:'#1f2937', fontWeight:500, lineHeight:1.5 }}>{selectedVendorOrder.address || 'No address provided'}</div>
+                          </div>
+                        </div>
+                        {selectedVendorOrder.userPhone && (
+                          <div style={{ display:'flex', gap:8, marginTop:10 }}>
+                            <a href={`tel:+91${selectedVendorOrder.userPhone}`} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'10px 0', background:'#E24B4A', borderRadius:10, textDecoration:'none' }}>
+                              <span style={{ fontSize:16 }}>📞</span><span style={{ fontSize:12, fontWeight:600, color:'#fff', fontFamily:'Poppins' }}>Call Customer</span>
+                            </a>
+                            <a href={`https://wa.me/91${selectedVendorOrder.userPhone}`} target="_blank" rel="noreferrer" style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'10px 0', background:'#25D366', borderRadius:10, textDecoration:'none' }}>
+                              <span style={{ fontSize:16 }}>💬</span><span style={{ fontSize:12, fontWeight:600, color:'#fff', fontFamily:'Poppins' }}>WhatsApp</span>
+                            </a>
+                          </div>
+                        )}
+                      </>
                     )}
+
                     <button
                       onClick={() => { setVendorBillOrder(selectedVendorOrder); setShowVendorBill(true) }}
-                      style={{ width:'100%', background:'#f9fafb', color:'#1f2937', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginTop:8, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+                      style={{ width:'100%', background:'#f9fafb', color:'#1f2937', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginTop:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
                     >
                       🧾 View / Print Bill
                     </button>
@@ -1358,8 +1379,20 @@ export default function VendorApp() {
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                   <div>
                     <div style={{ fontSize:13, fontWeight:700 }}>#{order.id.slice(-6).toUpperCase()}</div>
-                    <div style={{ fontSize:12, color:'#6b7280', marginTop:2, fontWeight:500 }}>{order.userName} · {order.userPhone}</div>
-                    <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>📍 {order.address?.slice(0,40)}{order.address?.length>40?'...':''}</div>
+
+                    {/* ✅ UPDATED: isPrivate covers both delivered AND cancelled in order list */}
+                    {isPrivate(order) ? (
+                      <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
+                        <span style={{ fontSize:12, color:'#1f2937', fontWeight:500 }}>{order.userName}</span>
+                        <span style={{ fontSize:10, background: order.status==='delivered'?'#d1fae5':'#fee2e2', color: order.status==='delivered'?'#065f46':'#991b1b', fontWeight:700, borderRadius:10, padding:'1px 7px', display:'inline-flex', alignItems:'center', gap:3 }}>🔒 Private</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize:12, color:'#6b7280', marginTop:2, fontWeight:500 }}>{order.userName} · {order.userPhone}</div>
+                        <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>📍 {order.address?.slice(0,40)}{order.address?.length>40?'...':''}</div>
+                      </>
+                    )}
+
                     {order.createdAt && <div style={{ fontSize:10, color:'#d1d5db', marginTop:2 }}>{order.createdAt?.toDate?.()?.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>}
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
@@ -1727,6 +1760,7 @@ export default function VendorApp() {
               <div style={{ fontSize:13, fontWeight:600, marginBottom:8 }}>Recent Delivered Orders</div>
               {orders.filter(o=>o.status==='delivered').slice(0,5).map(o => (
                 <div key={o.id} style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#e5e7eb' }}>
+                  {/* Earnings shows only name and item count — no phone/address */}
                   <span style={{ fontSize:12 }}>{o.userName} · {o.items?.length} item(s)</span>
                   <span style={{ fontSize:12, fontWeight:600 }}>₹{o.total}</span>
                 </div>
