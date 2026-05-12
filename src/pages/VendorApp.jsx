@@ -23,6 +23,18 @@ const EMPTY_ITEM = { name:'', price:'', category:'Thali', description:'', isVeg:
 const EMPTY_COMBO = { name:'', description:'', comboPrice:'', items:[], isVeg:true, available:true, tag:'' }
 const COMBO_TAGS = ['Best Value','Popular','New','Limited','Chef Special','Weekend Only']
 
+// ── VARIANT PRESETS ────────────────────────────────────────────────────────────
+const VARIANT_PRESETS = [
+  { label: 'Half / Full',       variants: ['Half', 'Full'] },
+  { label: 'Small / Large',     variants: ['Small', 'Large'] },
+  { label: 'S / M / L',         variants: ['Small', 'Medium', 'Large'] },
+  { label: 'Steam / Fry',       variants: ['Steam', 'Fry'] },
+  { label: 'Mini / Jumbo',      variants: ['Mini', 'Jumbo'] },
+  { label: 'Regular / Jumbo',   variants: ['Regular', 'Jumbo'] },
+  { label: 'Wheat / Bun',       variants: ['Wheat Bun', 'Regular Bun'] },
+  { label: 'Single / Double',   variants: ['Single', 'Double'] },
+]
+
 const ORDER_FILTERS = [
   { id:'all',              label:'All',           emoji:'📋' },
   { id:'pending',          label:'Pending',        emoji:'⏳' },
@@ -598,6 +610,377 @@ function RiderLocationPanel({ order, onClose }) {
   )
 }
 
+// ── VARIANT MANAGER COMPONENT ─────────────────────────────────────────────────
+function VariantManager({ item, userId, onVariantsChanged }) {
+  const [showPanel, setShowPanel] = useState(false)
+  const [variantNames, setVariantNames] = useState(
+    item.variants ? item.variants.map(v => v.label) : ['Half', 'Full']
+  )
+  const [variantPrices, setVariantPrices] = useState(
+    item.variants ? item.variants.map(v => String(v.price)) : ['', '']
+  )
+  const [saving, setSaving] = useState(false)
+  const [selectedPreset, setSelectedPreset] = useState(null)
+  const [customLabel, setCustomLabel] = useState('')
+  const [showCustomInput, setShowCustomInput] = useState(false)
+
+  const hasVariants = item.variants && item.variants.length > 0
+
+  const applyPreset = (preset) => {
+    setSelectedPreset(preset.label)
+    setVariantNames(preset.variants)
+    setVariantPrices(preset.variants.map(() => ''))
+    setShowCustomInput(false)
+  }
+
+  const addCustomVariant = () => {
+    if (!customLabel.trim()) return
+    setVariantNames(prev => [...prev, customLabel.trim()])
+    setVariantPrices(prev => [...prev, ''])
+    setCustomLabel('')
+    setShowCustomInput(false)
+  }
+
+  const removeVariant = (idx) => {
+    setVariantNames(prev => prev.filter((_, i) => i !== idx))
+    setVariantPrices(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  const saveVariants = async () => {
+    if (variantNames.length < 2) return toast.error('Need at least 2 variants')
+    for (let i = 0; i < variantNames.length; i++) {
+      if (!variantPrices[i] || isNaN(variantPrices[i]) || Number(variantPrices[i]) <= 0)
+        return toast.error(`Enter valid price for "${variantNames[i]}"`)
+    }
+    setSaving(true)
+    try {
+      const variants = variantNames.map((label, i) => ({ label, price: Number(variantPrices[i]) }))
+      await updateMenuItem(userId, item.id, { variants, hasVariants: true })
+      toast.success('Variants saved! ✅')
+      setShowPanel(false)
+      if (onVariantsChanged) onVariantsChanged()
+    } catch { toast.error('Failed to save variants') }
+    setSaving(false)
+  }
+
+  const removeAllVariants = async () => {
+    if (!window.confirm('Remove all variants? Item will go back to single price.')) return
+    try {
+      await updateMenuItem(userId, item.id, { variants: [], hasVariants: false })
+      toast.success('Variants removed')
+      setShowPanel(false)
+      if (onVariantsChanged) onVariantsChanged()
+    } catch { toast.error('Failed to remove variants') }
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => {
+          if (hasVariants) {
+            setVariantNames(item.variants.map(v => v.label))
+            setVariantPrices(item.variants.map(v => String(v.price)))
+          }
+          setShowPanel(true)
+        }}
+        style={{
+          background: hasVariants ? 'linear-gradient(135deg,#7c3aed,#5b21b6)' : 'linear-gradient(135deg,#f59e0b,#d97706)',
+          color:'#fff', border:'none', borderRadius:8, padding:'5px 10px',
+          fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins',
+          whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:4
+        }}
+      >
+        {hasVariants ? `⚡ ${item.variants.length} Sizes` : '+ Variants'}
+      </button>
+
+      {showPanel && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:2500, display:'flex', flexDirection:'column', justifyContent:'flex-end' }} onClick={e => { if(e.target===e.currentTarget) setShowPanel(false) }}>
+          <div style={{ background:'#fff', borderRadius:'22px 22px 0 0', maxHeight:'92vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
+
+            {/* Header */}
+            <div style={{ background:'linear-gradient(135deg,#1a1a1a,#3b1f6e)', padding:'18px 20px 22px', borderRadius:'22px 22px 0 0', position:'relative', overflow:'hidden' }}>
+              <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>⚡</div>
+              <div style={{ display:'flex', justifyContent:'center', marginBottom:12 }}>
+                <div style={{ width:40, height:4, borderRadius:2, background:'rgba(255,255,255,0.3)' }} />
+              </div>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                <div>
+                  <div style={{ fontSize:10, color:'rgba(255,255,255,0.6)', fontWeight:700, letterSpacing:1, marginBottom:4 }}>SIZE VARIANTS</div>
+                  <div style={{ fontSize:17, fontWeight:800, color:'#fff' }}>⚡ {item.name}</div>
+                  <div style={{ fontSize:12, color:'rgba(255,255,255,0.6)', marginTop:3 }}>Set different sizes & prices</div>
+                </div>
+                <button onClick={() => setShowPanel(false)} style={{ background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', width:34, height:34, borderRadius:'50%', fontSize:16, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+              </div>
+            </div>
+
+            <div style={{ padding:'18px 20px 40px' }}>
+
+              {/* Info box */}
+              <div style={{ background:'#f0f9ff', borderRadius:12, padding:'11px 14px', marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#bae6fd', display:'flex', gap:10, alignItems:'flex-start' }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>💡</span>
+                <div style={{ fontSize:11, color:'#0c4a6e', lineHeight:1.7 }}>
+                  Variants let customers choose size/style. Same item — same photo — different prices shown side by side.
+                </div>
+              </div>
+
+              {/* Quick Presets */}
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:10 }}>⚡ Quick Presets — Tap to apply</div>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:7 }}>
+                  {VARIANT_PRESETS.map(preset => (
+                    <button
+                      key={preset.label}
+                      onClick={() => applyPreset(preset)}
+                      style={{
+                        padding:'7px 13px', borderRadius:20, cursor:'pointer', fontFamily:'Poppins',
+                        fontSize:12, fontWeight:600, border:'none',
+                        background: selectedPreset === preset.label ? 'linear-gradient(135deg,#7c3aed,#5b21b6)' : '#f3f4f6',
+                        color: selectedPreset === preset.label ? '#fff' : '#374151',
+                        boxShadow: selectedPreset === preset.label ? '0 3px 10px rgba(124,58,237,0.35)' : 'none',
+                        transition:'all 0.18s'
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Variant rows */}
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:10 }}>
+                  Set Variant Names & Prices
+                </div>
+
+                {variantNames.map((name, idx) => (
+                  <div key={idx} style={{ display:'flex', gap:8, alignItems:'center', marginBottom:10 }}>
+                    <div style={{
+                      width:28, height:28, borderRadius:8, background:'linear-gradient(135deg,#7c3aed,#5b21b6)',
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      fontSize:11, fontWeight:800, color:'#fff', flexShrink:0
+                    }}>{idx+1}</div>
+                    <input
+                      value={name}
+                      onChange={e => setVariantNames(prev => prev.map((n,i) => i===idx ? e.target.value : n))}
+                      placeholder={`Variant name`}
+                      style={{ flex:1.2, padding:'9px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:9, fontSize:12, fontFamily:'Poppins', outline:'none' }}
+                    />
+                    <div style={{ position:'relative', flex:1 }}>
+                      <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹</span>
+                      <input
+                        type="number"
+                        value={variantPrices[idx]}
+                        onChange={e => setVariantPrices(prev => prev.map((p,i) => i===idx ? e.target.value : p))}
+                        placeholder="Price"
+                        style={{ width:'100%', padding:'9px 10px 9px 24px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:9, fontSize:12, fontFamily:'Poppins', outline:'none', boxSizing:'border-box' }}
+                      />
+                    </div>
+                    {variantNames.length > 2 && (
+                      <button onClick={() => removeVariant(idx)} style={{ width:28, height:28, borderRadius:8, background:'#fee2e2', border:'none', color:'#dc2626', cursor:'pointer', fontSize:14, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+                    )}
+                  </div>
+                ))}
+
+                {/* Add custom variant */}
+                {!showCustomInput ? (
+                  <button
+                    onClick={() => setShowCustomInput(true)}
+                    style={{ width:'100%', padding:'9px 0', borderRadius:10, border:'none', background:'#f9fafb', color:'#7c3aed', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', borderWidth:1.5, borderStyle:'dashed', borderColor:'#c4b5fd', marginTop:4 }}
+                  >
+                    + Add Custom Variant
+                  </button>
+                ) : (
+                  <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                    <input
+                      value={customLabel}
+                      onChange={e => setCustomLabel(e.target.value)}
+                      placeholder="e.g. XL, Masala, Special..."
+                      style={{ flex:1, padding:'9px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#c4b5fd', borderRadius:9, fontSize:12, fontFamily:'Poppins', outline:'none' }}
+                      onKeyDown={e => e.key==='Enter' && addCustomVariant()}
+                    />
+                    <button onClick={addCustomVariant} style={{ padding:'9px 14px', background:'#7c3aed', color:'#fff', border:'none', borderRadius:9, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>Add</button>
+                    <button onClick={() => { setShowCustomInput(false); setCustomLabel('') }} style={{ padding:'9px 14px', background:'#f3f4f6', color:'#6b7280', border:'none', borderRadius:9, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>✕</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Preview */}
+              {variantNames.some((n,i) => n && variantPrices[i]) && (
+                <div style={{ background:'#faf5ff', borderRadius:12, padding:12, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff' }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'#7c3aed', marginBottom:8, letterSpacing:0.5 }}>👁️ PREVIEW — How customers will see it</div>
+                  <div style={{ fontSize:13, fontWeight:600, color:'#1f2937', marginBottom:8 }}>{item.name}</div>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:7 }}>
+                    {variantNames.map((name, idx) => name && variantPrices[idx] && (
+                      <div key={idx} style={{ background:'#fff', borderRadius:10, padding:'8px 14px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e9d5ff', display:'flex', flexDirection:'column', alignItems:'center', gap:2, minWidth:70 }}>
+                        <div style={{ fontSize:11, fontWeight:700, color:'#374151' }}>{name}</div>
+                        <div style={{ fontSize:14, fontWeight:800, color:'#7c3aed' }}>₹{variantPrices[idx]}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Save button */}
+              <button
+                onClick={saveVariants}
+                disabled={saving}
+                style={{ width:'100%', background: saving ? '#c4b5fd' : 'linear-gradient(135deg,#7c3aed,#5b21b6)', color:'#fff', border:'none', padding:'14px 0', borderRadius:13, fontSize:14, fontWeight:800, cursor: saving ? 'not-allowed' : 'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:'0 6px 20px rgba(124,58,237,0.35)' }}
+              >
+                {saving ? '⏳ Saving...' : '⚡ Save Variants'}
+              </button>
+
+              {hasVariants && (
+                <button
+                  onClick={removeAllVariants}
+                  style={{ width:'100%', background:'transparent', color:'#dc2626', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', padding:'12px 0', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
+                >
+                  🗑️ Remove All Variants (single price)
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── ADD ITEM VARIANT SECTION (inside Add Item form) ───────────────────────────
+function AddItemVariantSection({ variants, setVariants, basePrice, setBasePrice }) {
+  const [enableVariants, setEnableVariants] = useState(variants.length > 0)
+  const [selectedPreset, setSelectedPreset] = useState(null)
+  const [customLabel, setCustomLabel] = useState('')
+  const [showCustomInput, setShowCustomInput] = useState(false)
+  const [variantNames, setVariantNames] = useState(variants.length > 0 ? variants.map(v=>v.label) : ['Half','Full'])
+  const [variantPrices, setVariantPrices] = useState(variants.length > 0 ? variants.map(v=>String(v.price)) : ['',''])
+
+  // sync up to parent
+  useEffect(() => {
+    if (enableVariants) {
+      const built = variantNames.map((label, i) => ({ label, price: Number(variantPrices[i]) || 0 }))
+      setVariants(built)
+    } else {
+      setVariants([])
+    }
+  }, [enableVariants, variantNames, variantPrices])
+
+  const applyPreset = (preset) => {
+    setSelectedPreset(preset.label)
+    setVariantNames(preset.variants)
+    setVariantPrices(preset.variants.map(() => ''))
+    setShowCustomInput(false)
+  }
+
+  const addCustom = () => {
+    if (!customLabel.trim()) return
+    setVariantNames(p => [...p, customLabel.trim()])
+    setVariantPrices(p => [...p, ''])
+    setCustomLabel('')
+    setShowCustomInput(false)
+  }
+
+  const removeVariant = (idx) => {
+    if (variantNames.length <= 2) return toast.error('Need at least 2 variants')
+    setVariantNames(p => p.filter((_,i)=>i!==idx))
+    setVariantPrices(p => p.filter((_,i)=>i!==idx))
+  }
+
+  return (
+    <div style={{ marginTop:4 }}>
+      {/* Toggle */}
+      <div
+        onClick={() => setEnableVariants(p => !p)}
+        style={{
+          display:'flex', alignItems:'center', justifyContent:'space-between',
+          padding:'11px 14px', borderRadius:10, cursor:'pointer',
+          background: enableVariants ? 'linear-gradient(135deg,#faf5ff,#ede9fe)' : '#f9fafb',
+          borderWidth:1.5, borderStyle:'solid',
+          borderColor: enableVariants ? '#c4b5fd' : '#e5e7eb',
+          transition:'all 0.2s'
+        }}
+      >
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:18 }}>⚡</span>
+          <div>
+            <div style={{ fontSize:12, fontWeight:700, color: enableVariants ? '#7c3aed' : '#374151' }}>Add Size Variants</div>
+            <div style={{ fontSize:10, color:'#9ca3af', marginTop:1 }}>Half/Full, Small/Large, Steam/Fry etc.</div>
+          </div>
+        </div>
+        <div style={{ width:42, height:23, background: enableVariants ? '#7c3aed' : '#d1d5db', borderRadius:12, position:'relative', transition:'background 0.2s', flexShrink:0 }}>
+          <div style={{ position:'absolute', width:17, height:17, background:'#fff', borderRadius:'50%', top:3, left: enableVariants ? 22 : 3, transition:'left 0.2s' }} />
+        </div>
+      </div>
+
+      {enableVariants && (
+        <div style={{ marginTop:12, background:'#faf5ff', borderRadius:12, padding:14, borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff' }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#7c3aed', marginBottom:10 }}>⚡ QUICK PRESETS</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:14 }}>
+            {VARIANT_PRESETS.map(preset => (
+              <button
+                key={preset.label}
+                onClick={() => applyPreset(preset)}
+                style={{
+                  padding:'6px 11px', borderRadius:16, cursor:'pointer', fontFamily:'Poppins',
+                  fontSize:11, fontWeight:600, border:'none',
+                  background: selectedPreset===preset.label ? 'linear-gradient(135deg,#7c3aed,#5b21b6)' : '#fff',
+                  color: selectedPreset===preset.label ? '#fff' : '#374151',
+                  borderWidth:1, borderStyle:'solid',
+                  borderColor: selectedPreset===preset.label ? '#7c3aed' : '#e9d5ff',
+                  transition:'all 0.15s'
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ fontSize:11, fontWeight:700, color:'#7c3aed', marginBottom:8 }}>SET PRICES PER VARIANT</div>
+          {variantNames.map((name, idx) => (
+            <div key={idx} style={{ display:'flex', gap:7, alignItems:'center', marginBottom:8 }}>
+              <div style={{ width:26, height:26, borderRadius:7, background:'linear-gradient(135deg,#7c3aed,#5b21b6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:800, color:'#fff', flexShrink:0 }}>{idx+1}</div>
+              <input
+                value={name}
+                onChange={e => setVariantNames(prev => prev.map((n,i) => i===idx ? e.target.value : n))}
+                placeholder="Name"
+                style={{ flex:1.2, padding:'8px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none', background:'#fff' }}
+              />
+              <div style={{ position:'relative', flex:1 }}>
+                <span style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', fontSize:12, fontWeight:700, color:'#E24B4A' }}>₹</span>
+                <input
+                  type="number"
+                  value={variantPrices[idx]}
+                  onChange={e => setVariantPrices(prev => prev.map((p,i) => i===idx ? e.target.value : p))}
+                  placeholder="Price"
+                  style={{ width:'100%', padding:'8px 9px 8px 22px', borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', background:'#fff' }}
+                />
+              </div>
+              {variantNames.length > 2 && (
+                <button onClick={() => removeVariant(idx)} style={{ width:26, height:26, borderRadius:7, background:'#fee2e2', border:'none', color:'#dc2626', cursor:'pointer', fontSize:13, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+              )}
+            </div>
+          ))}
+
+          {!showCustomInput ? (
+            <button onClick={() => setShowCustomInput(true)} style={{ width:'100%', padding:'8px 0', borderRadius:9, border:'none', background:'rgba(124,58,237,0.08)', color:'#7c3aed', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', borderWidth:1, borderStyle:'dashed', borderColor:'#c4b5fd', marginTop:2 }}>
+              + Add More Variant
+            </button>
+          ) : (
+            <div style={{ display:'flex', gap:6, marginTop:4 }}>
+              <input value={customLabel} onChange={e => setCustomLabel(e.target.value)} placeholder="e.g. XL, Masala..." style={{ flex:1, padding:'8px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#c4b5fd', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none' }} onKeyDown={e => e.key==='Enter' && addCustom()} />
+              <button onClick={addCustom} style={{ padding:'8px 12px', background:'#7c3aed', color:'#fff', border:'none', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>Add</button>
+              <button onClick={() => { setShowCustomInput(false); setCustomLabel('') }} style={{ padding:'8px 10px', background:'#f3f4f6', color:'#6b7280', border:'none', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>✕</button>
+            </div>
+          )}
+
+          <div style={{ marginTop:10, background:'#fffbeb', borderRadius:8, padding:'8px 11px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', fontSize:11, color:'#92400e' }}>
+            ℹ️ The "Price (₹)" field above will be ignored — variant prices are used instead.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function VendorApp() {
   const { user, userData } = useAuth()
   const [tab, setTab] = useState('orders')
@@ -608,6 +991,7 @@ export default function VendorApp() {
   const [scheduleOverride, setScheduleOverride] = useState(false)
   const [showAddItem, setShowAddItem] = useState(false)
   const [newItem, setNewItem] = useState(EMPTY_ITEM)
+  const [newItemVariants, setNewItemVariants] = useState([])
   const [customCategories, setCustomCategories] = useState([])
   const [newCatInput, setNewCatInput] = useState('')
   const [showAddCat, setShowAddCat] = useState(false)
@@ -693,7 +1077,6 @@ export default function VendorApp() {
 
   useNotifications(user?.uid, 'vendor')
 
-  // ── SCHEDULE HOOK ─────────────────────────────────────────────────────────
   useStoreSchedule({
     uid: user?.uid,
     openTime,
@@ -817,7 +1200,6 @@ export default function VendorApp() {
     setSavingDetails(false)
   }
 
-  // ── TOGGLE STORE (manual) ─────────────────────────────────────────────────
   const toggleStore = async () => {
     const inWindow = isWithinSchedule(openTime, closeTime)
     const newVal = !isOpen
@@ -916,12 +1298,27 @@ export default function VendorApp() {
 
   const handleAddItem = async () => {
     if (!newItem.name.trim()) return toast.error('Enter item name')
-    if (!newItem.price || isNaN(newItem.price) || Number(newItem.price) <= 0) return toast.error('Enter valid price')
+    const hasV = newItemVariants.length >= 2
+    if (!hasV && (!newItem.price || isNaN(newItem.price) || Number(newItem.price) <= 0)) return toast.error('Enter valid price')
+    if (hasV) {
+      for (const v of newItemVariants) {
+        if (!v.price || v.price <= 0) return toast.error(`Set price for variant "${v.label}"`)
+      }
+    }
     setAddingItem(true)
     try {
-      const docRef = await addMenuItem(user.uid, { name: newItem.name.trim(), price: Number(newItem.price), category: newItem.category, description: newItem.description.trim(), isVeg: newItem.isVeg, photo: '' })
+      const itemData = {
+        name: newItem.name.trim(),
+        price: hasV ? newItemVariants[0].price : Number(newItem.price),
+        category: newItem.category,
+        description: newItem.description.trim(),
+        isVeg: newItem.isVeg,
+        photo: '',
+        ...(hasV ? { variants: newItemVariants, hasVariants: true } : { variants: [], hasVariants: false })
+      }
+      const docRef = await addMenuItem(user.uid, itemData)
       if (newItemPhotoFile && docRef?.id) await uploadMenuItemPhoto(user.uid, docRef.id, newItemPhotoFile, setItemPhotoProgress)
-      setNewItem(EMPTY_ITEM); setNewItemPhotoFile(null); setNewItemPhotoPreview(null); setShowAddItem(false)
+      setNewItem(EMPTY_ITEM); setNewItemVariants([]); setNewItemPhotoFile(null); setNewItemPhotoPreview(null); setShowAddItem(false)
       toast.success('Menu item added! 🎉')
     } catch (err) { console.error(err); toast.error('Failed to add item.') }
     setAddingItem(false); setItemPhotoProgress(0)
@@ -1006,7 +1403,6 @@ export default function VendorApp() {
   const filteredMenuItems = menuCatFilter === 'All' ? menuItems : menuItems.filter(i => i.category === menuCatFilter)
   const filteredMenuForCombo = comboSearchQuery.trim() ? menuItems.filter(i => i.name.toLowerCase().includes(comboSearchQuery.toLowerCase()) || i.category?.toLowerCase().includes(comboSearchQuery.toLowerCase())) : menuItems
 
-  // ── SCHEDULE STATUS DISPLAY ───────────────────────────────────────────────
   const hasSchedule = openTime && closeTime
   const inScheduleWindow = hasSchedule ? isWithinSchedule(openTime, closeTime) : null
   const scheduleStatusLabel = () => {
@@ -1028,8 +1424,6 @@ export default function VendorApp() {
     color: status==='pending'?'#92400e': status==='accepted'?'#1e40af': status==='preparing'?'#6d28d9': status==='ready'?'#15803d': status==='out_for_delivery'?'#0369a1': status==='delivered'?'#065f46':'#991b1b',
   })
 
-  // ── PRIVACY HELPER: hide contact details for delivered OR cancelled orders ──
-  // ✅ UPDATED: now covers both 'delivered' and 'cancelled' statuses
   const isPrivate = (order) => order?.status === 'delivered' || order?.status === 'cancelled'
 
   const ComboItemPicker = ({ comboState, setComboState }) => (
@@ -1159,13 +1553,10 @@ export default function VendorApp() {
                 </div>
 
                 <div style={{ padding:'16px 16px 100px', marginTop:-8 }}>
-                  {/* ── CUSTOMER DETAILS CARD ── */}
                   <div style={{ background:'#fff', borderRadius:14, padding:16, marginBottom:12, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
                     <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', letterSpacing:0.5, marginBottom:12, textTransform:'uppercase' }}>Customer Details</div>
 
-                    {/* ✅ UPDATED: isPrivate covers both delivered AND cancelled */}
                     {isPrivate(selectedVendorOrder) ? (
-                      /* ── PRIVACY MODE: order completed/cancelled — hide phone & address ── */
                       <>
                         <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
                           <div style={{ width:46, height:46, borderRadius:12, background: selectedVendorOrder.status==='delivered' ? 'linear-gradient(135deg,#d1fae5,#a7f3d0)' : 'linear-gradient(135deg,#fee2e2,#fecaca)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -1178,7 +1569,6 @@ export default function VendorApp() {
                             </div>
                           </div>
                         </div>
-                        {/* Privacy notice */}
                         <div style={{ background: selectedVendorOrder.status==='delivered' ? '#f0fdf4' : '#fff5f5', borderRadius:10, padding:'10px 14px', display:'flex', gap:10, alignItems:'flex-start', borderWidth:1, borderStyle:'solid', borderColor: selectedVendorOrder.status==='delivered' ? '#bbf7d0' : '#fecaca' }}>
                           <span style={{ fontSize:18, flexShrink:0 }}>🔒</span>
                           <div>
@@ -1190,7 +1580,6 @@ export default function VendorApp() {
                         </div>
                       </>
                     ) : (
-                      /* ── NORMAL MODE: show all details ── */
                       <>
                         <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
                           <div style={{ width:46, height:46, borderRadius:12, background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -1379,8 +1768,6 @@ export default function VendorApp() {
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                   <div>
                     <div style={{ fontSize:13, fontWeight:700 }}>#{order.id.slice(-6).toUpperCase()}</div>
-
-                    {/* ✅ UPDATED: isPrivate covers both delivered AND cancelled in order list */}
                     {isPrivate(order) ? (
                       <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
                         <span style={{ fontSize:12, color:'#1f2937', fontWeight:500 }}>{order.userName}</span>
@@ -1392,7 +1779,6 @@ export default function VendorApp() {
                         <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>📍 {order.address?.slice(0,40)}{order.address?.length>40?'...':''}</div>
                       </>
                     )}
-
                     {order.createdAt && <div style={{ fontSize:10, color:'#d1d5db', marginTop:2 }}>{order.createdAt?.toDate?.()?.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>}
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
@@ -1471,6 +1857,7 @@ export default function VendorApp() {
               </div>
             )}
 
+            {/* ── ADD ITEM FORM ── */}
             {showAddItem && (
               <div style={{ background:'#f9fafb', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, padding:14, marginBottom:14 }}>
                 <div style={{ fontSize:13, fontWeight:600, marginBottom:10 }}>New Menu Item</div>
@@ -1483,7 +1870,20 @@ export default function VendorApp() {
                 </div>
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                   <input style={inp} placeholder="Item name *" value={newItem.name} onChange={e => setNewItem(p=>({...p,name:e.target.value}))} />
-                  <input style={inp} type="number" placeholder="Price (₹) *" value={newItem.price} onChange={e => setNewItem(p=>({...p,price:e.target.value}))} />
+
+                  {/* Variant section */}
+                  <AddItemVariantSection
+                    variants={newItemVariants}
+                    setVariants={setNewItemVariants}
+                    basePrice={newItem.price}
+                    setBasePrice={(v) => setNewItem(p=>({...p,price:v}))}
+                  />
+
+                  {/* Price field — show only if no variants */}
+                  {newItemVariants.length === 0 && (
+                    <input style={inp} type="number" placeholder="Price (₹) *" value={newItem.price} onChange={e => setNewItem(p=>({...p,price:e.target.value}))} />
+                  )}
+
                   <textarea style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.5}} placeholder="Description e.g. 2 Roti + Dal + Rice" value={newItem.description} onChange={e => setNewItem(p=>({...p,description:e.target.value}))} />
                   <div>
                     <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Category</label>
@@ -1511,7 +1911,7 @@ export default function VendorApp() {
                   {addingItem && newItemPhotoFile && itemPhotoProgress > 0 && <div style={{ background:'#f3f4f6', borderRadius:8, overflow:'hidden', height:6 }}><div style={{ height:'100%', background:'#E24B4A', width:`${itemPhotoProgress}%`, transition:'width 0.3s' }} /></div>}
                   <div style={{ display:'flex', gap:8 }}>
                     <button onClick={handleAddItem} disabled={addingItem} style={{ flex:1, background:addingItem?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:8, fontSize:13, cursor:addingItem?'not-allowed':'pointer', fontFamily:'Poppins', fontWeight:500 }}>{addingItem?'Adding...':'✅ Add to Menu'}</button>
-                    <button onClick={() => { setShowAddItem(false); setNewItem(EMPTY_ITEM); setNewItemPhotoFile(null); setNewItemPhotoPreview(null); setShowAddCat(false) }} style={{ flex:1, background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:11, borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Cancel</button>
+                    <button onClick={() => { setShowAddItem(false); setNewItem(EMPTY_ITEM); setNewItemVariants([]); setNewItemPhotoFile(null); setNewItemPhotoPreview(null); setShowAddCat(false) }} style={{ flex:1, background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:11, borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Cancel</button>
                   </div>
                 </div>
               </div>
@@ -1546,29 +1946,56 @@ export default function VendorApp() {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ display:'flex', gap:10, alignItems:'flex-start', padding:'12px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background:menuEditMode?'#fafafa':'transparent', borderRadius:menuEditMode?10:0, paddingLeft:menuEditMode?8:0, marginBottom:menuEditMode?4:0 }}>
-                    <div onClick={() => { const input=document.createElement('input'); input.type='file'; input.accept='image/*'; input.onchange=(e)=>handleExistingItemPhoto(e,item.id); input.click() }} style={{ width:64, height:64, borderRadius:10, overflow:'hidden', background:'#f3f4f6', flexShrink:0, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', position:'relative', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
-                      {item.photo?<img src={item.photo} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />:<span style={{ fontSize:22 }}>📷</span>}
-                      {itemPhotoUploading===item.id && <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#fff', fontWeight:700 }}>{itemPhotoProgress}%</div>}
-                    </div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <div style={{ width:14, height:14, borderRadius:3, flexShrink:0, borderWidth:1.5, borderStyle:'solid', borderColor:item.isVeg===false?'#dc2626':'#16a34a', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ width:7, height:7, borderRadius:'50%', background:item.isVeg===false?'#dc2626':'#16a34a' }} /></div>
-                        <div style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{item.name}</div>
+                  <div style={{ borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background:menuEditMode?'#fafafa':'transparent', borderRadius:menuEditMode?10:0, marginBottom:menuEditMode?4:0 }}>
+                    <div style={{ display:'flex', gap:10, alignItems:'flex-start', padding:'12px 0', paddingLeft:menuEditMode?8:0 }}>
+                      <div onClick={() => { const input=document.createElement('input'); input.type='file'; input.accept='image/*'; input.onchange=(e)=>handleExistingItemPhoto(e,item.id); input.click() }} style={{ width:64, height:64, borderRadius:10, overflow:'hidden', background:'#f3f4f6', flexShrink:0, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', position:'relative', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+                        {item.photo?<img src={item.photo} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />:<span style={{ fontSize:22 }}>📷</span>}
+                        {itemPhotoUploading===item.id && <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#fff', fontWeight:700 }}>{itemPhotoProgress}%</div>}
                       </div>
-                      {item.description && <div style={{ fontSize:11, color:'#6b7280', marginTop:2, lineHeight:1.4 }}>{item.description}</div>}
-                      <div style={{ display:'flex', gap:8, marginTop:3, alignItems:'center', flexWrap:'wrap' }}>
-                        <span style={{ fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹{item.price}</span>
-                        <span style={{ fontSize:10, color:'#9ca3af' }}>·</span>
-                        <span style={{ fontSize:11, color:'#9ca3af' }}>{item.category}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                          <div style={{ width:14, height:14, borderRadius:3, flexShrink:0, borderWidth:1.5, borderStyle:'solid', borderColor:item.isVeg===false?'#dc2626':'#16a34a', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ width:7, height:7, borderRadius:'50%', background:item.isVeg===false?'#dc2626':'#16a34a' }} /></div>
+                          <div style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{item.name}</div>
+                          {item.hasVariants && (
+                            <span style={{ fontSize:9, background:'linear-gradient(135deg,#7c3aed,#5b21b6)', color:'#fff', fontWeight:700, borderRadius:10, padding:'2px 7px' }}>⚡ {item.variants?.length} sizes</span>
+                          )}
+                        </div>
+                        {item.description && <div style={{ fontSize:11, color:'#6b7280', marginTop:2, lineHeight:1.4 }}>{item.description}</div>}
+
+                        {/* Show variants inline */}
+                        {item.hasVariants && item.variants?.length > 0 ? (
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginTop:5 }}>
+                            {item.variants.map((v, vi) => (
+                              <div key={vi} style={{ background:'#faf5ff', borderRadius:8, padding:'3px 8px', borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff', display:'flex', gap:4, alignItems:'center' }}>
+                                <span style={{ fontSize:10, fontWeight:600, color:'#374151' }}>{v.label}</span>
+                                <span style={{ fontSize:10, fontWeight:800, color:'#7c3aed' }}>₹{v.price}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ display:'flex', gap:8, marginTop:3, alignItems:'center', flexWrap:'wrap' }}>
+                            <span style={{ fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹{item.price}</span>
+                            <span style={{ fontSize:10, color:'#9ca3af' }}>·</span>
+                            <span style={{ fontSize:11, color:'#9ca3af' }}>{item.category}</span>
+                          </div>
+                        )}
+                        {!item.hasVariants && (
+                          <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{item.category}</div>
+                        )}
                       </div>
-                    </div>
-                    <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center', flexShrink:0 }}>
-                      {menuEditMode && <button onClick={() => startEditItem(item)} style={{ background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>✏️ Edit</button>}
-                      <div onClick={() => updateMenuItem(user.uid, item.id, { available: !item.available })} style={{ width:40, height:22, background:item.available?'#16a34a':'#d1d5db', borderRadius:11, cursor:'pointer', position:'relative', transition:'background 0.2s' }}>
-                        <div style={{ position:'absolute', width:16, height:16, background:'#fff', borderRadius:'50%', top:3, left:item.available?21:3, transition:'left 0.2s' }} />
+                      <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center', flexShrink:0 }}>
+                        {/* Variant button — always visible */}
+                        <VariantManager
+                          item={item}
+                          userId={user.uid}
+                          onVariantsChanged={() => {}}
+                        />
+                        {menuEditMode && <button onClick={() => startEditItem(item)} style={{ background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>✏️ Edit</button>}
+                        <div onClick={() => updateMenuItem(user.uid, item.id, { available: !item.available })} style={{ width:40, height:22, background:item.available?'#16a34a':'#d1d5db', borderRadius:11, cursor:'pointer', position:'relative', transition:'background 0.2s' }}>
+                          <div style={{ position:'absolute', width:16, height:16, background:'#fff', borderRadius:'50%', top:3, left:item.available?21:3, transition:'left 0.2s' }} />
+                        </div>
+                        <button onClick={() => { deleteMenuItem(user.uid, item.id); toast.success('Item deleted') }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, color:'#dc2626', padding:2 }}>🗑️</button>
                       </div>
-                      <button onClick={() => { deleteMenuItem(user.uid, item.id); toast.success('Item deleted') }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, color:'#dc2626', padding:2 }}>🗑️</button>
                     </div>
                   </div>
                 )}
@@ -1760,7 +2187,6 @@ export default function VendorApp() {
               <div style={{ fontSize:13, fontWeight:600, marginBottom:8 }}>Recent Delivered Orders</div>
               {orders.filter(o=>o.status==='delivered').slice(0,5).map(o => (
                 <div key={o.id} style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#e5e7eb' }}>
-                  {/* Earnings shows only name and item count — no phone/address */}
                   <span style={{ fontSize:12 }}>{o.userName} · {o.items?.length} item(s)</span>
                   <span style={{ fontSize:12, fontWeight:600 }}>₹{o.total}</span>
                 </div>

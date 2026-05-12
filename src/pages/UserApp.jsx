@@ -84,6 +84,99 @@ function useCancelCountdown(order) {
   return secondsLeft
 }
 
+// ─── Variant Picker Sheet ─────────────────────────────────────────────────────
+function VariantPickerSheet({ item, cart, onAdd, onUpdateQty, onClose }) {
+  return (
+    <div
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:2000, display:'flex', flexDirection:'column', justifyContent:'flex-end', fontFamily:'Poppins,sans-serif' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{ background:'#fff', borderRadius:'22px 22px 0 0', maxWidth:430, width:'100%', margin:'0 auto', overflow:'hidden' }}>
+        {/* Handle bar */}
+        <div style={{ display:'flex', justifyContent:'center', padding:'12px 0 0' }}>
+          <div style={{ width:40, height:4, borderRadius:2, background:'#e5e7eb' }} />
+        </div>
+
+        {/* Header */}
+        <div style={{ padding:'12px 20px 14px', display:'flex', alignItems:'flex-start', gap:12 }}>
+          <div style={{ width:64, height:64, borderRadius:12, overflow:'hidden', background:'#f3f4f6', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+            {item.photo ? <img src={item.photo} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:26 }}>🍛</span>}
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
+              <VegDot isVeg={item.isVeg !== false} />
+              <div style={{ fontSize:15, fontWeight:700, color:'#1f2937', lineHeight:1.3 }}>{item.name}</div>
+            </div>
+            {item.description && <div style={{ fontSize:11, color:'#9ca3af', lineHeight:1.5 }}>{item.description}</div>}
+          </div>
+          <button onClick={onClose} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:30, height:30, fontSize:15, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>✕</button>
+        </div>
+
+        <div style={{ height:1, background:'#f3f4f6' }} />
+
+        {/* Variant label */}
+        <div style={{ padding:'14px 20px 8px', display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ fontSize:11, fontWeight:700, color:'#7c3aed', background:'#faf5ff', borderRadius:20, padding:'3px 10px', letterSpacing:0.4 }}>⚡ CHOOSE SIZE</span>
+          <span style={{ fontSize:11, color:'#9ca3af' }}>Required</span>
+        </div>
+
+        {/* Variants list */}
+        <div style={{ padding:'0 20px 20px', display:'flex', flexDirection:'column', gap:10 }}>
+          {item.variants.map((variant, idx) => {
+            const cartId = `${item.id}_${variant.label}`
+            const inCart = cart.find(c => c.id === cartId)
+            return (
+              <div
+                key={idx}
+                style={{
+                  display:'flex', alignItems:'center', gap:12,
+                  padding:'13px 16px', borderRadius:13,
+                  borderWidth:1.5, borderStyle:'solid',
+                  borderColor: inCart ? '#7c3aed' : '#e5e7eb',
+                  background: inCart ? '#faf5ff' : '#fafafa',
+                  transition:'all 0.18s'
+                }}
+              >
+                {/* Radio dot */}
+                <div style={{ width:20, height:20, borderRadius:'50%', borderWidth:2, borderStyle:'solid', borderColor: inCart ? '#7c3aed' : '#d1d5db', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  {inCart && <div style={{ width:9, height:9, borderRadius:'50%', background:'#7c3aed' }} />}
+                </div>
+
+                {/* Label + savings */}
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:14, fontWeight:inCart ? 700 : 600, color:inCart ? '#7c3aed' : '#1f2937' }}>{variant.label}</div>
+                  {idx > 0 && item.variants[0].price < variant.price && (
+                    <div style={{ fontSize:10, color:'#9ca3af' }}>₹{variant.price - item.variants[0].price} more than {item.variants[0].label}</div>
+                  )}
+                </div>
+
+                {/* Price + qty control */}
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <div style={{ fontSize:15, fontWeight:800, color: inCart ? '#7c3aed' : '#E24B4A' }}>₹{variant.price}</div>
+                  {inCart ? (
+                    <div style={{ display:'flex', alignItems:'center', gap:7, background:'#fff', borderWidth:1.5, borderStyle:'solid', borderColor:'#7c3aed', borderRadius:20, padding:'4px 10px' }}>
+                      <button onClick={() => onUpdateQty(cartId, -1)} style={{ background:'none', border:'none', cursor:'pointer', color:'#7c3aed', fontSize:17, fontWeight:700, padding:0, lineHeight:1 }}>−</button>
+                      <span style={{ fontSize:13, fontWeight:800, color:'#7c3aed', minWidth:16, textAlign:'center' }}>{inCart.qty}</span>
+                      <button onClick={() => onAdd(item, variant)} style={{ background:'none', border:'none', cursor:'pointer', color:'#7c3aed', fontSize:17, fontWeight:700, padding:0, lineHeight:1 }}>+</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => onAdd(item, variant)}
+                      style={{ background:'#7c3aed', color:'#fff', border:'none', borderRadius:20, padding:'6px 16px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
+                    >
+                      ADD
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Map Modal ────────────────────────────────────────────────────────────────
 function MapModal({ userLat, userLng, vendors, onClose }) {
   const mapRef = useRef(null)
@@ -433,6 +526,9 @@ export default function UserApp() {
 
   const [menuCatFilter, setMenuCatFilter] = useState('All')
 
+  // ── Variant picker state ──────────────────────────────────────────────────
+  const [variantPickerItem, setVariantPickerItem] = useState(null)
+
   const [showSupportChat, setShowSupportChat] = useState(false)
   const [myTickets, setMyTickets] = useState([])
   const [supportReplyPopup, setSupportReplyPopup] = useState(null)
@@ -519,7 +615,7 @@ export default function UserApp() {
     }
   }, [])
 
-  // ── Real-time support tickets listener ───────────────────────────────────
+  // ── Real-time support tickets listener ──
   useEffect(() => {
     if (!user) return
     let unsub
@@ -704,16 +800,21 @@ export default function UserApp() {
     loadReviews(v.id); setMenuCatFilter('All'); setVendorCombos([])
   }
 
+  // ── Shared helper to get dynamic delivery charge for current vendor ──
+  const getDynamicCharge = (vendor) => {
+    const dist = (userLat && userLng && vendor?.location?.lat && vendor?.location?.lng)
+      ? getDistance(userLat, userLng, vendor.location.lat, vendor.location.lng)
+      : null
+    return { dist, charge: calcDeliveryCharge(dist, vendor?.deliveryCharge, vendor?.distanceBasedDelivery) }
+  }
+
+  // ── Add a regular item to cart ──
   const addToCart = (item) => {
     if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
     if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
 
-    const dist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
-      ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
-      : null
-    const dynamicCharge = calcDeliveryCharge(dist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
-
-    setCartVendor({ ...selectedVendor, deliveryCharge: dynamicCharge, distanceKm: dist })
+    const { dist, charge } = getDynamicCharge(selectedVendor)
+    setCartVendor({ ...selectedVendor, deliveryCharge: charge, distanceKm: dist })
     setCart(prev => {
       const ex = prev.find(c => c.id === item.id)
       if (ex) return prev.map(c => c.id === item.id ? { ...c, qty: c.qty+1 } : c)
@@ -722,16 +823,50 @@ export default function UserApp() {
     toast.success(item.name + ' added!')
   }
 
+  // ── Add a variant of an item to cart ──
+  const addVariantToCart = (item, variant) => {
+    if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
+    if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
+
+    const { dist, charge } = getDynamicCharge(selectedVendor)
+    setCartVendor({ ...selectedVendor, deliveryCharge: charge, distanceKm: dist })
+
+    const cartId = `${item.id}_${variant.label}`
+    setCart(prev => {
+      const ex = prev.find(c => c.id === cartId)
+      if (ex) return prev.map(c => c.id === cartId ? { ...c, qty: c.qty+1 } : c)
+      return [...prev, {
+        id: cartId,
+        name: `${item.name} (${variant.label})`,
+        price: variant.price,
+        qty: 1,
+        isVeg: item.isVeg,
+        photo: item.photo,
+        isVariant: true,
+        variantLabel: variant.label,
+        baseItemId: item.id,
+      }]
+    })
+    toast.success(`${item.name} (${variant.label}) added!`)
+  }
+
+  // ── Handle tapping ADD on a menu item ──
+  const handleAddItemTap = (item) => {
+    if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
+    if (item.hasVariants && item.variants?.length >= 2) {
+      setVariantPickerItem(item)
+    } else {
+      addToCart(item)
+    }
+  }
+
   const addComboToCart = (combo) => {
     if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
     if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
 
-    const dist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
-      ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
-      : null
-    const dynamicCharge = calcDeliveryCharge(dist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
+    const { dist, charge } = getDynamicCharge(selectedVendor)
+    setCartVendor({ ...selectedVendor, deliveryCharge: charge, distanceKm: dist })
 
-    setCartVendor({ ...selectedVendor, deliveryCharge: dynamicCharge, distanceKm: dist })
     const comboCartId = 'combo_' + combo.id
     setCart(prev => {
       const ex = prev.find(c => c.id === comboCartId)
@@ -748,7 +883,7 @@ export default function UserApp() {
       return updated
     })
   }
-  
+
   const cartTotal = cart.reduce((s,c) => s + c.price*c.qty, 0)
   const cartCount = cart.reduce((s,c) => s + c.qty, 0)
   const deliveryFee = Number(cartVendor?.deliveryCharge ?? 0)
@@ -789,7 +924,7 @@ export default function UserApp() {
       await placeOrder({
         userUid: user.uid, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
         userEmail: user.email, vendorUid: cartVendor.id, vendorName: cartVendor.storeName,
-        items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty, isCombo: i.isCombo||false })),
+        items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty, isCombo: i.isCombo||false, isVariant: i.isVariant||false })),
         subtotal: cartTotal, deliveryFee: deliveryFee, total: cartTotal + deliveryFee,
         address: fullAddress, paymentMode: 'COD',
         billNo,
@@ -838,10 +973,7 @@ export default function UserApp() {
     } catch { setReviews([]) }
   }
 
-  // ── Filter & Sort vendors ─────────────────────────────────────────────────
-  // PRIMARY sort: founder's sortOrder (set in founder panel)
-  // SECONDARY: open vendors before closed
-  // Distance is shown as info only, NOT used for sorting
+  // ── Filter & Sort vendors ──
   const filteredVendors = vendors
     .filter(v => {
       const matchCat = catFilter === 'All' || v.category === catFilter || (catFilter !== 'All' && v.customCategories?.includes(catFilter))
@@ -856,17 +988,14 @@ export default function UserApp() {
         : null,
     }))
     .filter(v => {
-      // Still filter out vendors beyond MAX_DELIVERY_KM if location is known
       if (!userLat || !userLng) return true
       if (v.distance === null) return true
       return v.distance <= MAX_DELIVERY_KM
     })
     .sort((a, b) => {
-      // PRIMARY: founder's sortOrder (lower number = appears first)
       const sa = a.sortOrder ?? 9999
       const sb = b.sortOrder ?? 9999
       if (sa !== sb) return sa - sb
-      // SECONDARY: open before closed
       if (a.isOpen && !b.isOpen) return -1
       if (!a.isOpen && b.isOpen) return 1
       return 0
@@ -998,6 +1127,19 @@ export default function UserApp() {
 
   return (
     <div style={S.shell}>
+
+      {/* ── VARIANT PICKER SHEET ── */}
+      {variantPickerItem && (
+        <VariantPickerSheet
+          item={variantPickerItem}
+          cart={cart}
+          onAdd={(item, variant) => {
+            addVariantToCart(item, variant)
+          }}
+          onUpdateQty={(cartId, delta) => updateQty(cartId, delta)}
+          onClose={() => setVariantPickerItem(null)}
+        />
+      )}
 
       {/* ── FLOATING SUPPORT REPLY POPUP ── */}
       {supportReplyPopup && (
@@ -1173,7 +1315,6 @@ export default function UserApp() {
 
             <div style={{ padding:'12px 16px 6px', fontSize:15, fontWeight:600, color:'#1f2937', display:'flex', alignItems:'center', gap:6 }}>
               {searchQuery.trim() ? '🔍 Search Results' : t('Restaurants Near You','तुमच्या जवळची रेस्टॉरंट')}
-              {/* ── Updated subtitle: reflects founder ordering ── */}
               <span style={{ fontSize:11, color:'#16a34a', fontWeight:400 }}>· curated order · within {MAX_DELIVERY_KM}km</span>
             </div>
 
@@ -1190,7 +1331,6 @@ export default function UserApp() {
               {filteredVendors.map((v, idx) => {
                 const vMinOrder = Number(v.minOrderAmount ?? 0)
                 const dynamicCharge = calcDeliveryCharge(v.distance, v.deliveryCharge, v.distanceBasedDelivery)
-                // Show rank badge for top 3 (based on founder's order)
                 const rankEmoji = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
                 return (
                   <div key={v.id} onClick={() => openVendor(v)}
@@ -1210,14 +1350,11 @@ export default function UserApp() {
                       )}
                       <div style={{ position:'absolute', top:10, left:10, background:'#E24B4A', color:'#fff', fontSize:10, padding:'3px 10px', borderRadius:20, fontWeight:600 }}>{v.category||'Food'}</div>
                       <div style={{ position:'absolute', top:10, right:10, background:v.isOpen?'#16a34a':'#6b7280', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:600 }}>{v.isOpen?'● Open':'● Closed'}</div>
-
-                      {/* ── Rank badge (top 3 by founder order) ── */}
                       {rankEmoji && (
                         <div style={{ position:'absolute', top:10, left:'50%', transform:'translateX(-50%)', background:'rgba(0,0,0,0.72)', color:'#fff', fontSize:11, padding:'3px 10px', borderRadius:20, fontWeight:700, display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>
-                          {rankEmoji} {idx === 0 ? '' : idx === 1 ? '' : ''}
+                          {rankEmoji}
                         </div>
                       )}
-
                       {v.distance !== null && (
                         <div style={{ position:'absolute', bottom:10, left:10, background:'rgba(0,0,0,0.7)', color:'#fff', fontSize:10, padding:'4px 10px', borderRadius:20, fontWeight:600, display:'flex', alignItems:'center', gap:5 }}>
                           <span>📍</span>
@@ -1405,32 +1542,95 @@ export default function UserApp() {
                     </>
                   )
 
+                  // ── MENU ITEM CARD (with variant support) ──────────────────
                   function MenuItemCard({ item }) {
-                    const inCart = cart.find(c => c.id === item.id)
                     const vendorClosed = !selectedVendor.isOpen
+                    const hasVariants = item.hasVariants && item.variants?.length >= 2
+
+                    // For non-variant items: single cart entry
+                    const inCartSimple = !hasVariants ? cart.find(c => c.id === item.id) : null
+
+                    // For variant items: all cart entries for this base item
+                    const variantCartEntries = hasVariants
+                      ? item.variants.map(v => ({ variant: v, cartItem: cart.find(c => c.id === `${item.id}_${v.label}`) }))
+                      : []
+                    const totalVariantQty = variantCartEntries.reduce((s, e) => s + (e.cartItem?.qty || 0), 0)
+                    const anyVariantInCart = totalVariantQty > 0
+
                     return (
                       <div style={{ display:'flex', gap:12, padding:'14px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f7f7f7', alignItems:'flex-start' }}>
                         <div style={{ flex:1 }}>
                           <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
                             <VegDot isVeg={item.isVeg !== false} />
                             <span style={{ fontSize:13, fontWeight:600, color:vendorClosed?'#9ca3af':'#1f2937' }}>{item.name}</span>
+                            {hasVariants && (
+                              <span style={{ fontSize:9, fontWeight:700, background:'linear-gradient(135deg,#7c3aed,#5b21b6)', color:'#fff', borderRadius:10, padding:'2px 7px' }}>⚡ {item.variants.length} sizes</span>
+                            )}
                           </div>
                           {item.description && <div style={{ fontSize:11, color:'#9ca3af', marginBottom:4, lineHeight:1.5 }}>{item.description}</div>}
-                          <div style={{ fontSize:14, fontWeight:700, color:vendorClosed?'#9ca3af':'#E24B4A' }}>₹{item.price}</div>
+
+                          {/* Price display */}
+                          {hasVariants ? (
+                            <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginTop:4 }}>
+                              {item.variants.map((v, vi) => (
+                                <div key={vi} style={{ background:'#faf5ff', borderRadius:8, padding:'3px 8px', borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff', display:'flex', gap:4, alignItems:'center' }}>
+                                  <span style={{ fontSize:10, fontWeight:600, color:'#374151' }}>{v.label}</span>
+                                  <span style={{ fontSize:11, fontWeight:800, color:'#7c3aed' }}>₹{v.price}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize:14, fontWeight:700, color:vendorClosed?'#9ca3af':'#E24B4A' }}>₹{item.price}</div>
+                          )}
+
+                          {/* Variant qty summary (if any variants in cart) */}
+                          {hasVariants && anyVariantInCart && !vendorClosed && (
+                            <div style={{ marginTop:8, display:'flex', flexWrap:'wrap', gap:5 }}>
+                              {variantCartEntries.filter(e => e.cartItem).map(({ variant, cartItem }) => (
+                                <div key={variant.label} style={{ display:'flex', alignItems:'center', gap:5, background:'#f0effe', borderRadius:8, padding:'4px 8px', borderWidth:1, borderStyle:'solid', borderColor:'#c4b5fd' }}>
+                                  <span style={{ fontSize:10, fontWeight:700, color:'#7c3aed' }}>{variant.label}</span>
+                                  <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                                    <button onClick={() => updateQty(`${item.id}_${variant.label}`, -1)} style={{ background:'none', border:'none', cursor:'pointer', color:'#7c3aed', fontSize:14, fontWeight:700, padding:0, lineHeight:1 }}>−</button>
+                                    <span style={{ fontSize:11, fontWeight:800, color:'#7c3aed', minWidth:12, textAlign:'center' }}>{cartItem.qty}</span>
+                                    <button onClick={() => addVariantToCart(item, variant)} style={{ background:'none', border:'none', cursor:'pointer', color:'#7c3aed', fontSize:14, fontWeight:700, padding:0, lineHeight:1 }}>+</button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
+
+                        {/* Photo + ADD button */}
                         <div style={{ position:'relative', flexShrink:0 }}>
                           <div style={{ width:90, height:90, borderRadius:12, overflow:'hidden', background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center', filter:vendorClosed?'grayscale(60%)':'none' }}>
                             {item.photo ? <img src={item.photo} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:28 }}>🍛</span>}
                           </div>
                           <div style={{ position:'absolute', bottom:-10, left:'50%', transform:'translateX(-50%)' }}>
                             {vendorClosed ? (
-                              <div style={{ display:'flex', alignItems:'center', gap:4, background:'#f3f4f6', borderWidth:1, borderStyle:'solid', borderColor:'#d1d5db', borderRadius:20, padding:'5px 12px', boxShadow:'0 2px 8px rgba(0,0,0,0.08)', cursor:'not-allowed' }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:4, background:'#f3f4f6', borderWidth:1, borderStyle:'solid', borderColor:'#d1d5db', borderRadius:20, padding:'5px 12px', boxShadow:'0 2px 8px rgba(0,0,0,0.08)', cursor:'not-allowed', whiteSpace:'nowrap' }}>
                                 <span style={{ fontSize:10 }}>🔒</span><span style={{ fontSize:11, fontWeight:700, color:'#9ca3af' }}>Closed</span>
                               </div>
-                            ) : inCart ? (
+                            ) : hasVariants ? (
+                              // Variant button: show ADD or qty badge
+                              anyVariantInCart ? (
+                                <button
+                                  onClick={() => setVariantPickerItem(item)}
+                                  style={{ background:'#7c3aed', color:'#fff', border:'none', borderRadius:20, padding:'5px 14px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', boxShadow:'0 2px 8px rgba(124,58,237,0.35)', whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:4 }}
+                                >
+                                  ⚡ {totalVariantQty} added
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => setVariantPickerItem(item)}
+                                  style={{ background:'#fff', color:'#7c3aed', borderWidth:1.5, borderStyle:'solid', borderColor:'#7c3aed', padding:'5px 18px', borderRadius:20, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', boxShadow:'0 2px 8px rgba(0,0,0,0.12)', whiteSpace:'nowrap' }}
+                                >
+                                  ADD ⚡
+                                </button>
+                              )
+                            ) : inCartSimple ? (
                               <div style={{ display:'flex', alignItems:'center', gap:6, background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', borderRadius:20, padding:'4px 10px', boxShadow:'0 2px 8px rgba(0,0,0,0.12)' }}>
                                 <button onClick={() => updateQty(item.id,-1)} style={{ background:'none', border:'none', cursor:'pointer', color:'#E24B4A', fontSize:16, fontWeight:700, padding:0, lineHeight:1 }}>−</button>
-                                <span style={{ fontSize:12, fontWeight:700, color:'#E24B4A', minWidth:14, textAlign:'center' }}>{inCart.qty}</span>
+                                <span style={{ fontSize:12, fontWeight:700, color:'#E24B4A', minWidth:14, textAlign:'center' }}>{inCartSimple.qty}</span>
                                 <button onClick={() => addToCart(item)} style={{ background:'none', border:'none', cursor:'pointer', color:'#E24B4A', fontSize:16, fontWeight:700, padding:0, lineHeight:1 }}>+</button>
                               </div>
                             ) : (
@@ -1618,15 +1818,15 @@ export default function UserApp() {
               <div key={item.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:13, fontWeight:500 }}>{item.name}</div>
-                  <div style={{ fontSize:12, color:'#6b7280' }}>₹{item.price} each</div>
+                  <div style={{ fontSize:12, color:'#6b7280' }}>₹{item.price} each{item.isVariant ? ' · variant' : ''}</div>
                   {item.isCombo && item.comboItems && (
                     <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>{item.comboItems.map(ci => `${ci.qty > 1 ? ci.qty+'× ' : ''}${ci.name}`).join(' · ')}</div>
                   )}
                 </div>
                 <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <button onClick={() => updateQty(item.id,-1)} style={{ width:28, height:28, borderRadius:'50%', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', background:'transparent', color:'#E24B4A', cursor:'pointer', fontSize:16 }}>-</button>
+                  <button onClick={() => updateQty(item.id,-1)} style={{ width:28, height:28, borderRadius:'50%', borderWidth:1, borderStyle:'solid', borderColor:item.isVariant?'#7c3aed':'#E24B4A', background:'transparent', color:item.isVariant?'#7c3aed':'#E24B4A', cursor:'pointer', fontSize:16 }}>-</button>
                   <span style={{ fontSize:13, fontWeight:600, minWidth:16, textAlign:'center' }}>{item.qty}</span>
-                  <button onClick={() => updateQty(item.id,1)} style={{ width:28, height:28, borderRadius:'50%', border:'none', background:'#E24B4A', color:'#fff', cursor:'pointer', fontSize:16 }}>+</button>
+                  <button onClick={() => updateQty(item.id,1)} style={{ width:28, height:28, borderRadius:'50%', border:'none', background:item.isVariant?'#7c3aed':'#E24B4A', color:'#fff', cursor:'pointer', fontSize:16 }}>+</button>
                 </div>
                 <div style={{ fontSize:13, fontWeight:600, minWidth:48, textAlign:'right' }}>₹{item.price*item.qty}</div>
               </div>
@@ -1807,7 +2007,7 @@ export default function UserApp() {
               <button onClick={() => setLang(l=>l==='en'?'mr':'en')} style={{ background:'#FCEBEB', color:'#A32D2D', border:'none', padding:'5px 12px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>{lang==='en'?'Switch to Marathi':'English वर जा'}</button>
             </div>
             <button onClick={() => { localStorage.removeItem('feedo_location'); logoutUser() }} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500, marginBottom:16 }}>Logout</button>
-            
+
             <div style={{ marginBottom:4, fontSize:11, color:'#9ca3af', fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>Help & Legal</div>
             <div style={{ background:'#fafafa', borderRadius:12, overflow:'hidden', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', marginBottom:80 }}>
               {[
