@@ -23,6 +23,7 @@ const EMPTY_ITEM = { name:'', price:'', category:'Thali', description:'', isVeg:
 const EMPTY_COMBO = { name:'', description:'', comboPrice:'', items:[], isVeg:true, available:true, tag:'' }
 const COMBO_TAGS = ['Best Value','Popular','New','Limited','Chef Special','Weekend Only']
 
+// ── VARIANT PRESETS ────────────────────────────────────────────────────────────
 const VARIANT_PRESETS = [
   { label: 'Half / Full',       variants: ['Half', 'Full'] },
   { label: 'Small / Large',     variants: ['Small', 'Large'] },
@@ -44,222 +45,6 @@ const ORDER_FILTERS = [
   { id:'delivered',        label:'Delivered',      emoji:'✔️' },
   { id:'cancelled',        label:'Cancelled',      emoji:'❌' },
 ]
-
-// ── SUBSCRIPTION HELPERS ──────────────────────────────────────────────────────
-// Hardcoded onboarding dates for existing vendors
-const VENDOR_ONBOARDING_DATES = {
-  'Datt Cafe':         '2025-04-30',
-  'Khandoli Canteen':  '2025-05-10',
-  'Cafe Nisa':         '2025-05-07',
-  'Sai Swad':          '2025-04-01',
-  'Cafe Corner':       '2025-05-11',
-  'Cafe Nonstop':      '2025-05-10',
-  'Black Pearl':       '2025-03-25',
-  'Kolhapuri Spice':   '2025-04-29',
-  'Star Biryani':      '2025-03-30',
-  'Super Heroes':      '2025-05-18',
-}
-
-function getSubscriptionStatus(vendorData) {
-  const storeName = vendorData?.storeName || ''
-  const hardcodedDate = VENDOR_ONBOARDING_DATES[storeName]
-  const onboardedAt = vendorData?.onboardedAt || hardcodedDate || vendorData?.createdAt?.toDate?.()?.toISOString?.()?.slice(0, 10) || null
-
-  if (!onboardedAt) return { status: 'unknown', daysLeft: null, daysOverdue: null, planPrice: 99, onboardedAt: null, subscriptionEnd: null }
-
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  // Use manual subscription end if founder set one
-  if (vendorData?.subscriptionEnd) {
-    const end = new Date(vendorData.subscriptionEnd)
-    const diff = Math.floor((end - today) / 86400000)
-    if (diff >= 0) return { status: 'active', daysLeft: diff, daysOverdue: 0, planPrice: vendorData.planPrice || 99, onboardedAt, subscriptionEnd: vendorData.subscriptionEnd }
-    return { status: 'expired', daysLeft: 0, daysOverdue: Math.abs(diff), planPrice: vendorData.planPrice || 149, onboardedAt, subscriptionEnd: vendorData.subscriptionEnd }
-  }
-
-  // Auto-calculate from onboarding: 30 days free then expires
-  const onboarded = new Date(onboardedAt)
-  const end = new Date(onboarded)
-  end.setDate(end.getDate() + 30)
-  const diff = Math.floor((end - today) / 86400000)
-
-  if (diff >= 0) {
-    return { status: 'active', daysLeft: diff, daysOverdue: 0, planPrice: 99, onboardedAt, subscriptionEnd: end.toISOString().slice(0, 10) }
-  }
-  return { status: 'expired', daysLeft: 0, daysOverdue: Math.abs(diff), planPrice: 149, onboardedAt, subscriptionEnd: end.toISOString().slice(0, 10) }
-}
-
-function isSubscriptionBlocked(vendorData) {
-  if (!vendorData) return false
-  // Manually deactivated by founder
-  if (vendorData.subscriptionActive === false) return true
-  // Auto-check expiry
-  const sub = getSubscriptionStatus(vendorData)
-  if (sub.status === 'expired') return true
-  return false
-}
-
-// ── SUBSCRIPTION LOCKOUT SCREEN ───────────────────────────────────────────────
-function SubscriptionLockout({ vendorData, onLogout }) {
-  const sub = getSubscriptionStatus(vendorData)
-  const isManualBlock = vendorData?.subscriptionActive === false
-  const planPrice = sub.planPrice || (sub.daysOverdue > 30 ? 149 : 99)
-
-  // Format end date nicely
-  const endDateStr = sub.subscriptionEnd
-    ? new Date(sub.subscriptionEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
-    : '—'
-
-  const founderPhone = '9359367655' // Replace with actual founder WhatsApp number
-  const waMsg = encodeURIComponent(
-    `Hi! I'm ${vendorData?.storeName || 'a vendor'} on FeedoZone.\n\nI want to renew my subscription for ₹${planPrice}/month.\n\nPlease activate my dashboard access. Thank you! 🙏`
-  )
-  const waLink = `https://wa.me/91${founderPhone}?text=${waMsg}`
-
-  return (
-    <div style={{ maxWidth: 430, margin: '0 auto', background: '#fff', minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'Poppins,sans-serif' }}>
-
-      {/* Header */}
-      <div style={{ background: '#1a1a1a', padding: '16px 16px 14px', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 9, overflow: 'hidden', background: '#2a2a2a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {vendorData?.photo
-              ? <img src={vendorData.photo} alt="store" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <span style={{ fontSize: 18 }}>🏪</span>}
-          </div>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{vendorData?.storeName || 'My Store'}</div>
-            <div style={{ fontSize: 10, color: '#666' }}>FeedoZone Vendor</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main lockout content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px 40px' }}>
-
-        {/* Lock icon + title */}
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ width: 80, height: 80, borderRadius: '50%', background: isManualBlock ? '#fee2e2' : '#fff7ed', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: 36, borderWidth: 3, borderStyle: 'solid', borderColor: isManualBlock ? '#fca5a5' : '#fed7aa' }}>
-            {isManualBlock ? '🔒' : '⏰'}
-          </div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#1f2937', marginBottom: 8 }}>
-            {isManualBlock ? 'Dashboard Access Paused' : 'Subscription Expired'}
-          </div>
-          <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6, maxWidth: 320, margin: '0 auto' }}>
-            {isManualBlock
-              ? 'Your access has been paused by FeedoZone. Please contact us to reactivate.'
-              : `Your ${sub.daysOverdue} day${sub.daysOverdue !== 1 ? 's' : ''} overdue. Renew to get full dashboard access.`}
-          </div>
-        </div>
-
-        {/* Subscription details card */}
-        <div style={{ background: '#f9fafb', borderRadius: 14, padding: 16, marginBottom: 20, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', letterSpacing: 0.5, marginBottom: 12, textTransform: 'uppercase' }}>Subscription Details</div>
-          {[
-            ['Store Name', vendorData?.storeName || '—'],
-            ['Plan', `₹${planPrice}/month`],
-            ['Subscription Ended', endDateStr],
-            ...(sub.daysOverdue ? [['Days Overdue', `${sub.daysOverdue} days`]] : []),
-            ['Status', isManualBlock ? '🔴 Deactivated by Admin' : '⚠️ Payment Due'],
-          ].map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6' }}>
-              <span style={{ fontSize: 12, color: '#6b7280' }}>{k}</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#1f2937' }}>{v}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* What's blocked */}
-        <div style={{ background: '#fff5f5', borderRadius: 14, padding: 16, marginBottom: 20, borderWidth: 1, borderStyle: 'solid', borderColor: '#fecaca' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', marginBottom: 12 }}>🚫 Currently Blocked</div>
-          {['View or manage orders', 'Access menu & combos', 'View earnings', 'Change store settings'].map(item => (
-            <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fca5a5', flexShrink: 0 }} />
-              <span style={{ fontSize: 12, color: '#991b1b' }}>{item}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* How to pay card */}
-        <div style={{ background: '#f0fdf4', borderRadius: 14, padding: 16, marginBottom: 20, borderWidth: 1, borderStyle: 'solid', borderColor: '#bbf7d0' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d', marginBottom: 12 }}>✅ How to Reactivate</div>
-
-          {/* Step 1 */}
-          <div style={{ display: 'flex', gap: 12, marginBottom: 14, alignItems: 'flex-start' }}>
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: '#fff', flexShrink: 0 }}>1</div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', marginBottom: 2 }}>Pay via UPI Scanner</div>
-              <div style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.6 }}>Scan the QR code at FeedoZone and pay ₹{planPrice}/month</div>
-            </div>
-          </div>
-
-          {/* Step 2 */}
-          <div style={{ display: 'flex', gap: 12, marginBottom: 14, alignItems: 'flex-start' }}>
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: '#fff', flexShrink: 0 }}>2</div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', marginBottom: 2 }}>Send Payment Screenshot</div>
-              <div style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.6 }}>WhatsApp the payment screenshot to FeedoZone</div>
-            </div>
-          </div>
-
-          {/* Step 3 */}
-          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: '#fff', flexShrink: 0 }}>3</div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', marginBottom: 2 }}>Dashboard Auto-Unlocks</div>
-              <div style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.6 }}>Once FeedoZone verifies payment, your access is instantly restored</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Pricing info */}
-        <div style={{ background: '#eff6ff', borderRadius: 14, padding: 16, marginBottom: 20, borderWidth: 1, borderStyle: 'solid', borderColor: '#bfdbfe' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#1e40af', marginBottom: 10 }}>💳 Subscription Plans</div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <div style={{ flex: 1, background: '#fff', borderRadius: 10, padding: 12, borderWidth: 1.5, borderStyle: 'solid', borderColor: sub.daysOverdue <= 30 ? '#3b82f6' : '#e5e7eb', textAlign: 'center' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', marginBottom: 4 }}>1ST MONTH</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#16a34a' }}>₹99</div>
-              <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>Intro price</div>
-              {sub.daysOverdue <= 30 && <div style={{ marginTop: 6, background: '#dbeafe', borderRadius: 6, padding: '2px 8px', fontSize: 10, fontWeight: 700, color: '#1e40af' }}>Your plan</div>}
-            </div>
-            <div style={{ flex: 1, background: '#fff', borderRadius: 10, padding: 12, borderWidth: 1.5, borderStyle: 'solid', borderColor: sub.daysOverdue > 30 ? '#3b82f6' : '#e5e7eb', textAlign: 'center' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', marginBottom: 4 }}>2ND MONTH+</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#1e40af' }}>₹149</div>
-              <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>Monthly</div>
-              {sub.daysOverdue > 30 && <div style={{ marginTop: 6, background: '#dbeafe', borderRadius: 6, padding: '2px 8px', fontSize: 10, fontWeight: 700, color: '#1e40af' }}>Your plan</div>}
-            </div>
-          </div>
-        </div>
-
-        {/* CTA buttons */}
-        <a
-          href={waLink}
-          target="_blank"
-          rel="noreferrer"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, width: '100%', background: '#25D366', color: '#fff', textDecoration: 'none', padding: '15px 0', borderRadius: 14, fontSize: 15, fontWeight: 800, marginBottom: 12, boxSizing: 'border-box' }}
-        >
-          <span style={{ fontSize: 22 }}>💬</span>
-          WhatsApp FeedoZone to Pay
-        </a>
-
-        <div style={{ background: '#fffbeb', borderRadius: 12, padding: '10px 14px', marginBottom: 20, borderWidth: 1, borderStyle: 'solid', borderColor: '#fde68a', display: 'flex', gap: 10, alignItems: 'center' }}>
-          <span style={{ fontSize: 18, flexShrink: 0 }}>⏳</span>
-          <div style={{ fontSize: 11, color: '#92400e', lineHeight: 1.6 }}>
-            Your dashboard will <strong>automatically unlock</strong> as soon as FeedoZone activates your subscription. No need to do anything else!
-          </div>
-        </div>
-
-        <button
-          onClick={onLogout}
-          style={{ width: '100%', background: 'transparent', color: '#9ca3af', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', padding: '12px 0', borderRadius: 12, fontSize: 13, cursor: 'pointer', fontFamily: 'Poppins', fontWeight: 500 }}
-        >
-          Logout
-        </button>
-      </div>
-    </div>
-  )
-}
 
 // ── SCHEDULE HELPERS ──────────────────────────────────────────────────────────
 function parseTimeToMinutes(timeStr) {
@@ -911,6 +696,8 @@ function VariantManager({ item, userId, onVariantsChanged }) {
       {showPanel && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:2500, display:'flex', flexDirection:'column', justifyContent:'flex-end' }} onClick={e => { if(e.target===e.currentTarget) setShowPanel(false) }}>
           <div style={{ background:'#fff', borderRadius:'22px 22px 0 0', maxHeight:'92vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
+
+            {/* Header */}
             <div style={{ background:'linear-gradient(135deg,#1a1a1a,#3b1f6e)', padding:'18px 20px 22px', borderRadius:'22px 22px 0 0', position:'relative', overflow:'hidden' }}>
               <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.08 }}>⚡</div>
               <div style={{ display:'flex', justifyContent:'center', marginBottom:12 }}>
@@ -927,6 +714,8 @@ function VariantManager({ item, userId, onVariantsChanged }) {
             </div>
 
             <div style={{ padding:'18px 20px 40px' }}>
+
+              {/* Info box */}
               <div style={{ background:'#f0f9ff', borderRadius:12, padding:'11px 14px', marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#bae6fd', display:'flex', gap:10, alignItems:'flex-start' }}>
                 <span style={{ fontSize:18, flexShrink:0 }}>💡</span>
                 <div style={{ fontSize:11, color:'#0c4a6e', lineHeight:1.7 }}>
@@ -934,6 +723,7 @@ function VariantManager({ item, userId, onVariantsChanged }) {
                 </div>
               </div>
 
+              {/* Quick Presets */}
               <div style={{ marginBottom:16 }}>
                 <div style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:10 }}>⚡ Quick Presets — Tap to apply</div>
                 <div style={{ display:'flex', flexWrap:'wrap', gap:7 }}>
@@ -946,6 +736,7 @@ function VariantManager({ item, userId, onVariantsChanged }) {
                         fontSize:12, fontWeight:600, border:'none',
                         background: selectedPreset === preset.label ? 'linear-gradient(135deg,#7c3aed,#5b21b6)' : '#f3f4f6',
                         color: selectedPreset === preset.label ? '#fff' : '#374151',
+                        boxShadow: selectedPreset === preset.label ? '0 3px 10px rgba(124,58,237,0.35)' : 'none',
                         transition:'all 0.18s'
                       }}
                     >
@@ -955,6 +746,7 @@ function VariantManager({ item, userId, onVariantsChanged }) {
                 </div>
               </div>
 
+              {/* Variant rows */}
               <div style={{ marginBottom:14 }}>
                 <div style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:10 }}>
                   Set Variant Names & Prices
@@ -962,7 +754,11 @@ function VariantManager({ item, userId, onVariantsChanged }) {
 
                 {variantNames.map((name, idx) => (
                   <div key={idx} style={{ display:'flex', gap:8, alignItems:'center', marginBottom:10 }}>
-                    <div style={{ width:28, height:28, borderRadius:8, background:'linear-gradient(135deg,#7c3aed,#5b21b6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, color:'#fff', flexShrink:0 }}>{idx+1}</div>
+                    <div style={{
+                      width:28, height:28, borderRadius:8, background:'linear-gradient(135deg,#7c3aed,#5b21b6)',
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      fontSize:11, fontWeight:800, color:'#fff', flexShrink:0
+                    }}>{idx+1}</div>
                     <input
                       value={name}
                       onChange={e => setVariantNames(prev => prev.map((n,i) => i===idx ? e.target.value : n))}
@@ -985,6 +781,7 @@ function VariantManager({ item, userId, onVariantsChanged }) {
                   </div>
                 ))}
 
+                {/* Add custom variant */}
                 {!showCustomInput ? (
                   <button
                     onClick={() => setShowCustomInput(true)}
@@ -1007,6 +804,7 @@ function VariantManager({ item, userId, onVariantsChanged }) {
                 )}
               </div>
 
+              {/* Preview */}
               {variantNames.some((n,i) => n && variantPrices[i]) && (
                 <div style={{ background:'#faf5ff', borderRadius:12, padding:12, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff' }}>
                   <div style={{ fontSize:11, fontWeight:700, color:'#7c3aed', marginBottom:8, letterSpacing:0.5 }}>👁️ PREVIEW — How customers will see it</div>
@@ -1022,10 +820,11 @@ function VariantManager({ item, userId, onVariantsChanged }) {
                 </div>
               )}
 
+              {/* Save button */}
               <button
                 onClick={saveVariants}
                 disabled={saving}
-                style={{ width:'100%', background: saving ? '#c4b5fd' : 'linear-gradient(135deg,#7c3aed,#5b21b6)', color:'#fff', border:'none', padding:'14px 0', borderRadius:13, fontSize:14, fontWeight:800, cursor: saving ? 'not-allowed' : 'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+                style={{ width:'100%', background: saving ? '#c4b5fd' : 'linear-gradient(135deg,#7c3aed,#5b21b6)', color:'#fff', border:'none', padding:'14px 0', borderRadius:13, fontSize:14, fontWeight:800, cursor: saving ? 'not-allowed' : 'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:'0 6px 20px rgba(124,58,237,0.35)' }}
               >
                 {saving ? '⏳ Saving...' : '⚡ Save Variants'}
               </button>
@@ -1046,7 +845,7 @@ function VariantManager({ item, userId, onVariantsChanged }) {
   )
 }
 
-// ── ADD ITEM VARIANT SECTION ──────────────────────────────────────────────────
+// ── ADD ITEM VARIANT SECTION (inside Add Item form) ───────────────────────────
 function AddItemVariantSection({ variants, setVariants, basePrice, setBasePrice }) {
   const [enableVariants, setEnableVariants] = useState(variants.length > 0)
   const [selectedPreset, setSelectedPreset] = useState(null)
@@ -1055,6 +854,7 @@ function AddItemVariantSection({ variants, setVariants, basePrice, setBasePrice 
   const [variantNames, setVariantNames] = useState(variants.length > 0 ? variants.map(v=>v.label) : ['Half','Full'])
   const [variantPrices, setVariantPrices] = useState(variants.length > 0 ? variants.map(v=>String(v.price)) : ['',''])
 
+  // sync up to parent
   useEffect(() => {
     if (enableVariants) {
       const built = variantNames.map((label, i) => ({ label, price: Number(variantPrices[i]) || 0 }))
@@ -1087,6 +887,7 @@ function AddItemVariantSection({ variants, setVariants, basePrice, setBasePrice 
 
   return (
     <div style={{ marginTop:4 }}>
+      {/* Toggle */}
       <div
         onClick={() => setEnableVariants(p => !p)}
         style={{
@@ -1180,9 +981,6 @@ function AddItemVariantSection({ variants, setVariants, basePrice, setBasePrice 
   )
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MAIN VendorApp
-// ═══════════════════════════════════════════════════════════════════════════════
 export default function VendorApp() {
   const { user, userData } = useAuth()
   const [tab, setTab] = useState('orders')
@@ -1338,16 +1136,6 @@ export default function VendorApp() {
     const u3 = getCombos(user.uid, (fetchedCombos) => { setCombos(fetchedCombos) })
     return () => { u1(); u2(); u3() }
   }, [user, userData])
-
-  // ── SUBSCRIPTION CHECK ────────────────────────────────────────────────────
-  // Show lockout screen if subscription is blocked
-  if (userData && isSubscriptionBlocked(userData)) {
-    return <SubscriptionLockout vendorData={userData} onLogout={logoutUser} />
-  }
-
-  // ── Show expiry warning banner if expiring soon (within 7 days) ──────────
-  const subInfo = userData ? getSubscriptionStatus(userData) : null
-  const showExpiryWarning = subInfo && subInfo.status === 'active' && subInfo.daysLeft <= 7 && userData?.subscriptionActive !== false
 
   const reverseGeocode = async (lat, lng) => {
     try {
@@ -1691,22 +1479,6 @@ export default function VendorApp() {
   return (
     <div style={{ maxWidth:430, margin:'0 auto', background:'#fff', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' }}>
 
-      {/* ── EXPIRY WARNING BANNER (shown when 7 or fewer days left) ── */}
-      {showExpiryWarning && (
-        <div style={{ background: subInfo.daysLeft <= 3 ? '#dc2626' : '#f59e0b', padding:'10px 16px', display:'flex', alignItems:'center', gap:10 }}>
-          <span style={{ fontSize:16, flexShrink:0 }}>{subInfo.daysLeft <= 3 ? '🚨' : '⏰'}</span>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:12, fontWeight:700, color:'#fff' }}>
-              {subInfo.daysLeft === 0 ? 'Subscription expires today!' : `Subscription expires in ${subInfo.daysLeft} day${subInfo.daysLeft !== 1 ? 's' : ''}!`}
-            </div>
-            <div style={{ fontSize:10, color:'rgba(255,255,255,0.85)', marginTop:1 }}>Pay ₹{subInfo.planPrice}/month to continue. Contact FeedoZone.</div>
-          </div>
-          <a href={`https://wa.me/919359367655?text=${encodeURIComponent(`Hi! I'm ${userData?.storeName}. My FeedoZone subscription expires in ${subInfo.daysLeft} days. I want to renew for ₹${subInfo.planPrice}/month.`)}`} target="_blank" rel="noreferrer" style={{ background:'rgba(255,255,255,0.25)', color:'#fff', textDecoration:'none', fontSize:11, fontWeight:700, borderRadius:8, padding:'5px 10px', flexShrink:0, whiteSpace:'nowrap' }}>
-            Pay Now 💬
-          </a>
-        </div>
-      )}
-
       {/* ── HEADER ── */}
       <div style={{ background:'#1a1a1a', padding:16, flexShrink:0 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -1722,15 +1494,6 @@ export default function VendorApp() {
               {hasSchedule && (
                 <div style={{ fontSize:10, color: inScheduleWindow && !scheduleOverride ? '#4ade80' : scheduleOverride ? '#fbbf24' : '#9ca3af', marginTop:2, fontWeight:600 }}>
                   {scheduleStatusLabel()}
-                </div>
-              )}
-              {/* Subscription status chip */}
-              {subInfo && (
-                <div style={{ marginTop:3, display:'inline-flex', alignItems:'center', gap:4, background: subInfo.daysLeft <= 7 ? 'rgba(251,191,36,0.2)' : 'rgba(74,222,128,0.15)', borderRadius:10, padding:'2px 8px', borderWidth:1, borderStyle:'solid', borderColor: subInfo.daysLeft <= 7 ? 'rgba(251,191,36,0.4)' : 'rgba(74,222,128,0.3)' }}>
-                  <div style={{ width:5, height:5, borderRadius:'50%', background: subInfo.daysLeft <= 7 ? '#fbbf24' : '#4ade80' }} />
-                  <span style={{ fontSize:9, color: subInfo.daysLeft <= 7 ? '#fbbf24' : '#4ade80', fontWeight:700 }}>
-                    {subInfo.daysLeft <= 7 ? `Sub: ${subInfo.daysLeft}d left` : `Sub: ${subInfo.daysLeft}d left`}
-                  </span>
                 </div>
               )}
             </div>
@@ -2094,6 +1857,7 @@ export default function VendorApp() {
               </div>
             )}
 
+            {/* ── ADD ITEM FORM ── */}
             {showAddItem && (
               <div style={{ background:'#f9fafb', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, padding:14, marginBottom:14 }}>
                 <div style={{ fontSize:13, fontWeight:600, marginBottom:10 }}>New Menu Item</div>
@@ -2106,15 +1870,20 @@ export default function VendorApp() {
                 </div>
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                   <input style={inp} placeholder="Item name *" value={newItem.name} onChange={e => setNewItem(p=>({...p,name:e.target.value}))} />
+
+                  {/* Variant section */}
                   <AddItemVariantSection
                     variants={newItemVariants}
                     setVariants={setNewItemVariants}
                     basePrice={newItem.price}
                     setBasePrice={(v) => setNewItem(p=>({...p,price:v}))}
                   />
+
+                  {/* Price field — show only if no variants */}
                   {newItemVariants.length === 0 && (
                     <input style={inp} type="number" placeholder="Price (₹) *" value={newItem.price} onChange={e => setNewItem(p=>({...p,price:e.target.value}))} />
                   )}
+
                   <textarea style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.5}} placeholder="Description e.g. 2 Roti + Dal + Rice" value={newItem.description} onChange={e => setNewItem(p=>({...p,description:e.target.value}))} />
                   <div>
                     <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Category</label>
@@ -2192,6 +1961,8 @@ export default function VendorApp() {
                           )}
                         </div>
                         {item.description && <div style={{ fontSize:11, color:'#6b7280', marginTop:2, lineHeight:1.4 }}>{item.description}</div>}
+
+                        {/* Show variants inline */}
                         {item.hasVariants && item.variants?.length > 0 ? (
                           <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginTop:5 }}>
                             {item.variants.map((v, vi) => (
@@ -2213,7 +1984,12 @@ export default function VendorApp() {
                         )}
                       </div>
                       <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center', flexShrink:0 }}>
-                        <VariantManager item={item} userId={user.uid} onVariantsChanged={() => {}} />
+                        {/* Variant button — always visible */}
+                        <VariantManager
+                          item={item}
+                          userId={user.uid}
+                          onVariantsChanged={() => {}}
+                        />
                         {menuEditMode && <button onClick={() => startEditItem(item)} style={{ background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>✏️ Edit</button>}
                         <div onClick={() => updateMenuItem(user.uid, item.id, { available: !item.available })} style={{ width:40, height:22, background:item.available?'#16a34a':'#d1d5db', borderRadius:11, cursor:'pointer', position:'relative', transition:'background 0.2s' }}>
                           <div style={{ position:'absolute', width:16, height:16, background:'#fff', borderRadius:'50%', top:3, left:item.available?21:3, transition:'left 0.2s' }} />
@@ -2407,26 +2183,6 @@ export default function VendorApp() {
                 </div>
               ))}
             </div>
-
-            {/* Subscription status in earnings */}
-            {subInfo && (
-              <div style={{ background: subInfo.daysLeft <= 7 ? '#fff7ed' : '#f0fdf4', borderRadius:12, padding:14, marginBottom:14, borderWidth:1, borderStyle:'solid', borderColor: subInfo.daysLeft <= 7 ? '#fed7aa' : '#bbf7d0' }}>
-                <div style={{ fontSize:12, fontWeight:700, color: subInfo.daysLeft <= 7 ? '#c2410c' : '#15803d', marginBottom:6 }}>💳 Subscription Status</div>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <div>
-                    <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>₹{subInfo.planPrice}/month</div>
-                    <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>
-                      Expires: {subInfo.subscriptionEnd ? new Date(subInfo.subscriptionEnd).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' }) : '—'}
-                    </div>
-                  </div>
-                  <div style={{ textAlign:'right' }}>
-                    <div style={{ fontSize:20, fontWeight:800, color: subInfo.daysLeft <= 7 ? '#f97316' : '#16a34a' }}>{subInfo.daysLeft}</div>
-                    <div style={{ fontSize:10, color:'#6b7280' }}>days left</div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div style={{ background:'#f9fafb', borderRadius:10, padding:12 }}>
               <div style={{ fontSize:13, fontWeight:600, marginBottom:8 }}>Recent Delivered Orders</div>
               {orders.filter(o=>o.status==='delivered').slice(0,5).map(o => (
@@ -2443,38 +2199,6 @@ export default function VendorApp() {
         {/* ── SETTINGS TAB ── */}
         {tab === 'settings' && (
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-
-            {/* Subscription info card in settings */}
-            {subInfo && (
-              <div style={{ background: subInfo.daysLeft <= 7 ? '#fff7ed' : '#f0fdf4', borderRadius:12, padding:14, borderWidth:1.5, borderStyle:'solid', borderColor: subInfo.daysLeft <= 7 ? '#fed7aa' : '#bbf7d0' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:10 }}>
-                  <div>
-                    <div style={{ fontSize:13, fontWeight:700, color: subInfo.daysLeft <= 7 ? '#c2410c' : '#15803d' }}>💳 My Subscription</div>
-                    <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>FeedoZone vendor plan</div>
-                  </div>
-                  <div style={{ background: subInfo.daysLeft <= 7 ? '#fed7aa' : '#bbf7d0', borderRadius:20, padding:'4px 12px' }}>
-                    <span style={{ fontSize:11, fontWeight:700, color: subInfo.daysLeft <= 7 ? '#92400e' : '#15803d' }}>✅ Active</span>
-                  </div>
-                </div>
-                {[
-                  ['Plan Price', `₹${subInfo.planPrice}/month`],
-                  ['Joined', subInfo.onboardedAt ? new Date(subInfo.onboardedAt).toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' }) : '—'],
-                  ['Expires', subInfo.subscriptionEnd ? new Date(subInfo.subscriptionEnd).toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' }) : '—'],
-                  ['Days Remaining', `${subInfo.daysLeft} days`],
-                ].map(([k, v]) => (
-                  <div key={k} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                    <span style={{ fontSize:11, color:'#6b7280' }}>{k}</span>
-                    <span style={{ fontSize:12, fontWeight:700, color:'#1f2937' }}>{v}</span>
-                  </div>
-                ))}
-                {subInfo.daysLeft <= 7 && (
-                  <a href={`https://wa.me/919359367655?text=${encodeURIComponent(`Hi! I'm ${userData?.storeName}. My FeedoZone subscription expires in ${subInfo.daysLeft} days. I want to renew for ₹${subInfo.planPrice}/month.`)}`} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginTop:10, background:'#25D366', color:'#fff', textDecoration:'none', padding:'10px 0', borderRadius:10, fontSize:13, fontWeight:700 }}>
-                    💬 WhatsApp to Renew
-                  </a>
-                )}
-              </div>
-            )}
-
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
                 <div style={{ fontSize:13, fontWeight:700 }}>Store Info</div>
@@ -2573,6 +2297,7 @@ export default function VendorApp() {
                     <div style={{ marginTop:8, background:'#eff6ff', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
                       <div style={{ fontSize:11, fontWeight:700, color:'#1e40af', marginBottom:4 }}>📍 Distance-based pricing active</div>
                       <div style={{ fontSize:11, color:'#3b82f6', lineHeight:1.7 }}>₹10 up to 1 km · ₹20 up to 2 km<br/>₹30 up to 3 km · ₹40 up to 4 km</div>
+                      <div style={{ fontSize:10, color:'#6b7280', marginTop:4 }}>Your fixed charge above is ignored when this mode is on.</div>
                     </div>
                   ) : (
                     <div style={{ marginTop:8, background:'#f0fdf4', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
@@ -2610,7 +2335,7 @@ export default function VendorApp() {
                 <input type="text" placeholder="e.g. storename@paytm or 9876543210@upi" value={upiId} onChange={e => setUpiId(e.target.value.trim())} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
               </div>
 
-              {/* Schedule section */}
+              {/* ── SCHEDULE SECTION ── */}
               <div style={{ marginBottom:16, background:'#fff', borderRadius:12, padding:14, borderWidth:1.5, borderStyle:'solid', borderColor: hasSchedule ? '#bbf7d0' : '#e5e7eb' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
                   <div>
@@ -2643,6 +2368,11 @@ export default function VendorApp() {
                     <div style={{ fontSize:12, color:'#166534' }}>
                       Store auto-opens at <strong>{formatTime12(openTime)}</strong> and closes at <strong>{formatTime12(closeTime)}</strong> every day.
                     </div>
+                    {inScheduleWindow !== null && (
+                      <div style={{ marginTop:6, fontSize:11, fontWeight:600, color: inScheduleWindow ? '#16a34a' : '#dc2626' }}>
+                        {inScheduleWindow ? '✅ Currently within open hours' : `⏰ Opens at ${formatTime12(openTime)}`}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2651,6 +2381,7 @@ export default function VendorApp() {
                     <span style={{ fontSize:16, flexShrink:0 }}>⚠️</span>
                     <div>
                       <div style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>Manual Override Active</div>
+                      <div style={{ fontSize:11, color:'#a16207', marginTop:2, lineHeight:1.5 }}>You manually closed the store during scheduled hours. Auto-schedule is paused until the next open window ({formatTime12(openTime)}).</div>
                       <button
                         onClick={async () => {
                           await updateVendorStore(user.uid, { isOpen: true, scheduleOverride: false })
@@ -2664,6 +2395,16 @@ export default function VendorApp() {
                     </div>
                   </div>
                 )}
+
+                <div style={{ background:'#eff6ff', borderRadius:10, padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
+                  <div style={{ fontSize:11, color:'#1e40af', lineHeight:1.7 }}>
+                    💡 <strong>How it works:</strong><br/>
+                    • Store auto-opens at your opening time every day<br/>
+                    • Store auto-closes at your closing time every day<br/>
+                    • You can still manually close/open the toggle anytime<br/>
+                    • Manual close during open hours pauses auto-schedule
+                  </div>
+                </div>
               </div>
 
               <button onClick={handleSaveDetails} disabled={savingDetails} style={{ width:'100%', background:savingDetails?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
@@ -2693,6 +2434,11 @@ export default function VendorApp() {
                 <span style={{ fontSize:18, flexShrink:0 }}>⚠️</span>
                 <div style={{ fontSize:12, color:'#991b1b', lineHeight:1.6 }}>The customer will be notified. This action cannot be undone.</div>
               </div>
+              <div style={{ background:'#f9fafb', borderRadius:10, padding:'10px 14px', marginBottom:16 }}>
+                <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:6 }}>ORDER SUMMARY</div>
+                <div style={{ fontSize:13, color:'#374151' }}>{cancelOrderTarget.items?.map(i => `${i.qty}x ${i.name}`).join(', ')}</div>
+                <div style={{ fontSize:14, fontWeight:700, color:'#E24B4A', marginTop:4 }}>₹{cancelOrderTarget.total}</div>
+              </div>
               <div style={{ marginBottom:14 }}>
                 <div style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:10 }}>Select cancellation reason *</div>
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
@@ -2721,14 +2467,17 @@ export default function VendorApp() {
         </div>
       )}
 
+      {/* ── VENDOR BILL MODAL ── */}
       {showVendorBill && vendorBillOrder && (
         <VendorBill order={vendorBillOrder} vendorData={userData} onClose={() => { setShowVendorBill(false); setVendorBillOrder(null) }} />
       )}
 
+      {/* ── RIDER LOCATION PANEL ── */}
       {showRiderPanel && riderPanelOrder && (
         <RiderLocationPanel order={riderPanelOrder} onClose={() => { setShowRiderPanel(false); setRiderPanelOrder(null) }} />
       )}
 
+      {/* ── CUSTOMER LOCATION PANEL (FULLSCREEN) ── */}
       {showCustomerMap && customerMapOrder && (
         <CustomerLocationPanel order={customerMapOrder} onClose={() => { setShowCustomerMap(false); setCustomerMapOrder(null) }} />
       )}
