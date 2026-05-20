@@ -11,17 +11,33 @@ export const AuthProvider = ({ children }) => {
   const [userData, setUserData] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  // Save push token to Firestore when received from native app
   useEffect(() => {
+    // ✅ FIXED: saves token to BOTH users and vendors collections
     const saveToken = async (token, uid) => {
       if (!token || !uid) return
       if (!token.startsWith('ExponentPushToken')) return
       try {
+        // Get user role first so we know which collections to update
+        const userSnap = await getDoc(doc(db, 'users', uid))
+        const role = userSnap.exists() ? userSnap.data()?.role : null
+
+        // Always save to users collection
         await setDoc(doc(db, 'users', uid), {
           expoPushToken: token,
           tokenUpdatedAt: serverTimestamp()
         }, { merge: true })
-        console.log('✅ Push token saved to Firestore:', token)
+
+        // ✅ If vendor — also save to vendors collection
+        // This is what usePendingOrderNotifier reads to send notifications
+        if (role === 'vendor') {
+          await setDoc(doc(db, 'vendors', uid), {
+            expoPushToken: token,
+            tokenUpdatedAt: serverTimestamp()
+          }, { merge: true })
+          console.log('✅ Push token saved to users + vendors:', token)
+        } else {
+          console.log('✅ Push token saved to users:', token)
+        }
       } catch (err) {
         console.error('Error saving push token:', err)
       }
@@ -35,16 +51,16 @@ export const AuthProvider = ({ children }) => {
         if (currentUser) {
           saveToken(token, currentUser.uid)
         } else {
-          // Store token temporarily, save after login
+          // Store temporarily, save after login
           window._pendingPushToken = token
         }
       }
     }
 
-    // Listen for token from WebView injection
+    // Listen for token injected by Expo WebView
     window.addEventListener('expoPushToken', handleToken)
 
-    // Also check if token already set before this component mounted
+    // Check if token was injected before this component mounted
     if (window.expoPushToken) {
       handleToken({ detail: window.expoPushToken })
     }
@@ -68,15 +84,27 @@ export const AuthProvider = ({ children }) => {
           const snap = await getDoc(doc(db, 'users', firebaseUser.uid))
           if (snap.exists()) {
             setUserData(snap.data())
+            const role = snap.data()?.role
 
-            // Save pending token if user just logged in
+            // ✅ Save pending token after login — to both collections if vendor
             if (window._pendingPushToken) {
               try {
                 await setDoc(doc(db, 'users', firebaseUser.uid), {
                   expoPushToken: window._pendingPushToken,
                   tokenUpdatedAt: serverTimestamp()
                 }, { merge: true })
-                console.log('✅ Pending push token saved after login')
+
+                // ✅ Also save to vendors if role is vendor
+                if (role === 'vendor') {
+                  await setDoc(doc(db, 'vendors', firebaseUser.uid), {
+                    expoPushToken: window._pendingPushToken,
+                    tokenUpdatedAt: serverTimestamp()
+                  }, { merge: true })
+                  console.log('✅ Pending token saved to users + vendors after login')
+                } else {
+                  console.log('✅ Pending push token saved to users after login')
+                }
+
                 window._pendingPushToken = null
               } catch (err) {
                 console.error('Error saving pending token:', err)
