@@ -322,7 +322,11 @@ export const deleteCombo = (vendorUid, comboId) =>
 // ── ORDERS ────────────────────────────────────────────────────────────────
 export const placeOrder = async (orderData) => {
   const ref = await addDoc(collection(db, 'orders'), {
-    ...orderData, status: 'pending', createdAt: serverTimestamp()
+    ...orderData,
+    vendorId: orderData.vendorUid,
+    customerName: orderData.userName,
+    status: 'pending',
+    createdAt: serverTimestamp()
   })
 
   // 🔔 In-app bell notification to vendor

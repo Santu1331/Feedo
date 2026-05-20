@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { db } from '../firebase/config'
+import { doc, onSnapshot } from 'firebase/firestore'
 
 // ── Haversine distance in km ──
 function haversine(lat1, lng1, lat2, lng2) {
@@ -125,20 +126,17 @@ export default function LiveOrderTracking({ order, userLat, userLng, onClose }) 
   // ── Listen to order doc for riderLocation + riderName + riderPhone ──
   useEffect(() => {
     if (!order?.id) return
-    let unsub
-    import('firebase/firestore').then(({ doc, onSnapshot }) => {
-      unsub = onSnapshot(doc(db, 'orders', order.id), (snap) => {
-        if (!snap.exists()) return
-        const data = snap.data()
-        if (data.riderLocation?.lat && data.riderLocation?.lng) {
-          setRiderLocation({ lat: data.riderLocation.lat, lng: data.riderLocation.lng })
-          setIsLive(true)
-          if (data.riderName) setRiderName(data.riderName)
-          if (data.riderPhone) setRiderPhone(data.riderPhone)
-        }
-      })
+    const unsub = onSnapshot(doc(db, 'orders', order.id), (snap) => {
+      if (!snap.exists()) return
+      const data = snap.data()
+      if (data.riderLocation?.lat && data.riderLocation?.lng) {
+        setRiderLocation({ lat: data.riderLocation.lat, lng: data.riderLocation.lng })
+        setIsLive(true)
+        if (data.riderName) setRiderName(data.riderName)
+        if (data.riderPhone) setRiderPhone(data.riderPhone)
+      }
     })
-    return () => unsub?.()
+    return () => unsub()
   }, [order?.id])
 
   // ── Load Leaflet ──

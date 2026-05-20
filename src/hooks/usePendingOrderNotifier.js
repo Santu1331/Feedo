@@ -22,7 +22,7 @@ export const usePendingOrderNotifier = (vendorId = null, isVendorOrFounder = fal
 
     const ordersQuery = query(
       collection(db, 'orders'),
-      where('vendorId', '==', vendorId),
+      where('vendorUid', '==', vendorId),
       where('status', '==', 'pending')
     )
 
@@ -60,7 +60,7 @@ export const usePendingOrderNotifier = (vendorId = null, isVendorOrFounder = fal
         const token = vendorDoc.data()?.expoPushToken
         if (!token || !token.startsWith('ExponentPushToken')) return
 
-        const customerName = orderData.customerName || 'A customer'
+        const customerName = orderData.userName || orderData.customerName || 'A customer'
 
         // ✅ Call /api/send-push (server-side) to avoid CORS block
         // Direct calls to exp.host are blocked by browser CORS policy

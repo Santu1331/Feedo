@@ -427,17 +427,26 @@ export default function FounderApp() {
       setSupportTickets(tickets)
     })
 
+    let unsubBroadcast
     try {
       const bq = query(collection(db, 'broadcastHistory'), orderBy('sentAt', 'desc'), limit(20))
-      onSnapshot(bq, snap => setBroadcastHistory(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      unsubBroadcast = onSnapshot(bq, snap => setBroadcastHistory(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
     } catch (e) {}
 
+    let unsubPush
     try {
       const pq = query(collection(db, 'pushHistory'), orderBy('sentAt', 'desc'), limit(20))
-      onSnapshot(pq, snap => setPushHistory(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      unsubPush = onSnapshot(pq, snap => setPushHistory(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
     } catch (e) {}
 
-    return () => { u1(); u2(); unsubUsers(); unsubTickets() }
+    return () => {
+      u1()
+      u2()
+      unsubUsers()
+      unsubTickets()
+      if (unsubBroadcast) unsubBroadcast()
+      if (unsubPush) unsubPush()
+    }
   }, [])
 
   // ── NEW ORDER ALARM ───────────────────────────────────────────────────

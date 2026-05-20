@@ -7,6 +7,9 @@ import {
   getCombos, saveExpoPushToken, updateOrderStatus
 } from '../firebase/services'
 import { db } from '../firebase/config'
+import {
+  collection, query, where, onSnapshot, addDoc, getDoc, doc, getDocs, serverTimestamp
+} from 'firebase/firestore'
 import { useNotifications } from '../hooks/useNotifications'
 import UserBill from '../components/UserBill'
 import LiveOrderTracking from '../components/LiveOrderTracking'
@@ -612,28 +615,26 @@ export default function UserApp() {
       } catch {}
     }
     loadStoredSeen()
-    import('firebase/firestore').then(({ collection, query, where, onSnapshot }) => {
-      const q = query(collection(db, 'supportTickets'), where('userUid', '==', user.uid))
-      unsub = onSnapshot(q, snap => {
-        const tickets = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        tickets.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
-        setMyTickets(tickets)
-        let newUnread = 0
-        tickets.forEach(ticket => {
-          if (ticket.founderReply) {
-            const seenKey = ticket.id + '_reply'
-            if (!seenRepliesRef.current.has(seenKey)) {
-              setSupportReplyPopup({ text: ticket.founderReply, ticketId: ticket.id })
-              try { navigator.vibrate?.([200, 100, 200]) } catch {}
-              toast('💬 Support replied!', { icon: '🎧', duration: 3000 })
-            }
+    const q = query(collection(db, 'supportTickets'), where('userUid', '==', user.uid))
+    unsub = onSnapshot(q, snap => {
+      const tickets = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      tickets.sort((a, b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
+      setMyTickets(tickets)
+      let newUnread = 0
+      tickets.forEach(ticket => {
+        if (ticket.founderReply) {
+          const seenKey = ticket.id + '_reply'
+          if (!seenRepliesRef.current.has(seenKey)) {
+            setSupportReplyPopup({ text: ticket.founderReply, ticketId: ticket.id })
+            try { navigator.vibrate?.([200, 100, 200]) } catch {}
+            toast('💬 Support replied!', { icon: '🎧', duration: 3000 })
           }
-          if (ticket.founderReply && !seenRepliesRef.current.has(ticket.id + '_reply_read')) newUnread++
-        })
-        setSupportUnreadCount(newUnread)
+        }
+        if (ticket.founderReply && !seenRepliesRef.current.has(ticket.id + '_reply_read')) newUnread++
       })
+      setSupportUnreadCount(newUnread)
     })
-    return () => unsub?.()
+    return () => unsub()
   }, [user])
 
   const handleOpenSupportChat = () => {
@@ -651,7 +652,6 @@ export default function UserApp() {
 
   const handleSendSupportMessage = async (text, category) => {
     try {
-      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
       await addDoc(collection(db, 'supportTickets'), {
         userUid: user.uid, userName: userData?.name || 'User', userEmail: user.email,
         userPhone: userData?.mobile || '', category, message: text, status: 'open',
@@ -862,7 +862,7 @@ export default function UserApp() {
         address: fullAddress, paymentMode: 'COD', billNo,
         userLat, userLng, distanceKm: cartVendor.distanceKm || null,
       })
-      const vendorSnap = await import('firebase/firestore').then(({doc, getDoc}) => getDoc(doc(db, 'vendors', cartVendor.id)))
+      const vendorSnap = await getDoc(doc(db, 'vendors', cartVendor.id))
       const vendorInfo = vendorSnap.exists() ? vendorSnap.data() : {}
       setOrderSuccess({
         orderId: Math.random().toString(36).slice(-6).toUpperCase(), billNo,
@@ -882,7 +882,6 @@ export default function UserApp() {
     if (!reviewText.trim()) return toast.error('Please write a review!')
     setSubmittingReview(true)
     try {
-      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
       await addDoc(collection(db, 'reviews'), {
         vendorId: reviewVendor.id, vendorName: reviewVendor.storeName,
         userId: user.uid, userName: userData?.name || 'Anonymous',
@@ -895,7 +894,6 @@ export default function UserApp() {
 
   const loadReviews = async (vendorId) => {
     try {
-      const { collection, query, where, getDocs } = await import('firebase/firestore')
       const q = query(collection(db, 'reviews'), where('vendorId', '==', vendorId))
       const snap = await getDocs(q)
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))

@@ -5,7 +5,8 @@ service cloud.firestore {
     // VENDORS
     match /vendors/{vendorId} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null;
+      allow create: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder';
       allow update: if request.auth != null &&
         (request.auth.uid == vendorId ||
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder');
@@ -18,19 +19,40 @@ service cloud.firestore {
           (request.auth.uid == vendorId ||
            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder');
       }
+
+      match /combos/{comboId} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null &&
+          (request.auth.uid == vendorId ||
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder');
+      }
     }
 
     // USERS
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if request.auth != null && (
+        request.auth.uid == userId ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor'
+      );
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && (
+        (request.auth.uid == userId && 
+         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder'
+      );
+      allow delete: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder';
     }
 
     // ORDERS
     match /orders/{orderId} {
-      allow read: if request.auth != null;
       allow create: if request.auth != null;
-      allow update: if request.auth != null;
+      allow read, update: if request.auth != null && (
+        request.auth.uid == resource.data.userUid ||
+        request.auth.uid == resource.data.vendorUid ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder'
+      );
       allow delete: if request.auth != null &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder';
     }
@@ -42,7 +64,10 @@ service cloud.firestore {
       allow create: if request.auth != null;
       allow update: if request.auth != null &&
         resource.data.toUid == request.auth.uid;
-      allow delete: if request.auth != null;
+      allow delete: if request.auth != null && (
+        resource.data.toUid == request.auth.uid ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'founder'
+      );
     }
 
     // REVIEWS
