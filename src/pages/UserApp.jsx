@@ -552,6 +552,7 @@ export default function UserApp() {
   const [deliveryNote, setDeliveryNote] = useState('')
 
   const [cancellingOrder, setCancellingOrder] = useState(false)
+  const [placingOrder, setPlacingOrder] = useState(false)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [orderToCancel, setOrderToCancel] = useState(null)
 
@@ -847,14 +848,17 @@ export default function UserApp() {
   }
 
   const handlePlaceOrder = async () => {
+    if (placingOrder) return
     if (!deliveryName.trim()) return toast.error('Enter your name')
     if (!deliveryPhone.trim()) return toast.error('Enter phone number')
     if (!deliveryAddress.trim() && !deliveryHostel.trim()) return toast.error('Enter delivery address')
     if (minOrder > 0 && cartTotal < minOrder) return toast.error(`Minimum order is ₹${minOrder}. Add ₹${minOrderShortfall} more to checkout.`, { duration: 4000, icon: '🛒' })
+    
+    setPlacingOrder(true)
     try {
       const fullAddress = [deliveryHostel.trim(), deliveryAddress.trim(), deliveryNote.trim() ? `Note: ${deliveryNote.trim()}` : ''].filter(Boolean).join(' · ')
       const billNo = 'FZ-' + Date.now().toString(36).slice(-6).toUpperCase()
-      await placeOrder({
+      const orderRef = await placeOrder({
         userUid: user.uid, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
         userEmail: user.email, vendorUid: cartVendor.id, vendorName: cartVendor.storeName,
         items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty, isCombo: i.isCombo||false, isVariant: i.isVariant||false })),
@@ -865,7 +869,8 @@ export default function UserApp() {
       const vendorSnap = await getDoc(doc(db, 'vendors', cartVendor.id))
       const vendorInfo = vendorSnap.exists() ? vendorSnap.data() : {}
       setOrderSuccess({
-        orderId: Math.random().toString(36).slice(-6).toUpperCase(), billNo,
+        id: orderRef?.id || Math.random().toString(36).slice(-6).toUpperCase(),
+        orderId: orderRef?.id || Math.random().toString(36).slice(-6).toUpperCase(), billNo,
         vendorName: cartVendor.storeName,
         vendorPhone: vendorInfo.phone || vendorInfo.mobile || vendorInfo.contactPhone || '',
         vendorPhoto: vendorInfo.photo || '', items: cart.map(i => ({ ...i })),
@@ -875,7 +880,12 @@ export default function UserApp() {
       })
       setCart([]); setCartVendor(null); setShowCheckout(false)
       setDeliveryNote(''); setDeliveryHostel('')
-    } catch { toast.error('Failed to place order. Try again.') }
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to place order. Try again.')
+    } finally {
+      setPlacingOrder(false)
+    }
   }
 
   const handleSubmitReview = async () => {
@@ -1879,7 +1889,26 @@ export default function UserApp() {
                   <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:700 }}>Total</span><span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{cartTotal+deliveryFee}</span></div>
                 </div>
                 <div style={{ background:'#fef3c7', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#78350f', marginBottom:12 }}>💵 Payment: <strong>Cash on Delivery (COD)</strong></div>
-                <button onClick={handlePlaceOrder} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:8 }}>🎉 Place Order · ₹{cartTotal+deliveryFee}</button>
+                <button 
+                  onClick={handlePlaceOrder} 
+                  disabled={placingOrder}
+                  style={{ 
+                    width:'100%', 
+                    background: placingOrder ? '#fca5a5' : '#E24B4A', 
+                    color:'#fff', 
+                    border:'none', 
+                    padding:14, 
+                    borderRadius:10, 
+                    fontSize:14, 
+                    fontWeight:600, 
+                    cursor: placingOrder ? 'not-allowed' : 'pointer', 
+                    fontFamily:'Poppins', 
+                    marginBottom:8,
+                    opacity: placingOrder ? 0.8 : 1
+                  }}
+                >
+                  {placingOrder ? '⏳ Placing Order...' : `🎉 Place Order · ₹${cartTotal+deliveryFee}`}
+                </button>
                 <button onClick={() => setShowCheckout(false)} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:11, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>← Back to Cart</button>
               </div>
             )}

@@ -445,15 +445,15 @@ export const sendBroadcastNotification = async (title, body) => {
       return 0
     }
 
-    await fetch('https://exp.host/--/api/v2/push/send', {
+    const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : ''
+    await fetch('/api/send-push', {
       method: 'POST',
       headers: {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip, deflate',
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
       },
-      body: JSON.stringify(
-        tokens.map(token => ({
+      body: JSON.stringify({
+        notifications: tokens.map(token => ({
           to: token,
           title,
           body,
@@ -462,7 +462,7 @@ export const sendBroadcastNotification = async (title, body) => {
           channelId: 'default',
           badge: 1,
         }))
-      )
+      })
     })
 
     await addDoc(collection(db, 'broadcastHistory'), {

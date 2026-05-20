@@ -73,6 +73,11 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (e) {}
 
+    // Request token from native WebView if running inside App
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'GET_PUSH_TOKEN' }))
+    }
+
     return () => window.removeEventListener('expoPushToken', handleToken)
   }, [])
 
