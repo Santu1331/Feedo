@@ -7,6 +7,16 @@ import { useState, useEffect, useRef } from 'react'
 import { db } from '../firebase/config'
 import { doc, onSnapshot } from 'firebase/firestore'
 
+const escapeHtml = (unsafe) => {
+  if (!unsafe || typeof unsafe !== 'string') return unsafe || ''
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
 // ── Haversine distance in km ──
 function haversine(lat1, lng1, lat2, lng2) {
   const R = 6371
@@ -175,7 +185,7 @@ export default function LiveOrderTracking({ order, userLat, userLng, onClose }) 
         { icon: makeIcon(L, '🏪', 36) }
       )
         .addTo(map)
-        .bindPopup(`<b>${order.vendorName}</b><br>Restaurant`)
+        .bindPopup(`<b>${escapeHtml(order.vendorName || 'Vendor')}</b><br>Restaurant`)
     }
 
     // User marker
@@ -215,7 +225,7 @@ export default function LiveOrderTracking({ order, userLat, userLng, onClose }) 
     } else {
       riderMarkerRef.current = L.marker([lat, lng], { icon: makeRiderIcon(L) })
         .addTo(map)
-        .bindPopup(`<b>${riderName}</b><br>Delivery Rider`)
+        .bindPopup(`<b>${escapeHtml(riderName || 'Rider')}</b><br>Delivery Rider`)
     }
 
     // Draw/update dashed line to user

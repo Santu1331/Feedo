@@ -32,7 +32,6 @@ export default function PrivacyPolicy() {
           margin: '0 0 12px 0',
           letterSpacing: '2px',
           textTransform: 'uppercase',
-          fontSize: '16px',
         }}>
           Privacy Policy
         </h1>

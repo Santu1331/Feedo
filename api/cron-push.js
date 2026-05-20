@@ -26,8 +26,9 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end()
 
   // Auth check — only cron job can call this
+  const cronSecret = process.env.CRON_SECRET || 'feedozone_cron_2025'
   const secret = req.query.secret || req.headers['x-cron-secret']
-  if (secret !== 'feedozone_cron_2025') {
+  if (!secret || secret !== cronSecret) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
@@ -62,9 +63,8 @@ export default async function handler(req, res) {
 
       // ── Step 3: Check if vendor actually has pending orders ──
       const pendingSnap = await db.collection('orders')
-        .where('vendorId', '==', vendorId)
+        .where('vendorUid', '==', vendorId)
         .where('status', '==', 'pending')
-        .limit(1)
         .get()
 
       if (pendingSnap.empty) continue // No pending orders — skip silently
@@ -76,7 +76,7 @@ export default async function handler(req, res) {
       notifications.push({
         to: token,
         title: `🛎️ New Order from Customer`,
-        body: `You have ${pendingCount} pending order. Tap to accept or view.`,
+        body: `You have ${pendingCount} pending order${pendingCount > 1 ? 's' : ''}. Tap to accept or view.`,
         sound: 'default',
         priority: 'high',
         channelId: 'default',
@@ -125,6 +125,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('cron-push error:', err)
-    return res.status(500).json({ error: err.message })
+    return res.status(500).json({ error: 'Internal Server Error' })
   }
 }

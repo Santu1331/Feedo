@@ -44,6 +44,16 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase/config'
 
+const escapeHtml = (unsafe) => {
+  if (!unsafe || typeof unsafe !== 'string') return unsafe || ''
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
 // ── Load Leaflet from CDN exactly once ──────────────────────────────────────
 let leafletLoadPromise = null
 function loadLeaflet() {
@@ -406,9 +416,9 @@ export default function CustomerLocationPanel({ order, onClose }) {
         { icon: pinIcon(L, '#E24B4A', '🏠', 44) }
       ).addTo(map)
         .bindPopup(
-          `<b style="font-family:Poppins;font-size:13px">🏠 ${order.userName}</b><br/>` +
+          `<b style="font-family:Poppins;font-size:13px">🏠 ${escapeHtml(order.userName)}</b><br/>` +
           `<span style="font-size:11px;color:#6b7280;font-family:Poppins">` +
-          `${(order.address || '').slice(0, 60)}…</span>`
+          `${escapeHtml((order.address || '').slice(0, 60))}…</span>`
         )
 
       leafletMapRef.current = map
@@ -433,7 +443,7 @@ export default function CustomerLocationPanel({ order, onClose }) {
         { icon: pinIcon(L, '#1d4ed8', '🛵', 44) }
       ).addTo(map)
         .bindPopup(
-          `<b style="font-family:Poppins;font-size:13px">🛵 ${order.riderName || 'Rider'}</b><br/>` +
+          `<b style="font-family:Poppins;font-size:13px">🛵 ${escapeHtml(order.riderName || 'Rider')}</b><br/>` +
           `<span style="font-size:11px;color:#6b7280;font-family:Poppins">Delivering now</span>`
         )
     }

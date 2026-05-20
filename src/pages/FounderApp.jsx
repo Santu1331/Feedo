@@ -8,18 +8,23 @@ import {
   doc, deleteDoc, getDocs, query, where, collection, addDoc,
   serverTimestamp, orderBy, limit, onSnapshot, updateDoc
 } from 'firebase/firestore'
-import { db } from '../firebase/config'
+import { db, auth } from '../firebase/config'
 import toast from 'react-hot-toast'
 import { useOrderAlert } from '../hooks/useOrderAlert'
 import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
 import FounderBill from '../components/FounderBill'
 
-const PUSH_URL = 'https://feedo-ruddy.vercel.app/api/send-push'
+const PUSH_URL = '/api/send-push'
 
 async function sendPushBatch(notifications) {
+  const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : ''
   const res = await fetch(PUSH_URL, {
     method: 'POST',
-    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${idToken}`
+    },
     body: JSON.stringify({ notifications })
   })
   if (!res.ok) throw new Error(`Push proxy returned ${res.status}`)

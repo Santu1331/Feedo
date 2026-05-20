@@ -11,6 +11,16 @@
 
 import { useRef } from 'react'
 
+const escapeHtml = (unsafe) => {
+  if (!unsafe || typeof unsafe !== 'string') return unsafe || ''
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
 export default function UserBill({ order, vendorData = {}, onClose }) {
   const billRef = useRef()
 
@@ -38,8 +48,21 @@ export default function UserBill({ order, vendorData = {}, onClose }) {
   const upiId        = vendorData?.upiId || ''        // ✅ correct field name
 
   const handlePrint = () => {
+    const safeVendorName = escapeHtml(order.vendorName || 'FeedoZone')
+    const safeStoreAddress = escapeHtml(storeAddress)
+    const safeStorePhone = escapeHtml(storePhone)
+    const safeFssai = escapeHtml(fssai)
+    const safeGstNumber = escapeHtml(gstNumber)
+    const safeBillNo = escapeHtml(billNo)
+    const safeDateStr = escapeHtml(dateStr)
+    const safeTimeStr = escapeHtml(timeStr)
+    const safeUserName = escapeHtml(order.userName)
+    const safeUserPhone = escapeHtml(order.userPhone)
+    const safeAddress = escapeHtml(order.address)
+    const safeUpiId = escapeHtml(upiId)
+
     const billHTML = `
-      <html><head><title>Bill - ${billNo}</title>
+      <html><head><title>Bill - ${safeBillNo}</title>
       <style>
         * { margin:0; padding:0; box-sizing:border-box; }
         body { font-family:'Courier New',monospace; background:#fff; padding:16px; max-width:360px; }
@@ -57,19 +80,19 @@ export default function UserBill({ order, vendorData = {}, onClose }) {
       </style></head>
       <body>
         <div class="ctr">
-          <div class="h1">${order.vendorName || 'FeedoZone'}</div>
-          <div class="sm">${storeAddress}</div>
-          ${storePhone ? `<div class="sm">Ph: ${storePhone}</div>` : ''}
-          ${fssai ? `<div><span class="badge" style="background:#dcfce7;color:#166534">✓ FSSAI: ${fssai}</span></div>` : ''}
-          ${gstNumber ? `<div><span class="badge" style="background:#dbeafe;color:#1e40af">GST: ${gstNumber}</span></div>` : ''}
+          <div class="h1">${safeVendorName}</div>
+          <div class="sm">${safeStoreAddress}</div>
+          ${safeStorePhone ? `<div class="sm">Ph: ${safeStorePhone}</div>` : ''}
+          ${safeFssai ? `<div><span class="badge" style="background:#dcfce7;color:#166534">✓ FSSAI: ${safeFssai}</span></div>` : ''}
+          ${safeGstNumber ? `<div><span class="badge" style="background:#dbeafe;color:#1e40af">GST: ${safeGstNumber}</span></div>` : ''}
         </div>
         <div class="dash"></div>
-        <div class="row"><span>Bill No</span><span><b>${billNo}</b></span></div>
-        <div class="row"><span>Date</span><span>${dateStr}</span></div>
-        <div class="row"><span>Time</span><span>${timeStr}</span></div>
-        <div class="row"><span>Customer</span><span>${order.userName}</span></div>
-        <div class="row"><span>Phone</span><span>${order.userPhone || '—'}</span></div>
-        ${order.address ? `<div class="row"><span>Address</span><span style="max-width:200px;text-align:right">${order.address}</span></div>` : ''}
+        <div class="row"><span>Bill No</span><span><b>${safeBillNo}</b></span></div>
+        <div class="row"><span>Date</span><span>${safeDateStr}</span></div>
+        <div class="row"><span>Time</span><span>${safeTimeStr}</span></div>
+        <div class="row"><span>Customer</span><span>${safeUserName}</span></div>
+        <div class="row"><span>Phone</span><span>${safeUserPhone || '—'}</span></div>
+        ${safeAddress ? `<div class="row"><span>Address</span><span style="max-width:200px;text-align:right">${safeAddress}</span></div>` : ''}
         <div class="dash"></div>
         <div class="ih">
           <span style="flex:2">Item</span>
@@ -79,7 +102,7 @@ export default function UserBill({ order, vendorData = {}, onClose }) {
         </div>
         ${items.map(item => `
           <div class="ir">
-            <span style="flex:2">${item.name}</span>
+            <span style="flex:2">${escapeHtml(item.name)}</span>
             <span style="text-align:center;flex:0.5">${item.qty}</span>
             <span style="text-align:right;flex:0.7">₹${item.price}</span>
             <span style="text-align:right;flex:0.7;font-weight:bold">₹${item.price * item.qty}</span>
@@ -94,10 +117,10 @@ export default function UserBill({ order, vendorData = {}, onClose }) {
         <div style="font-size:12px;padding:6px 0;border-top:1px dashed #999;margin-top:4px">
           <div class="row"><span>Payment Mode</span><span><b>Cash on Delivery (COD)</b></span></div>
         </div>
-        ${upiId ? `
+        ${safeUpiId ? `
         <div class="upi-box">
           <div style="font-size:11px;font-weight:bold;color:#15803d">📱 Pay via UPI</div>
-          <div style="font-size:13px;font-weight:bold;color:#166534;margin-top:3px">${upiId}</div>
+          <div style="font-size:13px;font-weight:bold;color:#166534;margin-top:3px">${safeUpiId}</div>
           <div style="font-size:10px;color:#6b7280;margin-top:2px">PhonePe · GPay · Paytm · BHIM</div>
         </div>` : ''}
         <div class="footer">

@@ -8,8 +8,8 @@
     },
     "liveOrders": {
       "$orderId": {
-        ".read": "auth != null",
-        ".write": "auth != null"
+        ".read": "auth != null && (data.child('userUid').val() == auth.uid || data.child('vendorUid').val() == auth.uid || data.child('riderUid').val() == auth.uid || root.child('users').child(auth.uid).child('role').val() == 'founder')",
+        ".write": "auth != null && (!data.exists() || data.child('vendorUid').val() == auth.uid || data.child('userUid').val() == auth.uid || data.child('riderUid').val() == auth.uid || root.child('users').child(auth.uid).child('role').val() == 'founder')"
       }
     }
   }

@@ -1,18 +1,33 @@
 import { useState } from 'react';
+import { db } from '../firebase/config';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function DeleteAccount() {
   const [formData, setFormData] = useState({ name: '', email: '', reason: '' });
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.email) return;
     setLoading(true);
-    // Simulate submission (replace with your actual API call)
-    await new Promise(r => setTimeout(r, 1500));
-    setLoading(false);
-    setSubmitted(true);
+    setError(null);
+    try {
+      await addDoc(collection(db, 'accountDeletions'), {
+        name: formData.name.trim(),
+        email: formData.email.trim().toLowerCase(),
+        reason: formData.reason.trim(),
+        requestedAt: serverTimestamp(),
+        status: 'pending'
+      });
+      setSubmitted(true);
+    } catch (err) {
+      console.error('Error submitting deletion request:', err);
+      setError('Something went wrong. Please try again or email us.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -180,6 +195,21 @@ export default function DeleteAccount() {
                   }}
                 />
               </div>
+
+              {error && (
+                <div style={{
+                  color: '#e94560',
+                  background: '#2a1010',
+                  border: '1px solid #e9456040',
+                  borderRadius: '10px',
+                  padding: '12px',
+                  marginBottom: '20px',
+                  fontSize: '14px',
+                  textAlign: 'center',
+                }}>
+                  ⚠️ {error}
+                </div>
+              )}
 
               <button
                 type="submit"

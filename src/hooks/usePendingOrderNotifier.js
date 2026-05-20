@@ -5,7 +5,7 @@
 // 3. Only notifies on NEW orders, never spams
 
 import { useEffect, useRef } from 'react'
-import { db } from '../firebase/config'
+import { db, auth } from '../firebase/config'
 import {
   collection, query, where, onSnapshot, doc, getDoc
 } from 'firebase/firestore'
@@ -65,9 +65,13 @@ export const usePendingOrderNotifier = (vendorId = null, isVendorOrFounder = fal
         // ✅ Call /api/send-push (server-side) to avoid CORS block
         // Direct calls to exp.host are blocked by browser CORS policy
         try {
+          const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : ''
           const res = await fetch('/api/send-push', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`
+            },
             body: JSON.stringify({
               notifications: [{
                 to: token,
