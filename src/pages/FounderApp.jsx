@@ -390,6 +390,7 @@ export default function FounderApp() {
   const [pushDone, setPushDone] = useState(null)
   const [pushHistory, setPushHistory] = useState([])
   const [pushProgress, setPushProgress] = useState(0)
+  const [customTestToken, setCustomTestToken] = useState('')
 
   const [showReorderModal, setShowReorderModal] = useState(false)
   const [vendorOrderMode, setVendorOrderMode] = useState(false)
@@ -795,12 +796,16 @@ export default function FounderApp() {
         } catch { failed += batches[bi].length }
         setPushProgress(Math.round(((bi + 1) / batches.length) * 100))
       }
-      await addDoc(collection(db, 'pushHistory'), {
-        title: pushTitle, body: pushBody, target: pushTarget,
-        town: pushTown !== 'all' ? pushTown : 'all',
-        totalUsers: targetUsers.length, sent, failed, noToken,
-        sentAt: serverTimestamp(), sentBy: user?.email || 'founder'
-      })
+      try {
+        await addDoc(collection(db, 'pushHistory'), {
+          title: pushTitle, body: pushBody, target: pushTarget,
+          town: pushTown !== 'all' ? pushTown : 'all',
+          totalUsers: targetUsers.length, sent, failed, noToken,
+          sentAt: serverTimestamp(), sentBy: user?.email || 'founder'
+        })
+      } catch (dbErr) {
+        console.error('Failed to log push history to Firestore:', dbErr)
+      }
       setPushDone({ sent, failed, noToken, total: targetUsers.length })
       toast.success(`✅ Push sent to ${sent} users!`)
     } catch (err) { toast.error('Push failed: ' + err.message) }
@@ -808,11 +813,18 @@ export default function FounderApp() {
   }
 
   const handleTestPush = async () => {
-    const myUser = users.find(u => u.email === user?.email)
-    if (!myUser?.expoPushToken) { toast.error("You don't have a push token. Install the app first."); return }
+    let targetToken = customTestToken.trim()
+    if (!targetToken) {
+      const myUser = users.find(u => u.email === user?.email)
+      targetToken = myUser?.expoPushToken || ''
+    }
+    if (!targetToken || !targetToken.startsWith('ExponentPushToken')) {
+      toast.error("Please enter a valid Expo Push Token or install the app to register your phone.")
+      return
+    }
     try {
       const result = await sendPushBatch([{
-        to: myUser.expoPushToken,
+        to: targetToken,
         title: pushTitle || '🧪 Test Push from FeedoZone',
         body: pushBody || 'If you see this, push notifications are working! ✅',
         sound: 'default', priority: 'high', channelId: 'default',
@@ -849,11 +861,15 @@ export default function FounderApp() {
     setSendingBroadcast(true); setBroadcastProgress(0); setBroadcastDone(null)
     let sent = 0
     try {
-      await addDoc(collection(db, 'broadcastHistory'), {
-        title: broadcastTitle || 'Broadcast', message: broadcastMsg,
-        type: broadcastType, target: broadcastTarget,
-        totalUsers: targetUsers.length, sentAt: serverTimestamp(), sentBy: user?.email || 'founder'
-      })
+      try {
+        await addDoc(collection(db, 'broadcastHistory'), {
+          title: broadcastTitle || 'Broadcast', message: broadcastMsg,
+          type: broadcastType, target: broadcastTarget,
+          totalUsers: targetUsers.length, sentAt: serverTimestamp(), sentBy: user?.email || 'founder'
+        })
+      } catch (dbErr) {
+        console.error('Failed to log broadcast history to Firestore:', dbErr)
+      }
       if (sendViaWP) {
         const wpUsers = targetUsers.filter(u => u.mobile || u.phone)
         if (wpUsers.length === 0) { toast.error('No users have WhatsApp numbers saved') }
@@ -1810,8 +1826,28 @@ export default function FounderApp() {
 
             <div style={{ background: '#f0fdf4', borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderStyle: 'solid', borderColor: '#bbf7d0' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', marginBottom: 6 }}>🧪 Test Push to Yourself First</div>
+              <div style={{ marginBottom: 8 }}>
+                <input
+                  type="text"
+                  placeholder="Paste ExponentPushToken[...] here to test directly"
+                  value={customTestToken}
+                  onChange={e => setCustomTestToken(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: 11,
+                    fontFamily: 'Poppins',
+                    borderRadius: 8,
+                    border: '1.5px solid #86efac',
+                    background: '#fff',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                    color: '#166534'
+                  }}
+                />
+              </div>
               <button onClick={handleTestPush} style={{ width: '100%', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
-                🧪 Send Test Push to My Phone
+                🧪 Send Test Push
               </button>
             </div>
 

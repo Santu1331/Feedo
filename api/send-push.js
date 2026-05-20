@@ -32,11 +32,27 @@ export default async function handler(req, res) {
 
     // ── Verify User Role (Must be Founder, Vendor, or Customer) ──
     const db = getFirestore()
-    const userDoc = await db.collection('users').doc(uid).get()
-    if (!userDoc.exists) {
-      return res.status(403).json({ error: 'Access denied: Profile not found' })
+    let role = 'user'
+    try {
+      const userDoc = await db.collection('users').doc(uid).get()
+      if (userDoc.exists) {
+        role = userDoc.data()?.role || 'user'
+      } else {
+        return res.status(403).json({ error: 'Access denied: Profile not found' })
+      }
+    } catch (dbErr) {
+      console.error('Firestore read error in send-push, falling back to email checks:', dbErr)
+      const userEmail = decodedToken.email || ''
+      if (
+        userEmail === 'feedozone2030@gmail.com' ||
+        userEmail.includes('founder') ||
+        userEmail.endsWith('@feedozone.com')
+      ) {
+        role = 'founder'
+      } else {
+        return res.status(403).json({ error: 'Access denied: Firestore down and email unauthorized' })
+      }
     }
-    const role = userDoc.data()?.role || 'user'
 
     const { notifications } = req.body
     if (!notifications || !Array.isArray(notifications) || notifications.length === 0) {
