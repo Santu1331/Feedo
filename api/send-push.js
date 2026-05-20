@@ -30,19 +30,58 @@ export default async function handler(req, res) {
     const decodedToken = await getAuth().verifyIdToken(token)
     const uid = decodedToken.uid
 
-    // ── Verify User Role (Must be Founder or Vendor) ──
-    const userDoc = await getFirestore().collection('users').doc(uid).get()
+    // ── Verify User Role (Must be Founder, Vendor, or Customer) ──
+    const db = getFirestore()
+    const userDoc = await db.collection('users').doc(uid).get()
     if (!userDoc.exists) {
       return res.status(403).json({ error: 'Access denied: Profile not found' })
     }
-    const role = userDoc.data()?.role
-    if (role !== 'founder' && role !== 'vendor') {
-      return res.status(403).json({ error: 'Access denied: Insufficient privileges' })
-    }
+    const role = userDoc.data()?.role || 'user'
 
     const { notifications } = req.body
     if (!notifications || !Array.isArray(notifications) || notifications.length === 0) {
       return res.status(400).json({ error: 'No notifications provided' })
+    }
+
+    // ── Verify authorization context for each notification ──
+    if (role !== 'founder') {
+      for (const notif of notifications) {
+        const orderId = notif.data?.orderId
+        if (!orderId) {
+          return res.status(400).json({ error: 'Access denied: orderId is required in data payload for verification' })
+        }
+        
+        // Fetch order details
+        const orderDoc = await db.collection('orders').doc(orderId).get()
+        if (!orderDoc.exists) {
+          return res.status(404).json({ error: `Access denied: Order ${orderId} not found` })
+        }
+        const orderData = orderDoc.data()
+
+        // Caller must be either the customer (userUid) or the vendor (vendorUid) for this order
+        const isCustomer = orderData.userUid === uid
+        const isVendor = orderData.vendorUid === uid
+
+        if (!isCustomer && !isVendor) {
+          return res.status(403).json({ error: 'Access denied: You are not authorized to send notifications for this order' })
+        }
+
+        // Validate destination token:
+        // If caller is the customer, the target token ('to' field) must match the vendor's push token.
+        // If caller is the vendor, the target token ('to' field) must match the customer's push token.
+        let expectedToken = ''
+        if (isCustomer) {
+          const vendorDoc = await db.collection('vendors').doc(orderData.vendorUid).get()
+          expectedToken = vendorDoc.exists ? vendorDoc.data()?.expoPushToken : ''
+        } else if (isVendor) {
+          const customerDoc = await db.collection('users').doc(orderData.userUid).get()
+          expectedToken = customerDoc.exists ? customerDoc.data()?.expoPushToken : ''
+        }
+
+        if (!expectedToken || notif.to !== expectedToken) {
+          return res.status(403).json({ error: 'Access denied: Destination push token mismatch or recipient token missing' })
+        }
+      }
     }
 
     // Send ONE BY ONE instead of as array

@@ -113,22 +113,24 @@ export const sendExpoPushNotification = async ({ expoPushToken, title, body, dat
   if (!expoPushToken) return
   if (!expoPushToken.startsWith('ExponentPushToken')) return
   try {
-    await fetch('https://exp.host/--/api/v2/push/send', {
+    const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : ''
+    await fetch('/api/send-push', {
       method: 'POST',
       headers: {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip, deflate',
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
       },
       body: JSON.stringify({
-        to: expoPushToken,
-        title,
-        body,
-        data,
-        sound: 'default',
-        priority: 'high',
-        channelId: 'default',
-        badge: 1,
+        notifications: [{
+          to: expoPushToken,
+          title,
+          body,
+          data,
+          sound: 'default',
+          priority: 'high',
+          channelId: 'default',
+          badge: 1,
+        }]
       }),
     })
   } catch (err) {

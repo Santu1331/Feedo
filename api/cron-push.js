@@ -69,8 +69,17 @@ export default async function handler(req, res) {
 
       if (pendingSnap.empty) continue // No pending orders — skip silently
 
-      const pendingCount = pendingSnap.size
-      const orderId = pendingSnap.docs[0].id
+      // Filter out stale pending orders (created > 1 hour ago)
+      const activePendingOrders = pendingSnap.docs.filter(orderDoc => {
+        const orderData = orderDoc.data()
+        const createdAt = orderData.createdAt?.toDate?.() || new Date(0)
+        return (now - createdAt.getTime()) < 60 * 60 * 1000 // 1 hour threshold
+      })
+
+      if (activePendingOrders.length === 0) continue
+
+      const pendingCount = activePendingOrders.length
+      const orderId = activePendingOrders[0].id
 
       // ── Step 4: Queue notification with real order data ──
       notifications.push({
