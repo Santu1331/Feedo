@@ -1,41 +1,95 @@
 // src/hooks/usePendingOrderNotifier.js
-// Calls Vercel API every 10 seconds to send FCM push to vendor
-// Only runs when vendor dashboard is open
+// FIXED: Listens to Firestore in real-time instead of polling API every 10s
+// Result: vendor gets notified ONCE per new order, never spammed
 
 import { useEffect, useRef } from 'react'
+import { db } from '../firebase/config'
+import {
+  collection, query, where, onSnapshot, doc, getDoc
+} from 'firebase/firestore'
 
-const CRON_SECRET = import.meta.env.VITE_CRON_SECRET || 'feedozone_cron_2025'
-const API_URL = '/api/notify-pending-orders'
+// How long to wait before re-notifying same vendor about same order (in ms)
+const NOTIFY_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
 
-export const usePendingOrderNotifier = (isVendorOrFounder = false) => {
-  const intervalRef = useRef(null)
-  const isRunningRef = useRef(false)
-
-  const triggerNotification = async () => {
-    if (isRunningRef.current) return // prevent overlap
-    isRunningRef.current = true
-    try {
-      await fetch(`${API_URL}?secret=${CRON_SECRET}`, {
-        method: 'GET',
-        headers: { 'x-cron-secret': CRON_SECRET }
-      })
-    } catch (err) {
-      // Silently fail — don't spam console
-    }
-    isRunningRef.current = false
-  }
+export const usePendingOrderNotifier = (vendorId = null, isVendorOrFounder = false) => {
+  const notifiedOrderIds = useRef(new Set())   // track which orders already notified
+  const lastNotifyTime = useRef({})            // track per-order notify time
+  const isFirstLoad = useRef(true)             // skip existing orders on first load
 
   useEffect(() => {
-    if (!isVendorOrFounder) return
+    // Only run for vendor/founder and only if vendorId is known
+    if (!isVendorOrFounder || !vendorId) return
 
-    // Run immediately on mount
-    triggerNotification()
+    // Listen to pending orders for THIS vendor only
+    const ordersQuery = query(
+      collection(db, 'orders'),
+      where('vendorId', '==', vendorId),
+      where('status', '==', 'pending')
+    )
 
-    // Then every 10 seconds
-    intervalRef.current = setInterval(triggerNotification, 10000)
+    const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
+      // Skip the very first load — these are already existing orders
+      // We only want to notify on NEW orders that arrive after page load
+      if (isFirstLoad.current) {
+        snapshot.docs.forEach(doc => {
+          notifiedOrderIds.current.add(doc.id) // mark existing as already seen
+        })
+        isFirstLoad.current = false
+        return
+      }
 
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
-  }, [isVendorOrFounder])
+      snapshot.docChanges().forEach(async (change) => {
+        // Only care about newly added pending orders
+        if (change.type !== 'added') return
+
+        const orderId = change.doc.id
+        const orderData = change.doc.data()
+        const now = Date.now()
+
+        // Skip if we already notified for this order recently
+        if (notifiedOrderIds.current.has(orderId)) return
+        const lastTime = lastNotifyTime.current[orderId] || 0
+        if (now - lastTime < NOTIFY_COOLDOWN_MS) return
+
+        // Mark as notified
+        notifiedOrderIds.current.add(orderId)
+        lastNotifyTime.current[orderId] = now
+
+        // Get vendor push token from Firestore
+        const vendorDoc = await getDoc(doc(db, 'vendors', vendorId))
+        if (!vendorDoc.exists()) return
+
+        const token = vendorDoc.data()?.expoPushToken
+        if (!token || !token.startsWith('ExponentPushToken')) return
+
+        const customerName = orderData.customerName || 'A customer'
+
+        // Send ONE notification directly via Expo Push API
+        // No server needed — fires instantly when order arrives
+        await fetch('https://exp.host/--/api/v2/push/send', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            to: token,
+            title: `🛎️ New Order from ${customerName}`,
+            body: 'Tap Accept to confirm or View to see details.',
+            sound: 'default',
+            priority: 'high',
+            channelId: 'default',
+            categoryId: 'NEW_ORDER',   // enables Accept / View buttons in app
+            data: {
+              orderId,
+              vendorId,
+              url: `/vendor/orders/${orderId}`,
+            },
+          }),
+        })
+      })
+    })
+
+    return () => unsubscribe()
+  }, [vendorId, isVendorOrFounder])
 }

@@ -1,5 +1,6 @@
 // api/cron-push.js
-// Called by cron job to notify VENDORS about pending orders
+// Called by cron job — notifies vendors ONLY if they have real pending orders
+// Fix: checks actual pending orders per vendor + cooldown to prevent spam
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
@@ -14,14 +15,15 @@ if (!getApps().length) {
   })
 }
 
+// ── How long to wait before re-notifying same vendor (10 minutes) ──
+const COOLDOWN_MS = 10 * 60 * 1000
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-cron-secret')
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end()
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end()
 
   // Auth check — only cron job can call this
   const secret = req.query.secret || req.headers['x-cron-secret']
@@ -31,41 +33,85 @@ export default async function handler(req, res) {
 
   try {
     const db = getFirestore()
-    const vendorSnap = await db.collection('vendors').get()
+    const now = Date.now()
 
+    // ── Step 1: Get all open vendors with a valid push token ──
+    const vendorSnap = await db.collection('vendors').get()
     if (vendorSnap.empty) {
       return res.status(200).json({ message: 'No vendors found', sent: 0 })
     }
 
     const notifications = []
+    const skipped = []
 
-    vendorSnap.forEach(doc => {
+    for (const doc of vendorSnap.docs) {
       const data = doc.data()
+      const vendorId = doc.id
       const token = data.expoPushToken
-      if (!token || !token.startsWith('ExponentPushToken')) return
-      if (!data.isOpen) return
 
+      // Skip vendors with no token or who are closed
+      if (!token || !token.startsWith('ExponentPushToken')) continue
+      if (!data.isOpen) continue
+
+      // ── Step 2: Cooldown check — did we notify this vendor recently? ──
+      const lastNotified = data.lastPendingNotifiedAt?.toMillis?.() || 0
+      if (now - lastNotified < COOLDOWN_MS) {
+        skipped.push(vendorId)
+        continue
+      }
+
+      // ── Step 3: Check if vendor actually has pending orders ──
+      const pendingSnap = await db.collection('orders')
+        .where('vendorId', '==', vendorId)
+        .where('status', '==', 'pending')
+        .limit(1)
+        .get()
+
+      if (pendingSnap.empty) continue // No pending orders — skip silently
+
+      const pendingCount = pendingSnap.size
+      const orderId = pendingSnap.docs[0].id
+
+      // ── Step 4: Queue notification with real order data ──
       notifications.push({
         to: token,
-        title: '🔔 Pending Orders',
-        body: 'You may have pending orders. Check your dashboard!',
+        title: `🛎️ New Order from Customer`,
+        body: `You have ${pendingCount} pending order. Tap to accept or view.`,
         sound: 'default',
         priority: 'high',
         channelId: 'default',
+        // ✅ categoryId enables Accept / View buttons in the Expo app
+        categoryId: 'NEW_ORDER',
+        data: {
+          orderId,
+          vendorId,
+          screen: 'VendorOrders',
+          url: `/vendor/orders/${orderId}`,
+        },
       })
-    })
 
-    if (notifications.length === 0) {
-      return res.status(200).json({ message: 'No open vendors with tokens', sent: 0 })
+      // ── Step 5: Save timestamp so we don't spam this vendor ──
+      await db.collection('vendors').doc(vendorId).update({
+        lastPendingNotifiedAt: new Date(),
+      })
     }
 
+    if (notifications.length === 0) {
+      return res.status(200).json({
+        message: 'No notifications needed',
+        sent: 0,
+        skippedCooldown: skipped.length,
+      })
+    }
+
+    // ── Step 6: Send all notifications in one batch ──
     const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(notifications)
+      body: JSON.stringify(notifications),
     })
 
     const expoData = await expoRes.json()
@@ -73,7 +119,8 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       sent: notifications.length,
-      expoData
+      skippedCooldown: skipped.length,
+      expoData,
     })
 
   } catch (err) {

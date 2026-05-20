@@ -1036,7 +1036,7 @@ export default function VendorApp() {
   const [audioUnlocked, setAudioUnlocked] = useState(false)
   const prevOrderCountRef = useRef(0)
   const { startAlarm, stopAlarm, unlockAudio } = useOrderAlert()
-  usePendingOrderNotifier(true)
+  usePendingOrderNotifier(user?.uid, true)
 
   useEffect(() => {
     const unlock = () => { unlockAudio(); setAudioUnlocked(true) }
