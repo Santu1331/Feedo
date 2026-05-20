@@ -866,8 +866,7 @@ export default function UserApp() {
         address: fullAddress, paymentMode: 'COD', billNo,
         userLat, userLng, distanceKm: cartVendor.distanceKm || null,
       })
-      const vendorSnap = await getDoc(doc(db, 'vendors', cartVendor.id))
-      const vendorInfo = vendorSnap.exists() ? vendorSnap.data() : {}
+      const vendorInfo = cartVendor || {}
       setOrderSuccess({
         id: orderRef?.id || Math.random().toString(36).slice(-6).toUpperCase(),
         orderId: orderRef?.id || Math.random().toString(36).slice(-6).toUpperCase(), billNo,

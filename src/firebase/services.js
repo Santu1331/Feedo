@@ -331,28 +331,27 @@ export const placeOrder = async (orderData) => {
     createdAt: serverTimestamp()
   })
 
-  // 🔔 In-app bell notification to vendor
-  await sendNotification(orderData.vendorUid, {
+  // 🔔 In-app bell notification to vendor (non-blocking)
+  sendNotification(orderData.vendorUid, {
     title: '🔔 New Order!',
     body: `${orderData.userName} ordered ₹${orderData.total} — ${orderData.items?.map(i=>`${i.qty}x ${i.name}`).join(', ')}`,
     data: { orderId: ref.id, type: 'new_order' }
-  })
+  }).catch(err => console.error('Vendor bell notification failed:', err))
 
-  // 🔔 Expo push notification to vendor's phone
-  try {
-    const vendorToken = await getExpoPushToken(orderData.vendorUid, 'vendor')
-    if (vendorToken) {
-      const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
-      await sendExpoPushNotification({
-        expoPushToken: vendorToken,
-        title: '🔔 New Order Received!',
-        body: `₹${orderData.total} · ${itemsSummary.slice(0, 80)}`,
-        data: { orderId: ref.id, type: 'new_order', url: '/vendor' }
-      })
-    }
-  } catch (err) {
-    console.error('Vendor push notification failed:', err)
-  }
+  // 🔔 Expo push notification to vendor's phone (non-blocking)
+  getExpoPushToken(orderData.vendorUid, 'vendor')
+    .then(vendorToken => {
+      if (vendorToken) {
+        const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
+        sendExpoPushNotification({
+          expoPushToken: vendorToken,
+          title: '🔔 New Order Received!',
+          body: `₹${orderData.total} · ${itemsSummary.slice(0, 80)}`,
+          data: { orderId: ref.id, type: 'new_order', url: '/vendor' }
+        }).catch(err => console.error('Vendor push notification failed:', err))
+      }
+    })
+    .catch(err => console.error('Get vendor push token failed:', err))
 
   return ref
 }
