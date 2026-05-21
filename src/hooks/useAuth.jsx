@@ -12,7 +12,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // ✅ FIXED: saves token to BOTH users and vendors collections
+    // ✅ Saves token to BOTH users and vendors collections
     const saveToken = async (token, uid) => {
       if (!token || !uid) return
       if (!token.startsWith('ExponentPushToken')) return
@@ -28,7 +28,6 @@ export const AuthProvider = ({ children }) => {
         }, { merge: true })
 
         // ✅ If vendor — also save to vendors collection
-        // This is what usePendingOrderNotifier reads to send notifications
         if (role === 'vendor') {
           await setDoc(doc(db, 'vendors', uid), {
             expoPushToken: token,
@@ -87,36 +86,38 @@ export const AuthProvider = ({ children }) => {
         setUser(firebaseUser)
         try {
           const snap = await getDoc(doc(db, 'users', firebaseUser.uid))
-          if (snap.exists()) {
-            setUserData(snap.data())
-            const role = snap.data()?.role
+          const role = snap.exists() ? snap.data()?.role : null
 
-            // ✅ Save pending token after login — to both collections if vendor
-            if (window._pendingPushToken) {
-              try {
-                await setDoc(doc(db, 'users', firebaseUser.uid), {
+          // ✅ 1. ALWAYS save pending token, even if profile is brand new (Fixes Race Condition)
+          if (window._pendingPushToken) {
+            try {
+              await setDoc(doc(db, 'users', firebaseUser.uid), {
+                expoPushToken: window._pendingPushToken,
+                tokenUpdatedAt: serverTimestamp()
+              }, { merge: true })
+
+              // ✅ Also save to vendors if role is vendor
+              if (role === 'vendor') {
+                await setDoc(doc(db, 'vendors', firebaseUser.uid), {
                   expoPushToken: window._pendingPushToken,
                   tokenUpdatedAt: serverTimestamp()
                 }, { merge: true })
-
-                // ✅ Also save to vendors if role is vendor
-                if (role === 'vendor') {
-                  await setDoc(doc(db, 'vendors', firebaseUser.uid), {
-                    expoPushToken: window._pendingPushToken,
-                    tokenUpdatedAt: serverTimestamp()
-                  }, { merge: true })
-                  console.log('✅ Pending token saved to users + vendors after login')
-                } else {
-                  console.log('✅ Pending push token saved to users after login')
-                }
-
-                window._pendingPushToken = null
-              } catch (err) {
-                console.error('Error saving pending token:', err)
+                console.log('✅ Pending token saved to users + vendors after login')
+              } else {
+                console.log('✅ Pending push token saved to users after login')
               }
+
+              window._pendingPushToken = null
+            } catch (err) {
+              console.error('Error saving pending token:', err)
             }
+          }
+
+          // ✅ 2. Handle the rest of the user data normally
+          if (snap.exists()) {
+            setUserData(snap.data())
           } else {
-            console.warn('No Firestore profile found for UID:', firebaseUser.uid)
+            console.warn('Profile generating for UID:', firebaseUser.uid)
             setUserData(null)
           }
         } catch (err) {
