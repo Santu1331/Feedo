@@ -1,7 +1,5 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
-import { getFirestore } from 'firebase-admin/firestore'
-import { getMessaging } from 'firebase-admin/messaging'
 
 if (!getApps().length) {
   try {
@@ -10,9 +8,7 @@ if (!getApps().length) {
       if (serviceAccount.private_key) {
         serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
       }
-      initializeApp({
-        credential: cert(serviceAccount)
-      });
+      initializeApp({ credential: cert(serviceAccount) });
     } else {
       initializeApp({
         credential: cert({
@@ -24,8 +20,60 @@ if (!getApps().length) {
     }
     console.log("Firebase Admin Initialized Successfully");
   } catch (error) {
-    console.error("CRITICAL: Firebase Admin Initialization Failed:", error);
+    console.error("Firebase Admin Init Failed:", error);
   }
+}
+
+// ── Send to Expo Push API (not Firebase Messaging) ──
+async function sendExpoNotifications(notifications) {
+  const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
+  
+  const messages = notifications.map(notif => ({
+    to: notif.to,                          // Expo push token
+    title: notif.title || 'FeedoZone',
+    body: notif.body || 'You have a new message!',
+    sound: 'default',
+    priority: 'high',
+    channelId: 'default',
+    badge: 1,
+    data: notif.data || {},
+  }))
+
+  // Expo allows max 100 per request
+  const batches = []
+  for (let i = 0; i < messages.length; i += 100) {
+    batches.push(messages.slice(i, i + 100))
+  }
+
+  const allResults = []
+  for (const batch of batches) {
+    try {
+      const response = await fetch(EXPO_PUSH_URL, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          // If you have Expo access token add it:
+          // 'Authorization': `Bearer ${process.env.EXPO_ACCESS_TOKEN}`
+        },
+        body: JSON.stringify(batch)
+      })
+      const result = await response.json()
+      // result.data is array of {status: 'ok'} or {status: 'error', ...}
+      if (result.data) {
+        result.data.forEach((r, i) => {
+          allResults.push({
+            success: r.status === 'ok',
+            token: batch[i].to,
+            error: r.status !== 'ok' ? r.message : undefined
+          })
+        })
+      }
+    } catch (err) {
+      batch.forEach(b => allResults.push({ success: false, token: b.to, error: err.message }))
+    }
+  }
+  return allResults
 }
 
 export default async function handler(req, res) {
@@ -37,17 +85,17 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
-    // 1. Verify who is clicking the button
+    // Verify founder token
     const authHeader = req.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Missing token' })
     }
     const token = authHeader.split('Bearer ')[1]
     const decodedToken = await getAuth().verifyIdToken(token)
     const userEmail = decodedToken.email || ''
 
-    // 2. Check if it's the Founder
-    const founderEmail = process.env.FOUNDER_EMAIL || 'feedoadmin@gamil.com'
+    // ✅ Fixed typo: gamil → gmail
+    const founderEmail = process.env.FOUNDER_EMAIL || 'feedoadmin@gmail.com'
     if (userEmail !== founderEmail) {
       return res.status(403).json({ error: 'Only the founder can do this.' })
     }
@@ -57,63 +105,29 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No notifications provided' })
     }
 
-    // 3. Drive straight to the Post Office (Google Firebase)
-    const results = []
-    for (const notif of notifications) {
-      const dataPayload = {};
-      if (notif.data) {
-        for (const [key, val] of Object.entries(notif.data)) {
-          dataPayload[key] = String(val);
-        }
-      }
-      if (notif.categoryId) {
-        dataPayload.categoryId = String(notif.categoryId);
-      }
+    // Filter only valid Expo tokens (start with ExponentPushToken or similar)
+    const validNotifications = notifications.filter(n => 
+      n.to && typeof n.to === 'string' && n.to.trim() !== ''
+    )
 
-      const message = {
-        token: notif.to, 
-        notification: {
-          title: notif.title || 'FeedoZone Update',
-          body: notif.body || 'You have a new message!',
-        },
-        data: dataPayload,
-        android: {
-          priority: 'high',
-          notification: {
-            sound: 'default',
-            channelId: 'default',
-            clickAction: notif.categoryId || undefined,
-          }
-        },
-        apns: {
-          payload: {
-            aps: {
-              sound: 'default',
-              category: notif.categoryId || undefined,
-            }
-          }
-        }
-      };
-
-      try {
-        const response = await getMessaging().send(message);
-        results.push({ success: true, id: response });
-      } catch (err) {
-        console.error('Failed to send to a user:', err.message);
-        results.push({ success: false, error: err.message });
-      }
+    if (validNotifications.length === 0) {
+      return res.status(400).json({ error: 'No valid push tokens found' })
     }
 
+    const results = await sendExpoNotifications(validNotifications)
     const sentCount = results.filter(r => r.success).length
+
+    console.log(`Push sent: ${sentCount}/${validNotifications.length} successful`)
 
     return res.status(200).json({
       success: true,
       data: results,
-      sent: sentCount
+      sent: sentCount,
+      total: validNotifications.length
     })
 
   } catch (err) {
     console.error('Server Error:', err)
-    return res.status(500).json({ error: 'Internal Server Error' })
+    return res.status(500).json({ error: 'Internal Server Error', details: err.message })
   }
 }
