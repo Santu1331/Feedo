@@ -784,12 +784,17 @@ export default function FounderApp() {
       let sent = 0, failed = 0
       for (let bi = 0; bi < batches.length; bi++) {
         try {
-          const notifications = batches[bi].map(token => ({
-            to: token, title: pushTitle.trim(), body: pushBody.trim(),
-            sound: 'default', priority: 'high', channelId: 'default', badge: 1,
-            data: { type: 'broadcast', screen: 'Home' },
-            android: { channelId: 'default', priority: 'high', sound: 'default' },
-          }))
+         const notifications = batches[bi].map(token => ({
+  to: token,
+  title: pushTitle.trim(),
+  body: pushBody.trim(),
+  sound: 'default',
+  priority: 'high',
+  channelId: 'default',
+  badge: 1,
+  data: { type: 'broadcast', screen: 'Home' },
+  // ✅ REMOVE the android/apns fields - Expo handles these automatically
+}))
           const result = await sendPushBatch(notifications)
           if (result?.data) result.data.forEach(r => r.success ? sent++ : failed++)
           else sent += batches[bi].length
