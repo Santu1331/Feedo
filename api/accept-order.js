@@ -1,14 +1,30 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getMessaging } from 'firebase-admin/messaging'
 
 if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    })
-  })
+  try {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+      if (serviceAccount.private_key) {
+        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+      }
+      initializeApp({
+        credential: cert(serviceAccount)
+      });
+    } else {
+      initializeApp({
+        credential: cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        })
+      });
+    }
+    console.log("Firebase Admin Initialized Successfully");
+  } catch (error) {
+    console.error("CRITICAL: Firebase Admin Initialization Failed:", error);
+  }
 }
 
 export default async function handler(req, res) {
@@ -55,28 +71,38 @@ export default async function handler(req, res) {
         createdAt: FieldValue.serverTimestamp()
       })
 
-      // 3. Send Push Notification to Customer (via Expo)
+      // 3. Send Push Notification to Customer (via FCM)
       const userDoc = await db.collection('users').doc(userUid).get()
       const userPushToken = userDoc.exists ? userDoc.data()?.expoPushToken : null
-      if (userPushToken && userPushToken.startsWith('ExponentPushToken')) {
+      if (userPushToken && typeof userPushToken === 'string' && userPushToken.trim() !== '') {
         try {
-          await fetch('https://exp.host/--/api/v2/push/send', {
-            method: 'POST',
-            headers: {
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              to: userPushToken,
+          const message = {
+            token: userPushToken,
+            notification: {
               title: '✅ Order Accepted!',
               body: `${orderData.vendorName || 'The restaurant'} accepted your order 🎉`,
-              sound: 'default',
+            },
+            data: {
+              orderId: String(orderId),
+              type: 'order_status',
+              url: '/orders'
+            },
+            android: {
               priority: 'high',
-              channelId: 'default',
-              badge: 1,
-              data: { orderId, type: 'order_status', url: '/orders' }
-            })
-          })
+              notification: {
+                sound: 'default',
+                channelId: 'default'
+              }
+            },
+            apns: {
+              payload: {
+                aps: {
+                  sound: 'default'
+                }
+              }
+            }
+          };
+          await getMessaging().send(message);
         } catch (pushErr) {
           console.error('Failed to send push notification to customer:', pushErr)
         }

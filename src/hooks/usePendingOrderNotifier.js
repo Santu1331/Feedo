@@ -58,7 +58,7 @@ export const usePendingOrderNotifier = (vendorId = null, isVendorOrFounder = fal
         if (!vendorDoc.exists()) return
 
         const token = vendorDoc.data()?.expoPushToken
-        if (!token || !token.startsWith('ExponentPushToken')) return
+        if (!token || typeof token !== 'string' || token.trim() === '') return
 
         const customerName = orderData.userName || orderData.customerName || 'A customer'
 

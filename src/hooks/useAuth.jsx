@@ -44,7 +44,7 @@ export const AuthProvider = ({ children }) => {
 
     const handleToken = (e) => {
       const token = e.detail || e.data
-      if (token && typeof token === 'string' && token.startsWith('ExponentPushToken')) {
+      if (token && typeof token === 'string' && token.trim() !== '') {
         console.log('📱 Token received from native app:', token)
         const currentUser = auth.currentUser
         if (currentUser) {
@@ -67,7 +67,7 @@ export const AuthProvider = ({ children }) => {
     // Check localStorage as fallback
     try {
       const stored = localStorage.getItem('expoPushToken')
-      if (stored && stored.startsWith('ExponentPushToken')) {
+      if (stored && typeof stored === 'string' && stored.trim() !== '') {
         handleToken({ detail: stored })
       }
     } catch (e) {}

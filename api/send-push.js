@@ -5,16 +5,26 @@ import { getMessaging } from 'firebase-admin/messaging'
 
 if (!getApps().length) {
   try {
-    // 1. Read the entire JSON file straight from Vercel
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-
-    // 2. Initialize using the perfect JSON object
-    initializeApp({
-      credential: cert(serviceAccount)
-    });
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+      if (serviceAccount.private_key) {
+        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+      }
+      initializeApp({
+        credential: cert(serviceAccount)
+      });
+    } else {
+      initializeApp({
+        credential: cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        })
+      });
+    }
     console.log("Firebase Admin Initialized Successfully");
   } catch (error) {
-    console.error("CRITICAL: Failed to parse Firebase Service Account JSON", error);
+    console.error("CRITICAL: Firebase Admin Initialization Failed:", error);
   }
 }
 
@@ -50,15 +60,38 @@ export default async function handler(req, res) {
     // 3. Drive straight to the Post Office (Google Firebase)
     const results = []
     for (const notif of notifications) {
+      const dataPayload = {};
+      if (notif.data) {
+        for (const [key, val] of Object.entries(notif.data)) {
+          dataPayload[key] = String(val);
+        }
+      }
+      if (notif.categoryId) {
+        dataPayload.categoryId = String(notif.categoryId);
+      }
+
       const message = {
         token: notif.to, 
         notification: {
           title: notif.title || 'FeedoZone Update',
           body: notif.body || 'You have a new message!',
         },
-        data: {
-          orderId: String(notif.data?.orderId || ''),
-          url: String(notif.data?.url || '')
+        data: dataPayload,
+        android: {
+          priority: 'high',
+          notification: {
+            sound: 'default',
+            channelId: 'default',
+            clickAction: notif.categoryId || undefined,
+          }
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              category: notif.categoryId || undefined,
+            }
+          }
         }
       };
 

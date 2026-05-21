@@ -55,9 +55,9 @@ export const useNotifications = (uid, role) => {
       const token = e.detail;
       if (token) {
         try {
-          await setDoc(doc(db, 'users', uid), { expoPushToken: expoToken }, { merge: true })
+          await setDoc(doc(db, 'users', uid), { expoPushToken: token }, { merge: true })
           if (role === 'vendor') {
-          await setDoc(doc(db, 'vendors', uid), { expoPushToken: expoToken }, { merge: true })
+            await setDoc(doc(db, 'vendors', uid), { expoPushToken: token }, { merge: true })
           }
         } catch (err) {
           console.error('Error saving Expo token dynamically:', err)

@@ -110,8 +110,7 @@ export const saveUserLocation = async (uid, lat, lng) => {
 
 // ── EXPO PUSH NOTIFICATIONS ───────────────────────────────────────────────
 export const sendExpoPushNotification = async ({ expoPushToken, title, body, data = {} }) => {
-  if (!expoPushToken) return
-  if (!expoPushToken.startsWith('ExponentPushToken')) return
+  if (!expoPushToken || typeof expoPushToken !== 'string' || expoPushToken.trim() === '') return
   try {
     const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : ''
     await fetch('/api/send-push', {
@@ -434,7 +433,7 @@ export const sendBroadcastNotification = async (title, body) => {
     const tokens = []
     snap.forEach(docSnap => {
       const token = docSnap.data().expoPushToken
-      if (token && token.startsWith('ExponentPushToken')) {
+      if (token && typeof token === 'string' && token.trim() !== '') {
         tokens.push(token)
       }
     })

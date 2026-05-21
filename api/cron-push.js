@@ -4,15 +4,31 @@
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
+import { getMessaging } from 'firebase-admin/messaging'
 
 if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    })
-  })
+  try {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+      if (serviceAccount.private_key) {
+        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+      }
+      initializeApp({
+        credential: cert(serviceAccount)
+      });
+    } else {
+      initializeApp({
+        credential: cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        })
+      });
+    }
+    console.log("Firebase Admin Initialized Successfully");
+  } catch (error) {
+    console.error("CRITICAL: Firebase Admin Initialization Failed:", error);
+  }
 }
 
 // ── How long to wait before re-notifying same vendor (10 minutes) ──
@@ -51,7 +67,7 @@ export default async function handler(req, res) {
       const token = data.expoPushToken
 
       // Skip vendors with no token or who are closed
-      if (!token || !token.startsWith('ExponentPushToken')) continue
+      if (!token || typeof token !== 'string' || token.trim() === '') continue
       if (!data.isOpen) continue
 
       // ── Step 2: Cooldown check — did we notify this vendor recently? ──
@@ -113,23 +129,55 @@ export default async function handler(req, res) {
       })
     }
 
-    // ── Step 6: Send all notifications in one batch ──
-    const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(notifications),
-    })
+    // ── Step 6: Send all notifications in one batch via FCM ──
+    const fcmMessages = notifications.map(notif => {
+      const dataPayload = {};
+      if (notif.data) {
+        for (const [key, val] of Object.entries(notif.data)) {
+          dataPayload[key] = String(val);
+        }
+      }
+      if (notif.categoryId) {
+        dataPayload.categoryId = String(notif.categoryId);
+      }
+      return {
+        token: notif.to,
+        notification: {
+          title: notif.title,
+          body: notif.body,
+        },
+        data: dataPayload,
+        android: {
+          priority: 'high',
+          notification: {
+            sound: 'default',
+            channelId: 'default',
+            clickAction: notif.categoryId || undefined,
+          }
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              category: notif.categoryId || undefined,
+            }
+          }
+        }
+      };
+    });
 
-    const expoData = await expoRes.json()
+    const fcmResponse = await getMessaging().sendEach(fcmMessages);
+    console.log(`FCM batch sent: ${fcmResponse.successCount} success, ${fcmResponse.failureCount} failure`);
 
     return res.status(200).json({
       success: true,
       sent: notifications.length,
       skippedCooldown: skipped.length,
-      expoData,
+      fcmResponse: {
+        successCount: fcmResponse.successCount,
+        failureCount: fcmResponse.failureCount,
+        responses: fcmResponse.responses.map(r => ({ success: r.success, error: r.error?.message || null }))
+      },
     })
 
   } catch (err) {
