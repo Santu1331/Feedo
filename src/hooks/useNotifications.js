@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { doc, updateDoc } from 'firebase/firestore'
+import { doc, setDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 
 export const useNotifications = (uid, role) => {
@@ -20,11 +20,11 @@ export const useNotifications = (uid, role) => {
         }
 
         if (expoToken) {
-          await updateDoc(doc(db, 'users', uid), { expoPushToken: expoToken })
-          if (role === 'vendor') {
-            await updateDoc(doc(db, 'vendors', uid), { expoPushToken: expoToken })
+          await setDoc(doc(db, 'users', uid), { expoPushToken: expoToken }, { merge: true })
+            if (role === 'vendor') {
+          await setDoc(doc(db, 'vendors', uid), { expoPushToken: expoToken }, { merge: true })
+            }
           }
-        }
 
         // 2. Setup Web Notifications (Safe check for browser environment)
         if (typeof window !== 'undefined' && 'Notification' in window && navigator.serviceWorker) {
