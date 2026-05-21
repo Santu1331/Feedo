@@ -8,8 +8,17 @@ export const useNotifications = (uid, role) => {
 
     const saveTokens = async () => {
       try {
-        // 1. Capture and save Expo Push Token (Injected by Mobile App)
-        const expoToken = window.expoPushToken || localStorage.getItem('expoPushToken')
+        // 1. Safely capture Expo Push Token without crashing the WebView
+        let expoToken = window.expoPushToken;
+        if (!expoToken) {
+          try {
+            // This is what usually crashes WebViews if not wrapped in try/catch!
+            expoToken = localStorage.getItem('expoPushToken');
+          } catch (storageErr) {
+            console.log('WebView blocked localStorage access, relying on window injection.');
+          }
+        }
+
         if (expoToken) {
           await updateDoc(doc(db, 'users', uid), { expoPushToken: expoToken })
           if (role === 'vendor') {
@@ -17,8 +26,8 @@ export const useNotifications = (uid, role) => {
           }
         }
 
-        // 2. Setup Web Notifications (For desktop/browser users)
-        if ('Notification' in window && navigator.serviceWorker) {
+        // 2. Setup Web Notifications (Safe check for browser environment)
+        if (typeof window !== 'undefined' && 'Notification' in window && navigator.serviceWorker) {
           const permission = await Notification.requestPermission()
           if (permission === 'granted') {
             const { getMessaging, getToken } = await import('firebase/messaging')
@@ -39,10 +48,9 @@ export const useNotifications = (uid, role) => {
       }
     }
 
-    // Run the token saving logic
     saveTokens()
 
-    // 3. Listen for dynamic token injection (in case WebView loads faster than Expo token generation)
+    // 3. Listen for dynamic token injection
     const handleExpoTokenInjected = async (e) => {
       const token = e.detail;
       if (token) {
@@ -57,10 +65,7 @@ export const useNotifications = (uid, role) => {
       }
     }
     
-    // The mobile app dispatches this custom event in App.js
     window.addEventListener('expoPushToken', handleExpoTokenInjected)
-    
-    // Cleanup listener on unmount
     return () => window.removeEventListener('expoPushToken', handleExpoTokenInjected)
 
   }, [uid, role])
