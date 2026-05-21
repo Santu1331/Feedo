@@ -1,17 +1,25 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
-import { getMessaging } from 'firebase-admin/messaging' // <-- THIS WAS THE MISSING KEY!
+import { getMessaging } from 'firebase-admin/messaging'
 
 if (!getApps().length) {
+  // 1. Grab the key from Vercel
+  let rawKey = process.env.FIREBASE_PRIVATE_KEY || '';
+  
+  // 2. Clean the key: remove rogue quotes and fix Vercel's broken newlines
+  const cleanPrivateKey = rawKey.replace(/"/g, '').replace(/\\n/g, '\n');
+
   initializeApp({
     credential: cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      privateKey: cleanPrivateKey, // Use the cleaned key!
     })
   })
 }
+
+// ... (keep the rest of your export default async function handler exactly the same!)
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
