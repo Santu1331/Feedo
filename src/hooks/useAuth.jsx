@@ -15,7 +15,7 @@ export const AuthProvider = ({ children }) => {
     // ✅ Saves token to BOTH users and vendors collections
     const saveToken = async (token, uid) => {
       if (!token || !uid) return
-      if (!token.startsWith('ExponentPushToken')) return
+      
       try {
         // Get user role first so we know which collections to update
         const userSnap = await getDoc(doc(db, 'users', uid))

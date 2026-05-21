@@ -102,27 +102,47 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── 4. Send Notifications ──
+
+    // ── 4. Send Notifications via Direct FCM ──
     const results = []
+    
     for (const notif of notifications) {
-      const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
+      // Structure the payload exactly how Google FCM wants it
+      const message = {
+        token: notif.to, // This is now the raw FCM token from your database
+        notification: {
+          title: notif.title,
+          body: notif.body,
         },
-        body: JSON.stringify(notif)
-      })
-      const data = await expoRes.json()
-      results.push(data)
+        data: {
+          orderId: notif.data?.orderId || '',
+          url: notif.data?.url || '',
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'default', // Matches your App.js channel
+            sound: 'default'
+          }
+        }
+      };
+
+      try {
+        // Send directly from your Vercel backend to Google Firebase
+        const response = await getMessaging().send(message);
+        results.push({ success: true, messageId: response });
+      } catch (error) {
+        console.error('FCM Send Error:', error);
+        results.push({ success: false, error: error.message });
+      }
     }
 
-    const sent = results.filter(r => r.data?.status === 'ok').length
+    const sent = results.filter(r => r.success).length
 
     return res.status(200).json({
       success: true,
       data: results,
-      sent: sent || notifications.length
+      sent: sent
     })
 
   } catch (err) {
