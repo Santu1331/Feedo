@@ -4,22 +4,19 @@ import { getFirestore } from 'firebase-admin/firestore'
 import { getMessaging } from 'firebase-admin/messaging'
 
 if (!getApps().length) {
-  // 1. Grab the key from Vercel
-  let rawKey = process.env.FIREBASE_PRIVATE_KEY || '';
-  
-  // 2. Clean the key: remove rogue quotes and fix Vercel's broken newlines
-  const cleanPrivateKey = rawKey.replace(/"/g, '').replace(/\\n/g, '\n');
+  try {
+    // 1. Read the entire JSON file straight from Vercel
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 
-  initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: cleanPrivateKey, // Use the cleaned key!
-    })
-  })
+    // 2. Initialize using the perfect JSON object
+    initializeApp({
+      credential: cert(serviceAccount)
+    });
+    console.log("Firebase Admin Initialized Successfully");
+  } catch (error) {
+    console.error("CRITICAL: Failed to parse Firebase Service Account JSON", error);
+  }
 }
-
-// ... (keep the rest of your export default async function handler exactly the same!)
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -60,7 +57,6 @@ export default async function handler(req, res) {
           body: notif.body || 'You have a new message!',
         },
         data: {
-          // Google strictly requires these to be Strings (Text), not numbers!
           orderId: String(notif.data?.orderId || ''),
           url: String(notif.data?.url || '')
         }
