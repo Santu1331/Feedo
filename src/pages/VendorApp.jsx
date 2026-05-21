@@ -1092,7 +1092,7 @@ export default function VendorApp() {
   useEffect(() => {
     if (!user?.uid) return
     const saveToken = async (token) => {
-      if (token && typeof token === 'string' && token.startsWith('ExponentPushToken')) await saveExpoPushToken(user.uid, token, 'vendor')
+      if (token && typeof token === 'string' && token.trim() !== '') await saveExpoPushToken(user.uid, token, 'vendor')
     }
     if (window.expoPushToken) saveToken(window.expoPushToken)
     try { const stored = localStorage.getItem('expoPushToken'); if (stored) saveToken(stored) } catch(e) {}

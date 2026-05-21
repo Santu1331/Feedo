@@ -563,7 +563,7 @@ export default function UserApp() {
   useEffect(() => {
     if (!user?.uid) return
     const saveToken = async (token) => {
-      if (token && typeof token === 'string' && token.startsWith('ExponentPushToken')) {
+      if (token && typeof token === 'string' && token.trim() !== '') {
         await saveExpoPushToken(user.uid, token, 'user')
       }
     }
@@ -577,7 +577,7 @@ export default function UserApp() {
   useEffect(() => {
     if (!user?.uid) return
     const token = window.expoPushToken || localStorage.getItem('expoPushToken')
-    if (token && token.startsWith('ExponentPushToken')) saveExpoPushToken(user.uid, token, 'user')
+    if (token && typeof token === 'string' && token.trim() !== '') saveExpoPushToken(user.uid, token, 'user')
   }, [user?.uid])
 
   useEffect(() => {

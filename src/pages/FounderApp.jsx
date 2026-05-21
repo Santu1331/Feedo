@@ -643,7 +643,7 @@ export default function FounderApp() {
     } else if (filterType === 'with_email') {
       list = list.filter(u => u.email)
     } else if (filterType === 'with_token') {
-      list = list.filter(u => u.expoPushToken && u.expoPushToken.startsWith('ExponentPushToken'))
+      list = list.filter(u => u.expoPushToken && typeof u.expoPushToken === 'string' && u.expoPushToken.trim() !== '')
     } else if (filterType === 'active') {
       const activeUids = new Set(orders.filter(o => o.createdAt?.toDate?.() > thirtyAgo).map(o => o.userUid))
       list = list.filter(u => activeUids.has(u.id))
@@ -768,7 +768,7 @@ export default function FounderApp() {
   }
 
   const getPushTargetCount = (t) => getPushTargetUsers(t, pushTown).length
-  const usersWithTokenCount = users.filter(u => u.expoPushToken && u.expoPushToken.startsWith('ExponentPushToken')).length
+  const usersWithTokenCount = users.filter(u => u.expoPushToken && typeof u.expoPushToken === 'string' && u.expoPushToken.trim() !== '').length
 
   const handleSendPush = async () => {
     if (!pushTitle.trim()) return toast.error('Enter a notification title')
@@ -776,7 +776,7 @@ export default function FounderApp() {
     setSendingPush(true); setPushProgress(0); setPushDone(null)
     try {
       const targetUsers = getPushTargetUsers(pushTarget, pushTown)
-      const usersWithTokens = targetUsers.filter(u => u.expoPushToken && u.expoPushToken.startsWith('ExponentPushToken'))
+      const usersWithTokens = targetUsers.filter(u => u.expoPushToken && typeof u.expoPushToken === 'string' && u.expoPushToken.trim() !== '')
       const noToken = targetUsers.length - usersWithTokens.length
       if (usersWithTokens.length === 0) { toast.error('No users have push tokens!'); setSendingPush(false); return }
       const tokens = usersWithTokens.map(u => u.expoPushToken)
@@ -791,7 +791,7 @@ export default function FounderApp() {
             android: { channelId: 'default', priority: 'high', sound: 'default' },
           }))
           const result = await sendPushBatch(notifications)
-          if (result?.data) result.data.forEach(r => r.status === 'ok' ? sent++ : failed++)
+          if (result?.data) result.data.forEach(r => r.success ? sent++ : failed++)
           else sent += batches[bi].length
         } catch { failed += batches[bi].length }
         setPushProgress(Math.round(((bi + 1) / batches.length) * 100))
@@ -818,8 +818,8 @@ export default function FounderApp() {
       const myUser = users.find(u => u.email === user?.email)
       targetToken = myUser?.expoPushToken || ''
     }
-    if (!targetToken || !targetToken.startsWith('ExponentPushToken')) {
-      toast.error("Please enter a valid Expo Push Token or install the app to register your phone.")
+    if (!targetToken || typeof targetToken !== 'string' || targetToken.trim().length === 0) {
+      toast.error("Please enter a valid Push Token or install the app to register your phone.")
       return
     }
     try {
@@ -831,7 +831,7 @@ export default function FounderApp() {
         data: { type: 'test' },
         android: { channelId: 'default', priority: 'high', sound: 'default' },
       }])
-      if (result?.data?.[0]?.status === 'ok') toast.success('✅ Test push sent!')
+      if (result?.data?.[0]?.success) toast.success('✅ Test push sent!')
       else toast.error('Test push error: ' + JSON.stringify(result?.data?.[0]))
     } catch (err) { toast.error('Test failed: ' + err.message) }
   }
@@ -1829,7 +1829,7 @@ export default function FounderApp() {
               <div style={{ marginBottom: 8 }}>
                 <input
                   type="text"
-                  placeholder="Paste ExponentPushToken[...] here to test directly"
+                  placeholder="Paste Push Token here to test directly"
                   value={customTestToken}
                   onChange={e => setCustomTestToken(e.target.value)}
                   style={{
