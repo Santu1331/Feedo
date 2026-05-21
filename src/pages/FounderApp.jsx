@@ -840,7 +840,6 @@ export default function FounderApp() {
       else toast.error('Test push error: ' + JSON.stringify(result?.data?.[0]))
     } catch (err) { toast.error('Test failed: ' + err.message) }
   }
-
   // ── BROADCAST HELPERS ─────────────────────────────────────────────────
   const getBroadcastUsers = () => {
     if (broadcastTarget === 'all') return users
