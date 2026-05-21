@@ -21,7 +21,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
-    // ── Verify Authorization Token ──
+    // ── 1. Verify Authorization Token ──
     const authHeader = req.headers.authorization
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Missing or invalid Authorization header' })
@@ -29,28 +29,31 @@ export default async function handler(req, res) {
     const token = authHeader.split('Bearer ')[1]
     const decodedToken = await getAuth().verifyIdToken(token)
     const uid = decodedToken.uid
+    const userEmail = decodedToken.email || ''
 
-    // ── Verify User Role (Must be Founder, Vendor, or Customer) ──
-    const db = getFirestore()
+    // ── 2. Determine Role (Email Bypass FIRST) ──
     let role = 'user'
-    try {
-      const userDoc = await db.collection('users').doc(uid).get()
-      if (userDoc.exists) {
-        role = userDoc.data()?.role || 'user'
-      } else {
-        return res.status(403).json({ error: 'Access denied: Profile not found' })
-      }
-    } catch (dbErr) {
-      console.error('Firestore read error in send-push, falling back to email checks:', dbErr)
-      const userEmail = decodedToken.email || ''
-      if (
-        userEmail === 'feedozone2030@gmail.com' ||
-        userEmail.includes('founder') ||
-        userEmail.endsWith('@feedozone.com')
-      ) {
-        role = 'founder'
-      } else {
-        return res.status(403).json({ error: 'Access denied: Firestore down and email unauthorized' })
+
+    // HARDCODED FOUNDER CHECK: Bypasses the database entirely
+  const founderEmail = process.env.FOUNDER_EMAIL || 'feedoadmin@gamil.com'; 
+
+    if (userEmail === founderEmail) {
+      role = 'founder'
+      console.log('✅ Founder access granted securely for:', userEmail)
+    }
+    // If not the founder, rely on the database for standard users/vendors
+    else {
+      try {
+        const db = getFirestore()
+        const userDoc = await db.collection('users').doc(uid).get()
+        if (userDoc.exists) {
+          role = userDoc.data()?.role || 'user'
+        } else {
+          return res.status(403).json({ error: 'Access denied: Profile not found' })
+        }
+      } catch (dbErr) {
+        console.error('Firestore read error:', dbErr)
+        return res.status(403).json({ error: 'Access denied: Database is currently unavailable' })
       }
     }
 
@@ -59,12 +62,13 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No notifications provided' })
     }
 
-    // ── Verify authorization context for each notification ──
+    // ── 3. Verify authorization context for regular users (Founders bypass this) ──
     if (role !== 'founder') {
+      const db = getFirestore()
       for (const notif of notifications) {
         const orderId = notif.data?.orderId
         if (!orderId) {
-          return res.status(400).json({ error: 'Access denied: orderId is required in data payload for verification' })
+          return res.status(400).json({ error: 'Access denied: orderId is required' })
         }
         
         // Fetch order details
@@ -74,17 +78,15 @@ export default async function handler(req, res) {
         }
         const orderData = orderDoc.data()
 
-        // Caller must be either the customer (userUid) or the vendor (vendorUid) for this order
+        // Caller must be customer or vendor
         const isCustomer = orderData.userUid === uid
         const isVendor = orderData.vendorUid === uid
 
         if (!isCustomer && !isVendor) {
-          return res.status(403).json({ error: 'Access denied: You are not authorized to send notifications for this order' })
+          return res.status(403).json({ error: 'Access denied: Unauthorized for this order' })
         }
 
-        // Validate destination token:
-        // If caller is the customer, the target token ('to' field) must match the vendor's push token.
-        // If caller is the vendor, the target token ('to' field) must match the customer's push token.
+        // Validate destination token
         let expectedToken = ''
         if (isCustomer) {
           const vendorDoc = await db.collection('vendors').doc(orderData.vendorUid).get()
@@ -95,12 +97,12 @@ export default async function handler(req, res) {
         }
 
         if (!expectedToken || notif.to !== expectedToken) {
-          return res.status(403).json({ error: 'Access denied: Destination push token mismatch or recipient token missing' })
+          return res.status(403).json({ error: 'Access denied: Destination mismatch' })
         }
       }
     }
 
-    // Send ONE BY ONE instead of as array
+    // ── 4. Send Notifications ──
     const results = []
     for (const notif of notifications) {
       const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {
@@ -109,7 +111,7 @@ export default async function handler(req, res) {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(notif)  // ← single object, not array
+        body: JSON.stringify(notif)
       })
       const data = await expoRes.json()
       results.push(data)
