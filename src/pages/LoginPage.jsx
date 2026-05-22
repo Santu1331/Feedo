@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { loginUser, logoutUser } from '../firebase/services'
-import { createUserWithEmailAndPassword, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup } from 'firebase/auth'
+import { createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase/config'
 import toast from 'react-hot-toast'
@@ -23,60 +23,11 @@ export default function LoginPage() {
   const [showPrivacyModal, setShowPrivacyModal] = useState(false)
 
   const [loading, setLoading] = useState(false)
-  const [googleLoading, setGoogleLoading] = useState(false)
 
   const resetFields = () => {
     setEmail(''); setPassword(''); setName(''); setMobile('')
     setAddress(''); setCity(''); setCollege(''); setPincode('')
     setAgreedToTerms(false)
-  }
-
-  // ── GOOGLE SIGN-IN ──
-  const handleGoogleSignIn = async () => {
-    if (role === 'vendor') return toast.error('Google sign-in is not available for restaurants.')
-    setGoogleLoading(true)
-    try {
-      const provider = new GoogleAuthProvider()
-      const cred = await signInWithPopup(auth, provider)
-      const uid = cred.user.uid
-      const snap = await getDoc(doc(db, 'users', uid))
-
-      if (snap.exists()) {
-        // Existing user — just log in
-        const userData = snap.data()
-        if (userData.role !== 'user') {
-          await logoutUser()
-          toast.error('This account does not have user access.')
-          setGoogleLoading(false); return
-        }
-        toast.success(`Welcome back, ${userData.name || cred.user.displayName || ''}! 👋`)
-      } else {
-        // New user — create Firestore doc
-        const displayName = cred.user.displayName || ''
-        await setDoc(doc(db, 'users', uid), {
-          uid,
-          name: displayName,
-          email: cred.user.email,
-          mobile: '',
-          address: '',
-          city: '',
-          college: '',
-          pincode: '',
-          role: 'user',
-          createdAt: new Date().toISOString(),
-        })
-        toast.success(`Welcome to FeedoZone, ${displayName.split(' ')[0] || 'there'}! 🎉`)
-      }
-
-      setTimeout(() => { window.location.href = '/home' }, 500)
-    } catch (err) {
-      if (err.code === 'auth/popup-closed-by-user') {
-        // User cancelled — no toast needed
-      } else {
-        toast.error('Google sign-in failed. Try again.')
-      }
-      setGoogleLoading(false)
-    }
   }
 
   // ── FORGOT PASSWORD ──
@@ -234,22 +185,111 @@ export default function LoginPage() {
     </div>
   )
 
-  // ── Google Button SVG icon ──
-  const GoogleIcon = () => (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#4285F4"/>
-      <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z" fill="#34A853"/>
-      <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z" fill="#FBBC05"/>
-      <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z" fill="#EA4335"/>
-    </svg>
-  )
+  // ── PLAY STORE BANNER ──
+  const PlayStoreBanner = () => (
+    <div
+      onClick={() => window.open('https://play.google.com/store/apps/details?id=com.feedozone.app2024', '_blank')}
+      style={{
+        marginTop: 24,
+        borderRadius: 16,
+        overflow: 'hidden',
+        cursor: 'pointer',
+        position: 'relative',
+        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        boxShadow: '0 4px 20px rgba(226,75,74,0.2)',
+      }}
+    >
+      {/* Top glow accent */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+        background: 'linear-gradient(90deg, #E24B4A, #ff8c42, #E24B4A)',
+      }} />
 
-  // ── Divider ──
-  const Divider = ({ label }) => (
-    <div style={{ display:'flex', alignItems:'center', gap:10, margin:'4px 0' }}>
-      <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
-      <span style={{ fontSize:11, color:'#9ca3af', whiteSpace:'nowrap' }}>{label}</span>
-      <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
+      <div style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+
+        {/* App Icon */}
+        <div style={{
+          width: 56, height: 56, borderRadius: 14, flexShrink: 0,
+          background: '#E24B4A',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 2px 10px rgba(226,75,74,0.4)',
+        }}>
+          <span style={{ fontSize: 26 }}>🍔</span>
+        </div>
+
+        {/* Text Content */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#ffffff', fontFamily: 'Poppins, sans-serif' }}>
+              FeedoZone
+            </span>
+            <span style={{
+              fontSize: 9, fontWeight: 600, color: '#4ade80',
+              background: 'rgba(74,222,128,0.15)', padding: '2px 7px',
+              borderRadius: 20, border: '1px solid rgba(74,222,128,0.3)',
+              fontFamily: 'Poppins, sans-serif', letterSpacing: 0.5,
+            }}>
+              FREE
+            </span>
+          </div>
+
+          <div style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'Poppins, sans-serif', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Order food. Fast. Simple. Local. 🚀
+          </div>
+
+          {/* Star Rating */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ display: 'flex', gap: 1 }}>
+              {[1,2,3,4,5].map(i => (
+                <span key={i} style={{ fontSize: 10, color: i <= 4 ? '#facc15' : '#475569' }}>★</span>
+              ))}
+            </div>
+            <span style={{ fontSize: 10, color: '#64748b', fontFamily: 'Poppins, sans-serif' }}>4.5 · Food & Drink</span>
+          </div>
+        </div>
+
+        {/* Play Store Badge */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          gap: 3, flexShrink: 0,
+        }}>
+          <div style={{
+            background: '#E24B4A', borderRadius: 10, padding: '8px 14px',
+            display: 'flex', alignItems: 'center', gap: 6,
+            boxShadow: '0 2px 8px rgba(226,75,74,0.35)',
+          }}>
+            {/* Google Play triangle icon */}
+            <svg width="13" height="14" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 1.5L11.5 7L1 12.5V1.5Z" fill="white" stroke="white" strokeWidth="0.5" strokeLinejoin="round"/>
+            </svg>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', fontFamily: 'Poppins, sans-serif', whiteSpace: 'nowrap' }}>
+              Get App
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            {/* Google Play "G" colors */}
+            <svg width="10" height="10" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3.18 23.4c.36.2.77.3 1.2.3.3 0 .6-.06.88-.16L14.5 12 5.26.46A2.55 2.55 0 0 0 3.18.6C2.46 1 2 1.8 2 2.7v18.6c0 .9.46 1.7 1.18 2.1z" fill="#4285F4"/>
+              <path d="M22 12l-3.96-2.27-4.54 4.54 4.54 4.54L22 16.4c.63-.36 1-.99 1-1.7 0-.7-.37-1.33-1-1.7z" fill="#FBBC05"/>
+              <path d="M4.38.46L14.5 12l3.54-3.54L5.26.14A2.54 2.54 0 0 0 4.38.46z" fill="#EA4335"/>
+              <path d="M4.38 23.54l12.66-7.08L14.5 12 4.38 23.54z" fill="#34A853"/>
+            </svg>
+            <span style={{ fontSize: 9, color: '#64748b', fontFamily: 'Poppins, sans-serif' }}>Google Play</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom strip */}
+      <div style={{
+        background: 'rgba(255,255,255,0.04)',
+        borderTop: '1px solid rgba(255,255,255,0.07)',
+        padding: '7px 18px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+      }}>
+        <span style={{ fontSize: 10, color: '#64748b', fontFamily: 'Poppins, sans-serif' }}>
+          📲 Download for a better experience
+        </span>
+      </div>
     </div>
   )
 
@@ -265,7 +305,6 @@ export default function LoginPage() {
       {/* ── FORGOT PASSWORD SCREEN ── */}
       {isForgotMode ? (
         <div>
-          {/* Back button */}
           <button onClick={() => { setMode('login'); resetFields() }} style={{
             display:'flex', alignItems:'center', gap:6, background:'none', border:'none',
             color:'#6b7280', fontSize:13, cursor:'pointer', fontFamily:'Poppins, sans-serif',
@@ -304,6 +343,8 @@ export default function LoginPage() {
               Back to Login
             </span>
           </p>
+
+          <PlayStoreBanner />
         </div>
       ) : (
         <>
@@ -362,7 +403,11 @@ export default function LoginPage() {
               <input type="email" placeholder="Email address *" value={email} onChange={e => setEmail(e.target.value)} style={inp} />
               <input type="password" placeholder="Create password (min 6 chars) *" value={password} onChange={e => setPassword(e.target.value)} style={inp} />
 
-              <Divider label="📍 Address Details (optional)" />
+              <div style={{ display:'flex', alignItems:'center', gap:10, margin:'4px 0' }}>
+                <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
+                <span style={{ fontSize:11, color:'#9ca3af', whiteSpace:'nowrap' }}>📍 Address Details (optional)</span>
+                <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
+              </div>
 
               <input type="text" placeholder="Full address (room no, building...)" value={address} onChange={e => setAddress(e.target.value)} style={inp} />
               <div style={{ display:'flex', gap:10 }}>
@@ -410,23 +455,12 @@ export default function LoginPage() {
                 {loading ? 'Creating Account...' : 'Create Account 🚀'}
               </button>
 
-              {/* Google Sign-up */}
-              <Divider label="or sign up with" />
-              <button type="button" onClick={handleGoogleSignIn} disabled={googleLoading} style={{
-                width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:10,
-                background:'#fff', border:'1.5px solid #e5e7eb', padding:13, borderRadius:10,
-                fontSize:14, fontWeight:600, cursor: googleLoading ? 'not-allowed' : 'pointer',
-                fontFamily:'Poppins, sans-serif', color:'#1f2937',
-                boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
-              }}>
-                <GoogleIcon />
-                {googleLoading ? 'Signing in...' : 'Continue with Google'}
-              </button>
-
               <p style={{ textAlign:'center', fontSize:12, color:'#6b7280', margin:'4px 0 0' }}>
                 Already have an account?{' '}
                 <span onClick={() => { setMode('login'); resetFields() }} style={{ color:'#E24B4A', cursor:'pointer', fontWeight:600 }}>Login here</span>
               </p>
+
+              <PlayStoreBanner />
             </form>
           )}
 
@@ -438,7 +472,6 @@ export default function LoginPage() {
                 value={email} onChange={e => setEmail(e.target.value)} style={inp} />
               <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} style={inp} />
 
-              {/* Forgot Password link — only for user role */}
               {role === 'user' && (
                 <div style={{ textAlign:'right', marginTop:-4 }}>
                   <span
@@ -458,29 +491,14 @@ export default function LoginPage() {
                 {loading ? 'Verifying...' : `Login as ${role === 'vendor' ? 'Restaurant' : 'User'}`}
               </button>
 
-              {/* Google Sign-in — only for user */}
-              {role === 'user' && (
-                <>
-                  <Divider label="or continue with" />
-                  <button type="button" onClick={handleGoogleSignIn} disabled={googleLoading} style={{
-                    width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:10,
-                    background:'#fff', border:'1.5px solid #e5e7eb', padding:13, borderRadius:10,
-                    fontSize:14, fontWeight:600, cursor: googleLoading ? 'not-allowed' : 'pointer',
-                    fontFamily:'Poppins, sans-serif', color:'#1f2937',
-                    boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
-                  }}>
-                    <GoogleIcon />
-                    {googleLoading ? 'Signing in...' : 'Continue with Google'}
-                  </button>
-                </>
-              )}
-
               {role === 'user' && (
                 <p style={{ textAlign:'center', fontSize:12, color:'#6b7280', margin:'4px 0 0' }}>
                   New to FeedoZone?{' '}
                   <span onClick={() => { setMode('signup'); resetFields() }} style={{ color:'#E24B4A', cursor:'pointer', fontWeight:600 }}>Create account</span>
                 </p>
               )}
+
+              <PlayStoreBanner />
             </form>
           )}
 

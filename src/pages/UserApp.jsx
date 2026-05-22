@@ -30,6 +30,7 @@ function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
 }
 
 const MAX_DELIVERY_KM = 4
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.feedozone.app2024'
 
 const S = {
   shell: { maxWidth:430, margin:'0 auto', background:'#f7f7f7', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' },
@@ -52,7 +53,6 @@ const CATEGORIES = [
   { id:'Rice',    emoji:'🍛',  label:'Rice' },
 ]
 
-// ─── Price filter config ──────────────────────────────────────────────────────
 const PRICE_CHIPS = [
   { id:'all',    label:'All',       min:0,   max:Infinity },
   { id:'u50',    label:'Under ₹50', min:0,   max:50 },
@@ -101,6 +101,283 @@ function useCancelCountdown(order) {
   return secondsLeft
 }
 
+// ─── App Download Banner Component ───────────────────────────────────────────
+function AppDownloadBanner({ onDismiss }) {
+  const [dismissed, setDismissed] = useState(false)
+  const [animIn, setAnimIn] = useState(false)
+
+  useEffect(() => {
+    const wasDismissed = localStorage.getItem('feedo_app_banner_dismissed')
+    if (wasDismissed) { setDismissed(true); return }
+    setTimeout(() => setAnimIn(true), 100)
+  }, [])
+
+  const handleDismiss = () => {
+    localStorage.setItem('feedo_app_banner_dismissed', '1')
+    setAnimIn(false)
+    setTimeout(() => { setDismissed(true); onDismiss?.() }, 300)
+  }
+
+  if (dismissed) return null
+
+  return (
+    <>
+      <style>{`
+        @keyframes bannerSlideDown {
+          from { transform: translateY(-100%); opacity: 0; }
+          to   { transform: translateY(0);     opacity: 1; }
+        }
+        @keyframes bannerSlideUp {
+          from { transform: translateY(0);     opacity: 1; }
+          to   { transform: translateY(-100%); opacity: 0; }
+        }
+        @keyframes shimmer {
+          0%   { background-position: -200% center; }
+          100% { background-position:  200% center; }
+        }
+        @keyframes floatBadge {
+          0%, 100% { transform: translateY(0px) rotate(-3deg); }
+          50%       { transform: translateY(-4px) rotate(-3deg); }
+        }
+        .app-banner-in  { animation: bannerSlideDown 0.4s cubic-bezier(0.34,1.2,0.64,1) forwards; }
+        .app-banner-out { animation: bannerSlideUp   0.3s ease-in forwards; }
+      `}</style>
+      <div
+        className={animIn ? 'app-banner-in' : 'app-banner-out'}
+        style={{
+          margin: '0 16px 14px',
+          borderRadius: 18,
+          overflow: 'hidden',
+          boxShadow: '0 8px 28px rgba(226,75,74,0.25), 0 2px 8px rgba(0,0,0,0.1)',
+          position: 'relative',
+        }}
+      >
+        {/* Gradient background */}
+        <div style={{
+          background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f3460 70%, #E24B4A 100%)',
+          padding: '16px 16px 14px',
+          position: 'relative',
+          overflow: 'hidden',
+        }}>
+          {/* Decorative circles */}
+          <div style={{ position:'absolute', top:-20, right:-20, width:100, height:100, borderRadius:'50%', background:'rgba(255,255,255,0.04)', pointerEvents:'none' }} />
+          <div style={{ position:'absolute', bottom:-30, left:-10, width:80, height:80, borderRadius:'50%', background:'rgba(226,75,74,0.15)', pointerEvents:'none' }} />
+
+          {/* Dismiss button */}
+          <button
+            onClick={handleDismiss}
+            style={{
+              position:'absolute', top:10, right:10,
+              background:'rgba(255,255,255,0.15)', border:'none', borderRadius:'50%',
+              width:24, height:24, fontSize:12, cursor:'pointer', color:'#fff',
+              display:'flex', alignItems:'center', justifyContent:'center',
+              fontFamily:'Poppins', zIndex:2,
+            }}
+          >✕</button>
+
+          {/* Top badge */}
+          <div style={{
+            display:'inline-flex', alignItems:'center', gap:5,
+            background:'rgba(255,255,255,0.12)', borderRadius:20,
+            padding:'3px 10px', marginBottom:10,
+            borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,255,255,0.2)',
+          }}>
+            <div style={{ width:6, height:6, borderRadius:'50%', background:'#4ade80', animation:'floatBadge 2s ease-in-out infinite' }} />
+            <span style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.9)', letterSpacing:0.5 }}>NOW ON PLAY STORE</span>
+          </div>
+
+          <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+            {/* App icon */}
+            <div style={{
+              width:60, height:60, borderRadius:16, flexShrink:0,
+              background:'linear-gradient(135deg,#E24B4A,#ff6b6a)',
+              display:'flex', alignItems:'center', justifyContent:'center',
+              fontSize:28, boxShadow:'0 4px 16px rgba(226,75,74,0.5)',
+              borderWidth:2, borderStyle:'solid', borderColor:'rgba(255,255,255,0.2)',
+            }}>
+              🍽️
+            </div>
+
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:16, fontWeight:800, color:'#fff', lineHeight:1.2, marginBottom:3 }}>
+                FeedoZone App
+              </div>
+              <div style={{ fontSize:11, color:'rgba(255,255,255,0.75)', lineHeight:1.5, marginBottom:6 }}>
+                Order faster • Track live • Get notified instantly
+              </div>
+              {/* Star rating */}
+              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                <div style={{ display:'flex', gap:1 }}>
+                  {[1,2,3,4,5].map(s => (
+                    <span key={s} style={{ fontSize:11, color:'#fbbf24' }}>★</span>
+                  ))}
+                </div>
+                <span style={{ fontSize:10, color:'rgba(255,255,255,0.65)', fontWeight:600 }}>4.8 · 1K+ downloads</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Feature pills */}
+          <div style={{ display:'flex', gap:6, marginTop:12, flexWrap:'wrap' }}>
+            {['🔔 Live Tracking','⚡ Faster Orders','💳 Easy Payments'].map(feat => (
+              <div key={feat} style={{
+                background:'rgba(255,255,255,0.1)', borderRadius:20, padding:'4px 10px',
+                borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,255,255,0.15)',
+              }}>
+                <span style={{ fontSize:10, fontWeight:600, color:'rgba(255,255,255,0.9)' }}>{feat}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Download button */}
+          <a
+            href={PLAY_STORE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ textDecoration:'none' }}
+          >
+            <div style={{
+              marginTop:14,
+              background: 'linear-gradient(90deg, #34d399, #10b981)',
+              borderRadius:12, padding:'12px 16px',
+              display:'flex', alignItems:'center', justifyContent:'space-between',
+              cursor:'pointer', boxShadow:'0 4px 16px rgba(16,185,129,0.4)',
+              transition:'transform 0.15s',
+            }}
+            onMouseDown={e => e.currentTarget.style.transform='scale(0.97)'}
+            onMouseUp={e => e.currentTarget.style.transform='scale(1)'}
+            onTouchStart={e => e.currentTarget.style.transform='scale(0.97)'}
+            onTouchEnd={e => e.currentTarget.style.transform='scale(1)'}
+            >
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                {/* Google Play icon SVG */}
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path d="M3.18 23.76c.38.22.82.22 1.2 0l12.1-7.01-2.64-2.64L3.18 23.76z" fill="#EA4335"/>
+                  <path d="M20.82 10.24a1.38 1.38 0 000-2.38L17.9 6.24l-2.9 2.9 2.9 2.9 2.92-1.8z" fill="#FBBC05"/>
+                  <path d="M3.18.24C2.8.02 2.36.02 1.98.24A1.38 1.38 0 001.2 1.44v19.12c0 .5.27.96.78 1.2L13.84 12 3.18.24z" fill="#4285F4"/>
+                  <path d="M4.38.24L15.02 10.9l-2.9 2.9 2.9 2.9L17.9 15.5l-13.52-7.8V.24c0-.5-.27-.96-.78-1.2z" fill="#34A853"/>
+                </svg>
+                <div>
+                  <div style={{ fontSize:9, color:'rgba(255,255,255,0.85)', letterSpacing:0.5, lineHeight:1 }}>GET IT ON</div>
+                  <div style={{ fontSize:15, fontWeight:800, color:'#fff', lineHeight:1.3, letterSpacing:0.2 }}>Google Play</div>
+                </div>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(255,255,255,0.2)', borderRadius:20, padding:'5px 12px' }}>
+                <span style={{ fontSize:11, fontWeight:800, color:'#fff' }}>FREE</span>
+                <span style={{ fontSize:11, color:'rgba(255,255,255,0.8)' }}>↗</span>
+              </div>
+            </div>
+          </a>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ─── Compact App Download Strip (for profile page) ────────────────────────────
+function AppDownloadStrip() {
+  return (
+    <a
+      href={PLAY_STORE_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ textDecoration:'none', display:'block', marginBottom:16 }}
+    >
+      <div style={{
+        background:'linear-gradient(135deg,#1a1a2e,#E24B4A)',
+        borderRadius:14, padding:'14px 16px',
+        display:'flex', alignItems:'center', gap:14,
+        boxShadow:'0 4px 16px rgba(226,75,74,0.3)',
+        cursor:'pointer',
+      }}>
+        <div style={{
+          width:48, height:48, borderRadius:12, background:'rgba(255,255,255,0.15)',
+          display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0,
+        }}>🍽️</div>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:'#fff', marginBottom:2 }}>Download FeedoZone App</div>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.75)' }}>Available on Google Play Store 🚀</div>
+        </div>
+        <div style={{
+          background:'#fff', borderRadius:20, padding:'6px 12px',
+          display:'flex', alignItems:'center', gap:4, flexShrink:0,
+        }}>
+          <span style={{ fontSize:11, fontWeight:800, color:'#E24B4A' }}>Download</span>
+          <span style={{ fontSize:11, color:'#E24B4A' }}>↗</span>
+        </div>
+      </div>
+    </a>
+  )
+}
+
+// ─── Floating App Download Pill (bottom of home screen) ──────────────────────
+function FloatingDownloadPill() {
+  const [show, setShow] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
+
+  useEffect(() => {
+    const was = localStorage.getItem('feedo_pill_dismissed')
+    if (was) { setDismissed(true); return }
+    const t = setTimeout(() => setShow(true), 4000)
+    return () => clearTimeout(t)
+  }, [])
+
+  if (dismissed || !show) return null
+
+  return (
+    <>
+      <style>{`
+        @keyframes pillBounce {
+          0%   { transform: translateX(-50%) translateY(80px); opacity:0; }
+          60%  { transform: translateX(-50%) translateY(-6px); opacity:1; }
+          80%  { transform: translateX(-50%) translateY(3px); }
+          100% { transform: translateX(-50%) translateY(0px); opacity:1; }
+        }
+        .feedo-pill { animation: pillBounce 0.6s cubic-bezier(0.34,1.3,0.64,1) forwards; }
+      `}</style>
+      <div
+        className="feedo-pill"
+        style={{
+          position:'fixed', bottom:72, left:'50%',
+          zIndex:500, display:'flex', alignItems:'center', gap:10,
+          background:'linear-gradient(135deg,#1a1a2e,#0f3460)',
+          borderRadius:50, padding:'10px 16px 10px 12px',
+          boxShadow:'0 8px 28px rgba(0,0,0,0.3), 0 2px 8px rgba(226,75,74,0.3)',
+          borderWidth:1.5, borderStyle:'solid', borderColor:'rgba(226,75,74,0.4)',
+          cursor:'pointer',
+        }}
+      >
+        <div style={{
+          width:36, height:36, borderRadius:10, background:'#E24B4A',
+          display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0,
+        }}>🍽️</div>
+        <a
+          href={PLAY_STORE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration:'none' }}
+        >
+          <div style={{ fontSize:12, fontWeight:700, color:'#fff', lineHeight:1.2 }}>Get the App</div>
+          <div style={{ fontSize:10, color:'rgba(255,255,255,0.7)' }}>Download on Play Store ↗</div>
+        </a>
+        <button
+          onClick={e => {
+            e.stopPropagation()
+            localStorage.setItem('feedo_pill_dismissed','1')
+            setDismissed(true)
+          }}
+          style={{
+            background:'rgba(255,255,255,0.12)', border:'none', borderRadius:'50%',
+            width:22, height:22, fontSize:10, cursor:'pointer', color:'#fff',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            marginLeft:4, flexShrink:0,
+          }}
+        >✕</button>
+      </div>
+    </>
+  )
+}
+
 // ─── Zomato-style Price Filter Bottom Sheet ───────────────────────────────────
 function PriceFilterSheet({ onClose, priceChip, setPriceChip, priceSort, setPriceSort, menuMaxPrice, priceSliderMax, setPriceSliderMax }) {
   const sliderCeiling = Math.ceil((menuMaxPrice || 500) / 50) * 50
@@ -117,7 +394,6 @@ function PriceFilterSheet({ onClose, priceChip, setPriceChip, priceSort, setPric
       `}</style>
       <div className="price-sheet" style={{ background:'#fff', borderRadius:'22px 22px 0 0', maxWidth:430, width:'100%', margin:'0 auto', overflow:'hidden', maxHeight:'82vh' }}>
 
-        {/* Handle + Header */}
         <div style={{ display:'flex', justifyContent:'center', paddingTop:10, paddingBottom:4 }}>
           <div style={{ width:38, height:4, borderRadius:2, background:'#e5e7eb' }} />
         </div>
@@ -140,7 +416,6 @@ function PriceFilterSheet({ onClose, priceChip, setPriceChip, priceSort, setPric
         <div style={{ height:1, background:'#f3f4f6' }} />
         <div style={{ overflowY:'auto', padding:'20px 20px 32px', display:'flex', flexDirection:'column', gap:24 }}>
 
-          {/* ── SORT BY ── */}
           <div>
             <div style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:12, textTransform:'uppercase', letterSpacing:0.5 }}>Sort By</div>
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
@@ -172,7 +447,6 @@ function PriceFilterSheet({ onClose, priceChip, setPriceChip, priceSort, setPric
             </div>
           </div>
 
-          {/* ── PRICE RANGE ── */}
           <div>
             <div style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:12, textTransform:'uppercase', letterSpacing:0.5 }}>Price Range</div>
             <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
@@ -199,7 +473,6 @@ function PriceFilterSheet({ onClose, priceChip, setPriceChip, priceSort, setPric
             </div>
           </div>
 
-          {/* ── MAX PRICE SLIDER ── */}
           <div>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
               <div style={{ fontSize:12, fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:0.5 }}>Max Price</div>
@@ -227,7 +500,6 @@ function PriceFilterSheet({ onClose, priceChip, setPriceChip, priceSort, setPric
           </div>
         </div>
 
-        {/* ── APPLY BUTTON ── */}
         <div style={{ padding:'12px 20px 24px', borderTop:'1px solid #f3f4f6' }}>
           <button
             onClick={onClose}
@@ -517,16 +789,13 @@ export default function UserApp() {
   const [showPrivacy, setShowPrivacy] = useState(false)
   const [menuCatFilter, setMenuCatFilter] = useState('All')
 
-  // ── Variant picker state ──────────────────────────────────────────────────
   const [variantPickerItem, setVariantPickerItem] = useState(null)
 
-  // ── Price filter state ────────────────────────────────────────────────────
   const [showPriceSheet, setShowPriceSheet] = useState(false)
   const [priceChip, setPriceChip] = useState('all')
   const [priceSort, setPriceSort] = useState('default')
   const [priceSliderMax, setPriceSliderMax] = useState(999)
 
-  // ── Show closed vendors toggle ────────────────────────────────────────────
   const [showClosedVendors, setShowClosedVendors] = useState(false)
 
   const [showSupportChat, setShowSupportChat] = useState(false)
@@ -686,7 +955,6 @@ export default function UserApp() {
   useEffect(() => {
     if (!selectedVendor) return
     setMenuItems([]); setVendorCombos([])
-    // Reset price filters when switching vendor
     setPriceChip('all'); setPriceSort('default'); setPriceSliderMax(999)
     const u1 = getMenuItems(selectedVendor.id, setMenuItems)
     const u2 = getCombos(selectedVendor.id, (combos) => {
@@ -911,7 +1179,6 @@ export default function UserApp() {
     } catch { setReviews([]) }
   }
 
-  // ── Vendor list: open first, closed filtered by toggle ──
   const allFilteredVendors = vendors
     .filter(v => {
       const matchCat = catFilter === 'All' || v.category === catFilter || (catFilter !== 'All' && v.customCategories?.includes(catFilter))
@@ -1192,6 +1459,13 @@ export default function UserApp() {
               <button onClick={() => setShowMap(true)} style={{ background:'#E24B4A', border:'none', color:'#fff', padding:'5px 10px', borderRadius:8, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>🗺️ Map</button>
             </div>
 
+            {/* ══════════════════════════════════════════
+                ── APP DOWNLOAD BANNER (Home Tab) ──
+            ══════════════════════════════════════════ */}
+            <div style={{ paddingTop:14 }}>
+              <AppDownloadBanner />
+            </div>
+
             {searchQuery.trim() && (
               <div style={{ padding:'10px 16px 0', fontSize:12, color:'#6b7280' }}>
                 {filteredVendors.length===0 ? `No results for "${searchQuery}"` : `${filteredVendors.length} result${filteredVendors.length>1?'s':''} for "${searchQuery}"`}
@@ -1221,7 +1495,6 @@ export default function UserApp() {
             <div style={{ padding:'12px 16px 6px', fontSize:15, fontWeight:600, color:'#1f2937', display:'flex', alignItems:'center', gap:6 }}>
               {searchQuery.trim() ? '🔍 Search Results' : t('Restaurants Near You','तुमच्या जवळची रेस्टॉरंट')}
               <span style={{ fontSize:11, color:'#16a34a', fontWeight:400 }}>· within {MAX_DELIVERY_KM}km</span>
-              {/* ── closed count pill ── */}
               {closedVendors.length > 0 && !showClosedVendors && (
                 <span style={{ fontSize:10, color:'#6b7280', background:'#f3f4f6', borderRadius:20, padding:'2px 8px', marginLeft:'auto' }}>
                   {closedVendors.length} closed
@@ -1229,7 +1502,6 @@ export default function UserApp() {
               )}
             </div>
 
-            {/* ── Open vendor count ── */}
             {openVendors.length === 0 && !searchQuery && (
               <div style={{ textAlign:'center', padding:'40px 24px', color:'#9ca3af' }}>
                 <div style={{ fontSize:40, marginBottom:10 }}>🗺️</div>
@@ -1301,7 +1573,6 @@ export default function UserApp() {
                 )
               })}
 
-              {/* ── Show / Hide Closed Toggle ── */}
               {closedVendors.length > 0 && openVendors.length > 0 && (
                 <div style={{ marginBottom:16 }}>
                   <button
@@ -1351,7 +1622,6 @@ export default function UserApp() {
             : null
           const dynamicCharge = calcDeliveryCharge(vendorDist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
 
-          // ── compute max price for slider ceiling ──
           const availableItemsAll = menuItems.filter(i => i.available !== false)
           const menuMaxPrice = availableItemsAll.reduce((max, item) => {
             if (item.hasVariants && item.variants?.length) {
@@ -1362,7 +1632,6 @@ export default function UserApp() {
           }, 100)
           const sliderCeiling = Math.ceil(menuMaxPrice / 50) * 50 || 500
 
-          // ── sync sliderMax on first menu load ──
           const effectiveSliderMax = priceSliderMax >= 999 ? sliderCeiling : priceSliderMax
 
           const getItemPrice = (item) => {
@@ -1402,7 +1671,7 @@ export default function UserApp() {
                 <span style={{ fontSize:12, color:'#6b7280' }}>🕐 Your delivery is coming shortly</span>
                 <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px' }}>🚚 {dynamicCharge === 0 ? 'Free delivery 🎉' : `₹${dynamicCharge} delivery`}</span>
                 {selectedVendor.distanceBasedDelivery && vendorDist !== null && <span style={{ fontSize:10, fontWeight:600, background:'#eff6ff', color:'#3b82f6', borderRadius:6, padding:'2px 7px' }}>📍 Distance-based</span>}
-                {vendorDist !== null && <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>📍 {vendorDist < 1 ? `${Math.round(vendorDist*1000)}m away` : `${vendorDist.toFixed(1)}km away`}</span>}
+                {vendorDist !== null && <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>📍 {vendorDist < 1 ? `${vendorDist*1000|0}m away` : `${vendorDist.toFixed(1)}km away`}</span>}
                 {Number(selectedVendor.minOrderAmount) > 0 && <span style={{ fontSize:11, fontWeight:700, background:'#dbeafe', color:'#1e40af', borderRadius:6, padding:'3px 8px', display:'inline-flex', alignItems:'center', gap:3 }}>🛒 Min. order ₹{selectedVendor.minOrderAmount}</span>}
               </div>
 
@@ -1451,7 +1720,6 @@ export default function UserApp() {
                         </div>
                       )}
 
-                      {/* ── CATEGORY TABS ── */}
                       {cats.length > 1 && (
                         <div style={{ overflowX:'auto', paddingBottom:2 }}>
                           <div style={{ display:'flex', gap:8, padding:'8px 16px', width:'max-content' }}>
@@ -1474,12 +1742,8 @@ export default function UserApp() {
                         </div>
                       )}
 
-                      {/* ════════════════════════════════════════
-                          ── ZOMATO-STYLE FILTER BAR (new!) ──
-                      ════════════════════════════════════════ */}
                       {menuCatFilter !== '__combos__' && (
                         <div style={{ padding:'10px 16px 8px', display:'flex', gap:8, alignItems:'center', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
-                          {/* Filter / Sort button */}
                           <button
                             onClick={() => setShowPriceSheet(true)}
                             style={{
@@ -1500,7 +1764,6 @@ export default function UserApp() {
                             )}
                           </button>
 
-                          {/* Quick active filter badges (read-only, tap × to remove) */}
                           <div style={{ display:'flex', gap:6, overflowX:'auto', flex:1 }}>
                             {priceChip !== 'all' && (
                               <div style={{ display:'flex', alignItems:'center', gap:4, background:'#fff0f0', borderRadius:20, padding:'5px 10px', flexShrink:0, borderWidth:1, borderStyle:'solid', borderColor:'#fecaca' }}>
@@ -1522,7 +1785,6 @@ export default function UserApp() {
                             )}
                           </div>
 
-                          {/* Item count */}
                           {isPriceFiltered && (
                             <span style={{ fontSize:11, color:'#9ca3af', flexShrink:0 }}>{filteredItems.length} items</span>
                           )}
@@ -1978,6 +2240,12 @@ export default function UserApp() {
               <div style={{ fontSize:12, opacity:0.85, marginTop:3 }}>{user?.email}</div>
               {locationName && <div style={{ fontSize:11, opacity:0.8, marginTop:4 }}>📍 {locationName}</div>}
             </div>
+
+            {/* ══════════════════════════════════════
+                ── APP DOWNLOAD STRIP (Profile) ──
+            ══════════════════════════════════════ */}
+            <AppDownloadStrip />
+
             <div style={{ background:'#fafafa', borderRadius:12, padding:'4px 16px', marginBottom:16 }}>
               {[{icon:'👤',label:'Full Name',value:userData?.name},{icon:'📧',label:'Email',value:userData?.email||user?.email},{icon:'📱',label:'Mobile',value:userData?.mobile?`+91 ${userData.mobile}`:null},{icon:'🏠',label:'Address',value:userData?.address},{icon:'📍',label:'Delivery Location',value:locationName},{icon:'📅',label:'Member Since',value:userData?.createdAt?new Date(userData.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'}):null}].map(row=>(
                 <div key={row.label} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
@@ -2200,6 +2468,12 @@ export default function UserApp() {
           setPriceSliderMax={setPriceSliderMax}
         />
       )}
+
+      {/* ══════════════════════════════════════
+          ── FLOATING DOWNLOAD PILL ──
+          (appears 4 sec after home load)
+      ══════════════════════════════════════ */}
+      {tab === 'home' && <FloatingDownloadPill />}
     </div>
   )
 }
