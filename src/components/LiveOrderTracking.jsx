@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { db } from '../firebase/config'
 import { doc, onSnapshot } from 'firebase/firestore'
+import { useT } from '../i18n/LanguageContext'
 
 const escapeHtml = (unsafe) => {
   if (!unsafe || typeof unsafe !== 'string') return unsafe || ''
@@ -106,6 +107,7 @@ function drawDashedLine(L, map, from, to, color = '#E24B4A') {
 
 // ─────────────────────────────────────────────
 export default function LiveOrderTracking({ order, userLat, userLng, onClose }) {
+  const t = useT()
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
   const riderMarkerRef = useRef(null)
@@ -125,12 +127,12 @@ export default function LiveOrderTracking({ order, userLat, userLng, onClose }) 
   const currentStep = STATUS_STEPS.indexOf(order?.status ?? 'pending')
 
   const STEP_META = [
-    { key: 'pending', icon: '📋', label: 'Placed' },
-    { key: 'accepted', icon: '✅', label: 'Accepted' },
-    { key: 'preparing', icon: '👨‍🍳', label: 'Cooking' },
-    { key: 'ready', icon: '🎉', label: 'Ready' },
-    { key: 'out_for_delivery', icon: '🛵', label: 'On Way' },
-    { key: 'delivered', icon: '✅', label: 'Done' },
+    { key: 'pending', icon: '📋', label: t('track.placed') },
+    { key: 'accepted', icon: '✅', label: t('track.accepted') },
+    { key: 'preparing', icon: '👨‍🍳', label: t('track.preparing') },
+    { key: 'ready', icon: '🎉', label: t('track.ready') },
+    { key: 'out_for_delivery', icon: '🛵', label: t('track.on_the_way') },
+    { key: 'delivered', icon: '✅', label: t('track.delivered') },
   ]
 
   // ── Listen to order doc for riderLocation + riderName + riderPhone ──
@@ -466,11 +468,11 @@ export default function LiveOrderTracking({ order, userLat, userLng, onClose }) 
             </div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#1f2937' }}>{STEP_META[currentStep]?.label}</div>
             <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 5 }}>
-              {order?.status === 'pending' && 'Waiting for restaurant to accept your order...'}
-              {order?.status === 'accepted' && 'Great! Restaurant accepted your order.'}
-              {order?.status === 'preparing' && 'Chef is preparing your delicious meal!'}
-              {order?.status === 'ready' && 'Your order is packed and ready for pickup!'}
-              {isDelivered && 'Enjoy your meal! 😋'}
+              {order?.status === 'pending' && t('track.waiting_accept')}
+              {order?.status === 'accepted' && t('track.accepted_msg')}
+              {order?.status === 'preparing' && t('track.preparing_msg')}
+              {order?.status === 'ready' && t('track.ready_msg')}
+              {isDelivered && t('track.delivered_msg')}
             </div>
             {order?.status === 'preparing' && order?.prepTime && (
               <div style={{ marginTop: 12, background: '#fff7ed', borderRadius: 10, padding: '8px 14px', display: 'inline-block', border: '1px solid #fed7aa' }}>
@@ -482,18 +484,54 @@ export default function LiveOrderTracking({ order, userLat, userLng, onClose }) 
 
         {/* ── CANCELLED STATE ── */}
         {isCancelled && (
-          <div style={{ background: '#fee2e2', borderRadius: 16, padding: 20, marginBottom: 12, textAlign: 'center', border: '1px solid #fca5a5' }}>
-            <div style={{ fontSize: 40, marginBottom: 8 }}>❌</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#dc2626' }}>Order Cancelled</div>
-            <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
-              {order?.cancelledBy === 'vendor' ? 'Cancelled by the restaurant' : order?.cancelledBy === 'user' ? 'You cancelled this order' : 'This order was cancelled'}
-            </div>
-            {order?.cancellationReason && (
-              <div style={{ marginTop: 12, background: 'rgba(255,255,255,0.7)', borderRadius: 10, padding: '10px 14px', border: '1px solid #fca5a5', textAlign: 'left' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', marginBottom: 4, letterSpacing: 0.5 }}>REASON</div>
-                <div style={{ fontSize: 13, color: '#7f1d1d', fontWeight: 500, lineHeight: 1.5 }}>{order.cancellationReason}</div>
+          <div style={{ background: '#fff', borderRadius: 16, marginBottom: 12, overflow: 'hidden', boxShadow: '0 4px 20px rgba(220,38,38,0.18)', border: '1.5px solid #fca5a5' }}>
+            {/* Hero */}
+            <div style={{ background: 'linear-gradient(135deg,#dc2626,#991b1b)', padding: '20px 18px 22px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', right: -20, top: -20, fontSize: 110, opacity: 0.08 }}>🚫</div>
+              <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, margin: '0 auto 10px', border: '3px solid rgba(255,255,255,0.3)' }}>❌</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#fff', letterSpacing: -0.3 }}>{t('track.order_cancelled')}</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', marginTop: 4 }}>
+                {order?.cancelledBy === 'vendor'
+                  ? (order?.rejectionType === 'reject' ? t('track.rejected_by_vendor') : t('track.cancelled_by_vendor'))
+                  : order?.cancelledBy === 'user'
+                    ? t('track.cancelled_by_user')
+                    : t('track.cancelled_default')}
               </div>
-            )}
+            </div>
+
+            {/* Reason — main highlight */}
+            <div style={{ padding: '18px 18px 6px' }}>
+              <div style={{ background: '#fff5f5', borderLeft: '4px solid #dc2626', borderRadius: 12, padding: '14px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <span style={{ fontSize: 16 }}>📋</span>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', letterSpacing: 0.6 }}>
+                    {t('track.reason_label')}
+                  </div>
+                </div>
+                {order?.cancellationReason ? (
+                  <div style={{ fontSize: 14, color: '#7f1d1d', fontWeight: 500, lineHeight: 1.6 }}>
+                    "{order.cancellationReason}"
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, color: '#9ca3af', fontStyle: 'italic', lineHeight: 1.5 }}>
+                    {t('track.no_reason')}
+                  </div>
+                )}
+                {order?.cancelledAt?.toDate?.() && (
+                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
+                    🕐 {order.cancelledAt.toDate().toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer note */}
+            <div style={{ padding: '12px 18px 18px' }}>
+              <div style={{ background: '#eff6ff', borderRadius: 10, padding: '10px 12px', fontSize: 12, color: '#1e40af', lineHeight: 1.6, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <span style={{ fontSize: 14, flexShrink: 0 }}>💡</span>
+                <div>{t('track.cancel_note')}</div>
+              </div>
+            </div>
           </div>
         )}
 

@@ -13,6 +13,7 @@ import toast from 'react-hot-toast'
 import { useOrderAlert } from '../hooks/useOrderAlert'
 import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
 import FounderBill from '../components/FounderBill'
+import Pagination from '../components/Pagination'
 
 const PUSH_URL = '/api/send-push'
 
@@ -312,6 +313,17 @@ function VendorReorderModal({ vendors, onClose, onSave }) {
 export default function FounderApp() {
   const { user } = useAuth()
   const [tab, setTab] = useState('overview')
+
+  // ── Responsive: desktop on ≥1024px, mobile-style below ────────────────
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : false
+  )
+  useEffect(() => {
+    const onResize = () => setIsDesktop(window.innerWidth >= 1024)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
   const [orders, setOrders] = useState([])
   const [vendors, setVendors] = useState([])
   const [creating, setCreating] = useState(false)
@@ -339,6 +351,28 @@ export default function FounderApp() {
 
   const [analyticsTab, setAnalyticsTab] = useState('overview')
   const [orderFilter, setOrderFilter] = useState('all')
+
+  // ── Orders tab: filters & pagination ─────────────────────────────────
+  const [orderSearch, setOrderSearch] = useState('')
+  const [orderDateRange, setOrderDateRange] = useState('all') // all | today | week | month | custom
+  const [orderDateFrom, setOrderDateFrom] = useState('')
+  const [orderDateTo, setOrderDateTo] = useState('')
+  const [orderPriceMin, setOrderPriceMin] = useState('')
+  const [orderPriceMax, setOrderPriceMax] = useState('')
+  const [orderVendorFilter, setOrderVendorFilter] = useState('all')
+  const [orderSort, setOrderSort] = useState('newest') // newest | oldest | high | low
+  const [showOrderFilters, setShowOrderFilters] = useState(false)
+  const [orderPage, setOrderPage] = useState(1)
+  const [orderPageSize, setOrderPageSize] = useState(20)
+
+  // ── Pagination state for other lists ─────────────────────────────────
+  const [vendorPage, setVendorPage] = useState(1)
+  const [vendorPageSize, setVendorPageSize] = useState(20)
+  const [customerPage, setCustomerPage] = useState(1)
+  const [customerPageSize, setCustomerPageSize] = useState(20)
+  const [userDbPage, setUserDbPage] = useState(1)
+  const [userDbPageSize, setUserDbPageSize] = useState(20)
+
   const [users, setUsers] = useState([])
   const [selectedTown, setSelectedTown] = useState('all')
 
@@ -493,6 +527,120 @@ export default function FounderApp() {
   const filteredVendors = selectedTown === 'all'
     ? sortedVendors
     : sortedVendors.filter(v => (v.town || v.locationName) === selectedTown)
+
+  // ── ORDERS: apply filters + sort ─────────────────────────────────────
+  const filteredOrders = (() => {
+    let list = [...orders]
+
+    // Status filter (existing chip)
+    if (orderFilter !== 'all') {
+      if (orderFilter === 'preparing') {
+        list = list.filter(o => o.status === 'preparing' || o.status === 'accepted')
+      } else {
+        list = list.filter(o => o.status === orderFilter)
+      }
+    }
+
+    // Vendor filter
+    if (orderVendorFilter !== 'all') {
+      list = list.filter(o => o.vendorUid === orderVendorFilter || o.vendorName === orderVendorFilter)
+    }
+
+    // Search (id, customer name, vendor name, address, phone)
+    const q = orderSearch.trim().toLowerCase()
+    if (q) {
+      list = list.filter(o =>
+        (o.id || '').toLowerCase().includes(q) ||
+        (o.billNo || '').toLowerCase().includes(q) ||
+        (o.userName || '').toLowerCase().includes(q) ||
+        (o.userPhone || '').toLowerCase().includes(q) ||
+        (o.vendorName || '').toLowerCase().includes(q) ||
+        (o.address || '').toLowerCase().includes(q)
+      )
+    }
+
+    // Price range
+    if (orderPriceMin !== '' && !Number.isNaN(Number(orderPriceMin))) {
+      list = list.filter(o => (o.total || 0) >= Number(orderPriceMin))
+    }
+    if (orderPriceMax !== '' && !Number.isNaN(Number(orderPriceMax))) {
+      list = list.filter(o => (o.total || 0) <= Number(orderPriceMax))
+    }
+
+    // Date range
+    const inRange = (d, from, to) => {
+      if (!d) return false
+      if (from && d < from) return false
+      if (to && d > to) return false
+      return true
+    }
+    const startOfDay = (date) => { const x = new Date(date); x.setHours(0, 0, 0, 0); return x }
+    const endOfDay   = (date) => { const x = new Date(date); x.setHours(23, 59, 59, 999); return x }
+
+    if (orderDateRange !== 'all') {
+      const now = new Date()
+      let from = null
+      let to = null
+      if (orderDateRange === 'today') {
+        from = startOfDay(now); to = endOfDay(now)
+      } else if (orderDateRange === 'week') {
+        from = startOfDay(new Date(now.getTime() - 7 * 86400000))
+        to = endOfDay(now)
+      } else if (orderDateRange === 'month') {
+        from = startOfDay(new Date(now.getTime() - 30 * 86400000))
+        to = endOfDay(now)
+      } else if (orderDateRange === 'custom') {
+        if (orderDateFrom) from = startOfDay(new Date(orderDateFrom))
+        if (orderDateTo)   to   = endOfDay(new Date(orderDateTo))
+      }
+      list = list.filter(o => {
+        const d = o.createdAt?.toDate?.()
+        return inRange(d, from, to)
+      })
+    }
+
+    // Sort
+    list.sort((a, b) => {
+      const da = a.createdAt?.toDate?.()?.getTime() || 0
+      const db = b.createdAt?.toDate?.()?.getTime() || 0
+      if (orderSort === 'newest') return db - da
+      if (orderSort === 'oldest') return da - db
+      if (orderSort === 'high')   return (b.total || 0) - (a.total || 0)
+      if (orderSort === 'low')    return (a.total || 0) - (b.total || 0)
+      return db - da
+    })
+
+    return list
+  })()
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => { setOrderPage(1) }, [
+    orderFilter, orderSearch, orderDateRange, orderDateFrom, orderDateTo,
+    orderPriceMin, orderPriceMax, orderVendorFilter, orderSort
+  ])
+
+  useEffect(() => { setVendorPage(1) }, [selectedTown])
+
+  useEffect(() => { setCustomerPage(1) }, [customerFilter, customerSearch])
+  useEffect(() => { setUserDbPage(1) }, [userExportFilter])
+
+  const orderPageStart = (orderPage - 1) * orderPageSize
+  const paginatedOrders = filteredOrders.slice(orderPageStart, orderPageStart + orderPageSize)
+
+  const ordersTotalRevenue = filteredOrders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
+
+  const clearOrderFilters = () => {
+    setOrderFilter('all'); setOrderSearch(''); setOrderDateRange('all')
+    setOrderDateFrom(''); setOrderDateTo(''); setOrderPriceMin(''); setOrderPriceMax('')
+    setOrderVendorFilter('all'); setOrderSort('newest')
+  }
+  const orderActiveFilterCount =
+    (orderFilter !== 'all' ? 1 : 0) +
+    (orderSearch.trim() ? 1 : 0) +
+    (orderDateRange !== 'all' ? 1 : 0) +
+    (orderPriceMin !== '' || orderPriceMax !== '' ? 1 : 0) +
+    (orderVendorFilter !== 'all' ? 1 : 0) +
+    (orderSort !== 'newest' ? 1 : 0)
 
   // ── CUSTOMER ANALYTICS HELPERS ────────────────────────────────────────
   const buildCustomerMap = () => {
@@ -1174,7 +1322,16 @@ export default function FounderApp() {
   }
 
   return (
-    <div style={{ maxWidth: 430, margin: '0 auto', background: '#fff', minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'Poppins,sans-serif' }}>
+    <div style={{
+      maxWidth: isDesktop ? '100%' : 430,
+      width: '100%',
+      margin: '0 auto',
+      background: '#fff',
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: isDesktop ? 'row' : 'column',
+      fontFamily: 'Poppins,sans-serif'
+    }}>
 
       {showReorderModal && (
         <VendorReorderModal
@@ -1185,7 +1342,17 @@ export default function FounderApp() {
       )}
 
       {newOrderAlert && (
-        <div style={{ position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)', zIndex: 9999, width: '100%', maxWidth: 430, padding: '12px 16px', background: 'linear-gradient(135deg,#E24B4A,#c73232)', fontFamily: 'Poppins,sans-serif', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+        <div style={{
+          position: 'fixed', top: 0,
+          left: isDesktop ? 'auto' : '50%',
+          right: isDesktop ? 24 : 'auto',
+          transform: isDesktop ? 'none' : 'translateX(-50%)',
+          marginTop: isDesktop ? 24 : 0,
+          zIndex: 9999, width: '100%', maxWidth: isDesktop ? 380 : 430,
+          padding: '12px 16px', borderRadius: isDesktop ? 14 : 0,
+          background: 'linear-gradient(135deg,#E24B4A,#c73232)',
+          fontFamily: 'Poppins,sans-serif', boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+        }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontSize: 24 }}>🔔</span>
             <div style={{ flex: 1 }}>
@@ -1200,48 +1367,167 @@ export default function FounderApp() {
         </div>
       )}
 
-      {/* ── HEADER ── */}
-      <div style={{ background: '#111', padding: 16, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 8, height: 8, background: '#E24B4A', borderRadius: '50%' }} />
-          <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>FeedoZone</span>
-          <span style={{ fontSize: 11, color: '#555' }}>👑 Founder</span>
-        </div>
-        <div style={{ fontSize: 11, color: '#555', marginTop: 4 }}>Warananagar, Kolhapur</div>
-      </div>
+      {/* ── DESKTOP SIDEBAR ── */}
+      {isDesktop && (
+        <aside style={{
+          width: 240, flexShrink: 0,
+          background: '#0a0a0a', color: '#fff',
+          display: 'flex', flexDirection: 'column',
+          minHeight: '100vh', position: 'sticky', top: 0
+        }}>
+          {/* Brand */}
+          <div style={{ padding: '20px 18px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 10, height: 10, background: '#E24B4A', borderRadius: '50%' }} />
+              <span style={{ fontSize: 19, fontWeight: 800, letterSpacing: -0.3 }}>FeedoZone</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#888', marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>👑</span>
+              <span>Founder Dashboard</span>
+            </div>
+            <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>Warananagar, Kolhapur</div>
+          </div>
 
-      {/* ── NAV ── */}
-      <div style={{ display: 'flex', background: '#0a0a0a', overflowX: 'auto', flexShrink: 0 }}>
-        {[
-          { id: 'overview', label: 'Overview' },
-          { id: 'orders', label: `Orders (${todayOrders.length})` },
-          { id: 'vendors', label: `Vendors (${vendors.length})` },
-          { id: 'customers', label: `👥 Customers (${customerStats.total})` },
-          { id: 'addvendor', label: '+ Add Vendor' },
-          { id: 'userdb', label: `🗄️ User DB (${users.length})` },
-          { id: 'push', label: `🔔 Push${usersWithTokenCount > 0 ? ` (${usersWithTokenCount})` : ''}` },
-          { id: 'broadcast', label: `📣 Broadcast${users.length > 0 ? ` (${users.length})` : ''}` },
-          { id: 'support', label: `💬 Support${supportTickets.filter(t => t.status === 'open').length > 0 ? ` (${supportTickets.filter(t => t.status === 'open').length})` : ''}` },
-          { id: 'analytics', label: '📊 Analytics' }
-        ].map(t2 => (
-          <button key={t2.id} onClick={() => setTab(t2.id)} style={{
-            flexShrink: 0, padding: '11px 14px', fontSize: 12, fontWeight: 500,
-            color: tab === t2.id ? '#E24B4A' : '#666',
-            borderBottomWidth: 2, borderBottomStyle: 'solid',
-            borderBottomColor: tab === t2.id ? '#E24B4A' : 'transparent',
-            borderTop: 'none', borderLeft: 'none', borderRight: 'none',
-            background: 'transparent', cursor: 'pointer',
-            fontFamily: 'Poppins', whiteSpace: 'nowrap'
-          }}>{t2.label}</button>
-        ))}
-      </div>
+          {/* Nav */}
+          <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 8px' }}>
+            {[
+              { id: 'overview',   icon: '📊', label: 'Overview' },
+              { id: 'orders',     icon: '📦', label: 'Orders',     count: todayOrders.length },
+              { id: 'vendors',    icon: '🏪', label: 'Vendors',    count: vendors.length },
+              { id: 'customers',  icon: '👥', label: 'Customers',  count: customerStats.total },
+              { id: 'addvendor',  icon: '➕', label: 'Add Vendor' },
+              { id: 'userdb',     icon: '🗄️', label: 'User DB',     count: users.length },
+              { id: 'push',       icon: '🔔', label: 'Push',        count: usersWithTokenCount },
+              { id: 'broadcast',  icon: '📣', label: 'Broadcast',   count: users.length },
+              { id: 'support',    icon: '💬', label: 'Support',     count: supportTickets.filter(t => t.status === 'open').length, alert: true },
+              { id: 'analytics',  icon: '📈', label: 'Analytics' },
+            ].map(item => {
+              const active = tab === item.id
+              return (
+                <button key={item.id} onClick={() => setTab(item.id)} style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '11px 14px', marginBottom: 2,
+                  background: active ? 'linear-gradient(90deg,rgba(226,75,74,0.2),transparent)' : 'transparent',
+                  borderLeft: active ? '3px solid #E24B4A' : '3px solid transparent',
+                  border: 'none', borderRadius: 8,
+                  color: active ? '#fff' : '#aaa',
+                  fontSize: 13, fontWeight: active ? 700 : 500,
+                  cursor: 'pointer', fontFamily: 'Poppins', textAlign: 'left',
+                  transition: 'all 0.15s',
+                }}>
+                  <span style={{ fontSize: 16, width: 18, textAlign: 'center' }}>{item.icon}</span>
+                  <span style={{ flex: 1 }}>{item.label}</span>
+                  {item.count > 0 && (
+                    <span style={{
+                      background: item.alert ? '#E24B4A' : 'rgba(255,255,255,0.1)',
+                      color: '#fff', borderRadius: 10,
+                      padding: '2px 8px', fontSize: 10, fontWeight: 700,
+                    }}>{item.count}</span>
+                  )}
+                </button>
+              )
+            })}
+          </nav>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: 14 }}>
+          {/* Footer in sidebar */}
+          <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 10, color: '#555' }}>
+            FeedoZone Admin · v9
+          </div>
+        </aside>
+      )}
+
+      {/* ── MAIN CONTENT WRAPPER ── */}
+      <div style={{
+        flex: 1, minWidth: 0,
+        display: 'flex', flexDirection: 'column',
+        background: isDesktop ? '#f7f7f7' : '#fff',
+      }}>
+
+        {/* Mobile-only header */}
+        {!isDesktop && (
+          <div style={{ background: '#111', padding: 16, flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 8, height: 8, background: '#E24B4A', borderRadius: '50%' }} />
+              <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>FeedoZone</span>
+              <span style={{ fontSize: 11, color: '#555' }}>👑 Founder</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#555', marginTop: 4 }}>Warananagar, Kolhapur</div>
+          </div>
+        )}
+
+        {/* Mobile-only tab bar */}
+        {!isDesktop && (
+          <div style={{ display: 'flex', background: '#0a0a0a', overflowX: 'auto', flexShrink: 0 }}>
+            {[
+              { id: 'overview', label: 'Overview' },
+              { id: 'orders', label: `Orders (${todayOrders.length})` },
+              { id: 'vendors', label: `Vendors (${vendors.length})` },
+              { id: 'customers', label: `👥 Customers (${customerStats.total})` },
+              { id: 'addvendor', label: '+ Add Vendor' },
+              { id: 'userdb', label: `🗄️ User DB (${users.length})` },
+              { id: 'push', label: `🔔 Push${usersWithTokenCount > 0 ? ` (${usersWithTokenCount})` : ''}` },
+              { id: 'broadcast', label: `📣 Broadcast${users.length > 0 ? ` (${users.length})` : ''}` },
+              { id: 'support', label: `💬 Support${supportTickets.filter(t => t.status === 'open').length > 0 ? ` (${supportTickets.filter(t => t.status === 'open').length})` : ''}` },
+              { id: 'analytics', label: '📊 Analytics' }
+            ].map(t2 => (
+              <button key={t2.id} onClick={() => setTab(t2.id)} style={{
+                flexShrink: 0, padding: '11px 14px', fontSize: 12, fontWeight: 500,
+                color: tab === t2.id ? '#E24B4A' : '#666',
+                borderBottomWidth: 2, borderBottomStyle: 'solid',
+                borderBottomColor: tab === t2.id ? '#E24B4A' : 'transparent',
+                borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+                background: 'transparent', cursor: 'pointer',
+                fontFamily: 'Poppins', whiteSpace: 'nowrap'
+              }}>{t2.label}</button>
+            ))}
+          </div>
+        )}
+
+        {/* Desktop top bar with current section title */}
+        {isDesktop && (
+          <div style={{
+            background: '#fff', borderBottom: '1px solid #e5e7eb',
+            padding: '14px 28px', display: 'flex',
+            justifyContent: 'space-between', alignItems: 'center',
+            position: 'sticky', top: 0, zIndex: 50,
+          }}>
+            <div>
+              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Founder Dashboard</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#1f2937', marginTop: 2, textTransform: 'capitalize' }}>
+                {tab === 'addvendor' ? 'Add Vendor' : tab === 'userdb' ? 'User Database' : tab}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ display: 'flex', gap: 14 }}>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600 }}>TODAY</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#16a34a' }}>₹{todayRevenue.toLocaleString()}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600 }}>ORDERS</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1f2937' }}>{todayOrders.length}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600 }}>VENDORS</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1f2937' }}>{vendors.length}</div>
+                </div>
+              </div>
+              <div style={{
+                width: 38, height: 38, borderRadius: '50%',
+                background: 'linear-gradient(135deg,#E24B4A,#ff6b6a)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#fff', fontSize: 14, fontWeight: 700,
+              }}>👑</div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: isDesktop ? '24px 28px' : 14 }}>
 
         {/* ════════════════ TAB: OVERVIEW ════════════════ */}
         {tab === 'overview' && (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? 'repeat(4, 1fr)' : '1fr 1fr', gap: isDesktop ? 14 : 10, marginBottom: 16 }}>
               <div style={{ background: '#E24B4A', borderRadius: 10, padding: 12 }}>
                 <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.8)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Today Orders</div>
                 <div style={{ fontSize: 22, fontWeight: 600, color: '#fff' }}>{todayOrders.length}</div>
@@ -1430,14 +1716,16 @@ export default function FounderApp() {
                 else if (userExportFilter === 'inactive') previewList = previewList.filter(u => !activeUids.has(u.id))
                 const customerMap = {}
                 allCustomers.forEach(c => { customerMap[c.id] = c })
+                const pageStart = (userDbPage - 1) * userDbPageSize
+                const pageItems = previewList.slice(pageStart, pageStart + userDbPageSize)
                 return (
                   <>
-                    {previewList.slice(0, 25).map((u, i) => {
+                    {pageItems.map((u, i) => {
                       const c = customerMap[u.id]
                       const phone = u.mobile || u.phone || ''
                       const isRepeat = (c?.deliveredCount || 0) >= 2
                       return (
-                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottomWidth: i < Math.min(previewList.length, 25) - 1 ? 1 : 0, borderBottomStyle: 'solid', borderBottomColor: '#f9fafb' }}>
+                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottomWidth: i < pageItems.length - 1 ? 1 : 0, borderBottomStyle: 'solid', borderBottomColor: '#f9fafb' }}>
                           <div style={{ width: 34, height: 34, borderRadius: '50%', background: isRepeat ? 'linear-gradient(135deg,#E24B4A,#ff6b6a)' : 'linear-gradient(135deg,#374151,#1f2937)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                             <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{(u.name || u.displayName || 'U')[0].toUpperCase()}</span>
                           </div>
@@ -1460,23 +1748,23 @@ export default function FounderApp() {
                         </div>
                       )
                     })}
-                    {previewList.length > 25 && (
-                      <div style={{ padding: '12px 14px', background: '#f9fafb', textAlign: 'center' }}>
-                        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>+{previewList.length - 25} more users not shown in preview</div>
-                        <button onClick={() => exportUserDatabase(userExportFilter)}
-                          style={{ background: '#E24B4A', color: '#fff', border: 'none', borderRadius: 9, padding: '9px 20px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
-                          ↓ Download All {previewList.length} Users as Excel
-                        </button>
-                      </div>
-                    )}
                     {previewList.length === 0 && (
                       <div style={{ padding: '30px 14px', textAlign: 'center', color: '#9ca3af' }}>
                         <div style={{ fontSize: 28, marginBottom: 8 }}>👥</div>
                         <div style={{ fontSize: 13 }}>No users match this filter</div>
                       </div>
                     )}
-                    {previewList.length > 0 && previewList.length <= 25 && (
-                      <div style={{ padding: '10px 14px', background: '#f9fafb', textAlign: 'center' }}>
+                    <Pagination
+                      page={userDbPage}
+                      pageSize={userDbPageSize}
+                      total={previewList.length}
+                      onPageChange={setUserDbPage}
+                      onPageSizeChange={setUserDbPageSize}
+                      pageSizeOptions={[10, 20, 50, 100, 200]}
+                      compact={!isDesktop}
+                    />
+                    {previewList.length > 0 && (
+                      <div style={{ padding: '10px 14px', background: '#fff', textAlign: 'center', borderTop: '1px solid #f3f4f6' }}>
                         <button onClick={() => exportUserDatabase(userExportFilter)}
                           style={{ background: '#E24B4A', color: '#fff', border: 'none', borderRadius: 9, padding: '9px 20px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
                           ↓ Download All {previewList.length} Users as Excel
@@ -1598,8 +1886,13 @@ export default function FounderApp() {
               </div>
             )}
 
-            {filteredVendors.map((v, idx) => (
-              <div key={v.id} style={{ background: '#fff', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
+            <div style={{
+              display: isDesktop ? 'grid' : 'block',
+              gridTemplateColumns: isDesktop ? 'repeat(auto-fill, minmax(320px, 1fr))' : 'none',
+              gap: 14,
+            }}>
+            {filteredVendors.slice((vendorPage - 1) * vendorPageSize, vendorPage * vendorPageSize).map((v, idx) => (
+              <div key={v.id} style={{ background: '#fff', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, overflow: 'hidden', marginBottom: isDesktop ? 0 : 12 }}>
                 <div style={{ height: 100, position: 'relative', background: 'linear-gradient(135deg,#1a1a1a,#2a2a2a)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {v.photo ? <img src={v.photo} alt={v.storeName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 32 }}>🏪</span>}
                   <button onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*'; input.onchange = (e) => handleExistingVendorPhoto(e, v.id); input.click() }}
@@ -1672,6 +1965,18 @@ export default function FounderApp() {
                 </div>
               </div>
             ))}
+            </div>
+            <div style={{ background: '#fff', borderRadius: 12, marginTop: 14, overflow: 'hidden', border: '1px solid #e5e7eb' }}>
+              <Pagination
+                page={vendorPage}
+                pageSize={vendorPageSize}
+                total={filteredVendors.length}
+                onPageChange={setVendorPage}
+                onPageSizeChange={setVendorPageSize}
+                pageSizeOptions={[10, 20, 50, 100]}
+                compact={!isDesktop}
+              />
+            </div>
           </>
         )}
 
@@ -1762,7 +2067,7 @@ export default function FounderApp() {
                 <div style={{ fontSize: 13, fontWeight: 600 }}>No customers found</div>
               </div>
             )}
-            {filteredCustomers.map((c, i) => {
+            {filteredCustomers.slice((customerPage - 1) * customerPageSize, customerPage * customerPageSize).map((c, i) => {
               const daysSince = c.lastOrderDate ? Math.floor((Date.now() - c.lastOrderDate) / 86400000) : null
               const isRepeat = c.deliveredCount >= 2
               const isNewUser = c.firstOrderDate && c.firstOrderDate >= sevenAgo
@@ -1803,6 +2108,17 @@ export default function FounderApp() {
                 </div>
               )
             })}
+            <div style={{ background: '#fff', borderRadius: 12, marginTop: 14, overflow: 'hidden', border: '1px solid #e5e7eb' }}>
+              <Pagination
+                page={customerPage}
+                pageSize={customerPageSize}
+                total={filteredCustomers.length}
+                onPageChange={setCustomerPage}
+                onPageSizeChange={setCustomerPageSize}
+                pageSizeOptions={[10, 20, 50, 100, 200]}
+                compact={!isDesktop}
+              />
+            </div>
           </>
         )}
 
@@ -2217,6 +2533,22 @@ export default function FounderApp() {
                       <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 8, background: selectedOrder.status === 'delivered' ? '#d1fae5' : selectedOrder.status === 'cancelled' ? '#fee2e2' : '#fef3c7', color: selectedOrder.status === 'delivered' ? '#065f46' : selectedOrder.status === 'cancelled' ? '#991b1b' : '#92400e' }}>{selectedOrder.status?.replace('_', ' ')}</span>
                     </div>
                   </div>
+                  {selectedOrder.status === 'cancelled' && (
+                    <div style={{ background: '#fff5f5', borderLeft: '4px solid #dc2626', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                        <span style={{ fontSize: 14 }}>🚫</span>
+                        <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', letterSpacing: 0.5 }}>
+                          CANCELLATION DETAILS
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 4 }}>
+                        Cancelled by: <span style={{ color: '#dc2626', fontWeight: 700 }}>{selectedOrder.cancelledBy === 'vendor' ? 'Restaurant' : selectedOrder.cancelledBy === 'user' ? 'Customer' : 'System'}</span>
+                      </div>
+                      <div style={{ fontSize: 13, color: '#7f1d1d', fontWeight: 500, lineHeight: 1.55, background: 'rgba(255,255,255,0.7)', borderRadius: 8, padding: '8px 10px', borderWidth: 1, borderStyle: 'solid', borderColor: '#fecaca' }}>
+                        {selectedOrder.cancellationReason || 'No reason provided'}
+                      </div>
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase' }}>Items Ordered</div>
                   {selectedOrder.items?.map((item, i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6' }}>
@@ -2252,31 +2584,164 @@ export default function FounderApp() {
                 </button>
               ))}
             </div>
-            {orders.filter(o => {
-              if (orderFilter === 'all') return true
-              if (orderFilter === 'preparing') return o.status === 'preparing' || o.status === 'accepted'
-              return o.status === orderFilter
-            }).slice(0, 50).map(o => (
-              <div key={o.id} onClick={() => setSelectedOrder(o)} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 0', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', cursor: 'pointer' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 42, alignItems: 'flex-start' }}>
-                  <div style={{ fontSize: 11, color: '#9ca3af' }}>{o.createdAt?.toDate?.()?.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) || '--'}</div>
-                  <button onClick={e => { e.stopPropagation(); setFounderBillOrder(o); setShowFounderBill(true) }}
-                    style={{ fontSize: 10, fontWeight: 700, background: '#E24B4A', color: '#fff', border: 'none', borderRadius: 6, padding: '2px 7px', cursor: 'pointer', fontFamily: 'Poppins', flexShrink: 0 }}>
-                    🧾 {'FZ-' + (o.billNo?.slice(-6) || o.id?.slice(-6).toUpperCase())}
+
+            {/* ── Filter Bar (search + advanced) ── */}
+            <div style={{
+              background: '#fff', borderRadius: 12, padding: 12, marginBottom: 12,
+              borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+            }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 240px', minWidth: 200, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#f9fafb', borderRadius: 9, border: '1px solid #e5e7eb' }}>
+                  <span style={{ fontSize: 14 }}>🔍</span>
+                  <input
+                    value={orderSearch}
+                    onChange={e => setOrderSearch(e.target.value)}
+                    placeholder="Search by customer, vendor, ID, address, phone..."
+                    style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 12, fontFamily: 'Poppins' }}
+                  />
+                  {orderSearch && (
+                    <button onClick={() => setOrderSearch('')} style={{ background: '#e5e7eb', border: 'none', borderRadius: '50%', width: 18, height: 18, fontSize: 10, cursor: 'pointer' }}>✕</button>
+                  )}
+                </div>
+                <select value={orderSort} onChange={e => setOrderSort(e.target.value)}
+                  style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, fontFamily: 'Poppins', background: '#fff', cursor: 'pointer' }}>
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="high">Price: High → Low</option>
+                  <option value="low">Price: Low → High</option>
+                </select>
+                <button onClick={() => setShowOrderFilters(s => !s)}
+                  style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e7eb', background: showOrderFilters ? '#E24B4A' : '#fff', color: showOrderFilters ? '#fff' : '#374151', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  ⚙️ Filters
+                  {orderActiveFilterCount > 0 && (
+                    <span style={{ background: showOrderFilters ? 'rgba(255,255,255,0.25)' : '#E24B4A', color: '#fff', borderRadius: 10, fontSize: 10, padding: '1px 7px', fontWeight: 700 }}>
+                      {orderActiveFilterCount}
+                    </span>
+                  )}
+                </button>
+                {orderActiveFilterCount > 0 && (
+                  <button onClick={clearOrderFilters}
+                    style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: '#fff5f5', color: '#dc2626', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                    Clear all
                   </button>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>{o.userName}</div>
-                  <div style={{ fontSize: 11, color: '#6b7280' }}>{o.vendorName} · {o.items?.length} item(s)</div>
-                  {o.address && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 1 }}>📍 {o.address?.slice(0, 35)}{o.address?.length > 35 ? '...' : ''}</div>}
-                </div>
-                <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>₹{o.total}</div>
-                  <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 8, background: o.status === 'delivered' ? '#d1fae5' : o.status === 'cancelled' ? '#fee2e2' : o.status === 'preparing' ? '#dbeafe' : '#fef3c7', color: o.status === 'delivered' ? '#065f46' : o.status === 'cancelled' ? '#991b1b' : o.status === 'preparing' ? '#1e40af' : '#92400e' }}>{o.status?.replace('_', ' ')}</span>
-                  <button onClick={(e) => handleDeleteOrder(o.id, e)} style={{ background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>🗑️</button>
-                </div>
+                )}
               </div>
-            ))}
+
+              {showOrderFilters && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #e5e7eb', display: 'grid', gridTemplateColumns: isDesktop ? 'repeat(4, 1fr)' : '1fr 1fr', gap: 10 }}>
+                  {/* Date range */}
+                  <div>
+                    <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'block', marginBottom: 4 }}>📅 Date range</label>
+                    <select value={orderDateRange} onChange={e => setOrderDateRange(e.target.value)}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, fontFamily: 'Poppins', background: '#fff', cursor: 'pointer' }}>
+                      <option value="all">All time</option>
+                      <option value="today">Today</option>
+                      <option value="week">Last 7 days</option>
+                      <option value="month">Last 30 days</option>
+                      <option value="custom">Custom range</option>
+                    </select>
+                  </div>
+                  {orderDateRange === 'custom' && (
+                    <>
+                      <div>
+                        <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'block', marginBottom: 4 }}>From</label>
+                        <input type="date" value={orderDateFrom} onChange={e => setOrderDateFrom(e.target.value)}
+                          style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, fontFamily: 'Poppins' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'block', marginBottom: 4 }}>To</label>
+                        <input type="date" value={orderDateTo} onChange={e => setOrderDateTo(e.target.value)}
+                          style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, fontFamily: 'Poppins' }} />
+                      </div>
+                    </>
+                  )}
+                  {/* Price range */}
+                  <div>
+                    <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'block', marginBottom: 4 }}>💰 Min price</label>
+                    <input type="number" value={orderPriceMin} onChange={e => setOrderPriceMin(e.target.value)} placeholder="₹0"
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, fontFamily: 'Poppins' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'block', marginBottom: 4 }}>💰 Max price</label>
+                    <input type="number" value={orderPriceMax} onChange={e => setOrderPriceMax(e.target.value)} placeholder="₹∞"
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, fontFamily: 'Poppins' }} />
+                  </div>
+                  {/* Vendor */}
+                  <div style={{ gridColumn: isDesktop ? 'span 2' : '1 / -1' }}>
+                    <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'block', marginBottom: 4 }}>🏪 Vendor</label>
+                    <select value={orderVendorFilter} onChange={e => setOrderVendorFilter(e.target.value)}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, fontFamily: 'Poppins', background: '#fff', cursor: 'pointer' }}>
+                      <option value="all">All vendors</option>
+                      {vendors.map(v => <option key={v.id} value={v.id}>{v.storeName}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Summary chip */}
+              <div style={{ marginTop: 10, display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12 }}>
+                <span style={{ color: '#6b7280' }}>📦 <b style={{ color: '#1f2937' }}>{filteredOrders.length}</b> orders</span>
+                <span style={{ color: '#6b7280' }}>💰 Revenue (delivered): <b style={{ color: '#16a34a' }}>₹{ordersTotalRevenue.toLocaleString()}</b></span>
+              </div>
+            </div>
+
+            {/* ── Orders table/list ── */}
+            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+              {paginatedOrders.length === 0 ? (
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: '#9ca3af' }}>
+                  <div style={{ fontSize: 36, marginBottom: 8 }}>📦</div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>No orders match your filters</div>
+                  {orderActiveFilterCount > 0 && (
+                    <button onClick={clearOrderFilters}
+                      style={{ marginTop: 10, background: '#fff5f5', color: '#E24B4A', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              ) : (
+                paginatedOrders.map(o => (
+                  <div key={o.id} onClick={() => setSelectedOrder(o)} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 56, alignItems: 'flex-start' }}>
+                      <div style={{ fontSize: 11, color: '#9ca3af' }}>{o.createdAt?.toDate?.()?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) || '--'}</div>
+                      <div style={{ fontSize: 10, color: '#9ca3af' }}>{o.createdAt?.toDate?.()?.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) || ''}</div>
+                      <button onClick={e => { e.stopPropagation(); setFounderBillOrder(o); setShowFounderBill(true) }}
+                        style={{ fontSize: 10, fontWeight: 700, background: '#E24B4A', color: '#fff', border: 'none', borderRadius: 6, padding: '2px 7px', cursor: 'pointer', fontFamily: 'Poppins', flexShrink: 0 }}>
+                        🧾 {'FZ-' + (o.billNo?.slice(-6) || o.id?.slice(-6).toUpperCase())}
+                      </button>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{o.userName}</div>
+                      <div style={{ fontSize: 11, color: '#6b7280' }}>{o.vendorName} · {o.items?.length} item(s)</div>
+                      {o.address && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📍 {o.address}</div>}
+                      {o.status === 'cancelled' && o.cancellationReason && (
+                        <div style={{ marginTop: 4, background: '#fff5f5', borderRadius: 6, padding: '4px 7px', display: 'flex', gap: 5, alignItems: 'flex-start', borderWidth: 1, borderStyle: 'solid', borderColor: '#fecaca' }}>
+                          <span style={{ fontSize: 9, fontWeight: 800, color: '#dc2626', letterSpacing: 0.4, flexShrink: 0, marginTop: 1 }}>
+                            {o.cancelledBy === 'vendor' ? '🏪' : o.cancelledBy === 'user' ? '👤' : '🚫'}
+                          </span>
+                          <span style={{ fontSize: 10, color: '#991b1b', lineHeight: 1.4, fontWeight: 500 }}>{o.cancellationReason}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>₹{o.total}</div>
+                      <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 8, background: o.status === 'delivered' ? '#d1fae5' : o.status === 'cancelled' ? '#fee2e2' : o.status === 'preparing' ? '#dbeafe' : '#fef3c7', color: o.status === 'delivered' ? '#065f46' : o.status === 'cancelled' ? '#991b1b' : o.status === 'preparing' ? '#1e40af' : '#92400e' }}>{o.status?.replace('_', ' ')}</span>
+                      <button onClick={(e) => handleDeleteOrder(o.id, e)} style={{ background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins' }}>🗑️</button>
+                    </div>
+                  </div>
+                ))
+              )}
+
+              <Pagination
+                page={orderPage}
+                pageSize={orderPageSize}
+                total={filteredOrders.length}
+                onPageChange={setOrderPage}
+                onPageSizeChange={setOrderPageSize}
+                pageSizeOptions={[10, 20, 50, 100, 200]}
+                compact={!isDesktop}
+              />
+            </div>
           </>
         )}
 
@@ -2579,6 +3044,7 @@ export default function FounderApp() {
           </div>
         )}
 
+      </div>
       </div>
 
       {showFounderBill && founderBillOrder && (

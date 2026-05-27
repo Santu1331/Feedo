@@ -388,7 +388,19 @@ export const getAllOrders = (callback) =>
   )
 
 export const updateOrderStatus = async (orderId, status, orderData = {}) => {
-  await updateDoc(doc(db, 'orders', orderId), { status, updatedAt: serverTimestamp() })
+  // Build the update payload — always update status + timestamp
+  const updatePayload = { status, updatedAt: serverTimestamp() }
+
+  // When the order is being cancelled, also persist the reason + actor so
+  // both the user and founder dashboards can show *why* it was cancelled.
+  if (status === 'cancelled') {
+    if (orderData.cancellationReason) updatePayload.cancellationReason = orderData.cancellationReason
+    if (orderData.cancelledBy)        updatePayload.cancelledBy = orderData.cancelledBy
+    if (orderData.rejectionType)      updatePayload.rejectionType = orderData.rejectionType
+    updatePayload.cancelledAt = serverTimestamp()
+  }
+
+  await updateDoc(doc(db, 'orders', orderId), updatePayload)
 
   const statusMessages = {
     accepted:         { title: '✅ Order Accepted!',      body: `${orderData.vendorName} accepted your order 🎉` },

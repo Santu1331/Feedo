@@ -26,11 +26,66 @@
 
       gtag('config', 'G-86RPKVMVQ8');
     </script>
-    <script type="module" crossorigin src="/assets/index-zny8Ez8m.js"></script>
+
+    <!-- Google Translate (full-page translation; widget UI is hidden) -->
+    <style>
+      /* Hide the Google Translate widget UI completely */
+      #google_translate_element,
+      .goog-te-banner-frame,
+      .goog-te-gadget,
+      .goog-te-gadget-icon,
+      .goog-logo-link,
+      .skiptranslate iframe { display: none !important; }
+      .goog-te-gadget { font-size: 0 !important; }
+
+      /* Stop Google from pushing the page down */
+      body { top: 0 !important; position: static !important; }
+
+      /* Prevent translate tooltip popups */
+      .goog-tooltip,
+      .goog-tooltip:hover,
+      .goog-text-highlight {
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+      }
+    </style>
+    <script>
+      // Initialize Google Translate when the script loads.
+      // The widget is hidden — we trigger language changes from React.
+      function googleTranslateElementInit() {
+        try {
+          new google.translate.TranslateElement(
+            {
+              pageLanguage: 'en',
+              includedLanguages: 'en,mr,hi',
+              autoDisplay: false,
+              layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
+            },
+            'google_translate_element'
+          );
+          window.__googleTranslateReady = true;
+          // If a language was queued before init finished, apply it now.
+          if (window.__pendingTranslateLang) {
+            window.dispatchEvent(new CustomEvent('feedo-apply-language', { detail: window.__pendingTranslateLang }));
+            window.__pendingTranslateLang = null;
+          }
+        } catch (e) {
+          console.warn('Google Translate init failed:', e);
+        }
+      }
+    </script>
+    <script type="text/javascript"
+            src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"
+            async></script>
+    <script type="module" crossorigin src="/assets/index-DaqkIIP8.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-DgeuDdLU.css">
   </head>
 
   <body>
+    <!-- Hidden Google Translate target -->
+    <div id="google_translate_element" style="display:none"></div>
+
     <div id="root"></div>
 
   </body>

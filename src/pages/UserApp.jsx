@@ -14,6 +14,8 @@ import { useNotifications } from '../hooks/useNotifications'
 import UserBill from '../components/UserBill'
 import LiveOrderTracking from '../components/LiveOrderTracking'
 import toast from 'react-hot-toast'
+import { useLanguage } from '../i18n/LanguageContext'
+import LanguageSwitcher from '../i18n/LanguageSwitcher'
 
 // ─── Delivery charge: vendor fixed OR distance-based ─────────────────────────
 function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
@@ -726,6 +728,98 @@ function SupportChatModal({ user, userData, tickets, onClose, onSendMessage }) {
   )
 }
 
+// ─── Vendor Cancellation Popup (full-screen modal) ────────────────────────────
+function VendorCancelPopup({ order, onClose, onViewDetails }) {
+  const [visible, setVisible] = useState(false)
+  useEffect(() => { setTimeout(() => setVisible(true), 30) }, [])
+  const handleClose = () => { setVisible(false); setTimeout(onClose, 250) }
+  const reason = order?.cancellationReason || 'No reason provided'
+  const cancelledByLabel = order?.cancelledBy === 'vendor' ? 'the restaurant' : 'this order'
+
+  return (
+    <>
+      <style>{`
+        @keyframes vcpFadeIn { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes vcpFadeOut { from { opacity: 1 } to { opacity: 0 } }
+        @keyframes vcpScaleIn { from { transform: scale(0.92); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+        @keyframes vcpScaleOut { from { transform: scale(1); opacity: 1 } to { transform: scale(0.95); opacity: 0 } }
+        @keyframes vcpShake {
+          0%, 100% { transform: translateX(0) }
+          20% { transform: translateX(-6px) }
+          40% { transform: translateX(6px) }
+          60% { transform: translateX(-4px) }
+          80% { transform: translateX(4px) }
+        }
+        .vcp-overlay-in  { animation: vcpFadeIn 0.25s ease forwards }
+        .vcp-overlay-out { animation: vcpFadeOut 0.22s ease forwards }
+        .vcp-card-in     { animation: vcpScaleIn 0.32s cubic-bezier(0.34,1.5,0.64,1) forwards }
+        .vcp-card-out    { animation: vcpScaleOut 0.22s ease-in forwards }
+        .vcp-icon        { animation: vcpShake 0.6s ease 0.2s 1 }
+      `}</style>
+      <div
+        className={visible ? 'vcp-overlay-in' : 'vcp-overlay-out'}
+        style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', zIndex:5000, display:'flex', alignItems:'center', justifyContent:'center', padding:20, fontFamily:'Poppins,sans-serif' }}
+        onClick={(e) => { if (e.target === e.currentTarget) handleClose() }}
+      >
+        <div
+          className={visible ? 'vcp-card-in' : 'vcp-card-out'}
+          style={{ background:'#fff', borderRadius:20, maxWidth:380, width:'100%', overflow:'hidden', boxShadow:'0 20px 60px rgba(0,0,0,0.4)' }}
+        >
+          {/* Header strip */}
+          <div style={{ background:'linear-gradient(135deg,#dc2626,#991b1b)', padding:'22px 20px 24px', textAlign:'center', position:'relative', overflow:'hidden' }}>
+            <div style={{ position:'absolute', right:-20, top:-20, fontSize:120, opacity:0.08 }}>🚫</div>
+            <div className="vcp-icon" style={{ width:64, height:64, borderRadius:'50%', background:'rgba(255,255,255,0.18)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:32, margin:'0 auto 10px', borderWidth:3, borderStyle:'solid', borderColor:'rgba(255,255,255,0.3)' }}>❌</div>
+            <div style={{ fontSize:18, fontWeight:800, color:'#fff', letterSpacing:-0.3 }}>Order Cancelled</div>
+            <div style={{ fontSize:12, color:'rgba(255,255,255,0.85)', marginTop:4 }}>Cancelled by {cancelledByLabel}</div>
+          </div>
+
+          {/* Body */}
+          <div style={{ padding:'18px 20px 4px' }}>
+            <div style={{ background:'#f9fafb', borderRadius:12, padding:'10px 14px', marginBottom:12, display:'flex', justifyContent:'space-between', alignItems:'center', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6' }}>
+              <div>
+                <div style={{ fontSize:10, color:'#9ca3af', fontWeight:700, letterSpacing:0.5 }}>RESTAURANT</div>
+                <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginTop:2 }}>{order?.vendorName || '—'}</div>
+              </div>
+              <div style={{ textAlign:'right' }}>
+                <div style={{ fontSize:10, color:'#9ca3af', fontWeight:700, letterSpacing:0.5 }}>ORDER</div>
+                <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginTop:2 }}>#{order?.id?.slice(-6)?.toUpperCase()}</div>
+              </div>
+            </div>
+
+            <div style={{ background:'#fff5f5', borderLeft:'4px solid #dc2626', borderRadius:10, padding:'12px 14px', marginBottom:14 }}>
+              <div style={{ fontSize:10, fontWeight:800, color:'#dc2626', letterSpacing:0.6, marginBottom:6 }}>📋 REASON</div>
+              <div style={{ fontSize:13, color:'#7f1d1d', fontWeight:500, lineHeight:1.55 }}>{reason}</div>
+            </div>
+
+            <div style={{ background:'#eff6ff', borderRadius:10, padding:'10px 12px', marginBottom:16, fontSize:11, color:'#1e40af', lineHeight:1.6, display:'flex', gap:8, alignItems:'flex-start' }}>
+              <span style={{ fontSize:14, flexShrink:0 }}>💡</span>
+              <div>No charges apply. You can reorder from any other restaurant.</div>
+            </div>
+          </div>
+
+          {/* Buttons */}
+          <div style={{ padding:'4px 20px 20px', display:'flex', gap:8 }}>
+            {onViewDetails && (
+              <button
+                onClick={() => { onViewDetails(); handleClose() }}
+                style={{ flex:1, background:'#f3f4f6', color:'#374151', border:'none', borderRadius:12, padding:'12px 0', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
+              >
+                View Order
+              </button>
+            )}
+            <button
+              onClick={handleClose}
+              style={{ flex:1.4, background:'#E24B4A', color:'#fff', border:'none', borderRadius:12, padding:'12px 0', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', boxShadow:'0 4px 14px rgba(226,75,74,0.35)' }}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ─── Floating Support Reply Popup ─────────────────────────────────────────────
 function SupportReplyPopup({ reply, onOpen, onDismiss }) {
   const [visible, setVisible] = useState(false)
@@ -770,7 +864,7 @@ export default function UserApp() {
   const [orders, setOrders] = useState([])
   const [catFilter, setCatFilter] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
-  const [lang, setLang] = useState('en')
+  const { lang, setLang, t: tt } = useLanguage()
   const [showCheckout, setShowCheckout] = useState(false)
   const [notifications, setNotifications] = useState([])
   const [showNotifs, setShowNotifs] = useState(false)
@@ -825,7 +919,20 @@ export default function UserApp() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [orderToCancel, setOrderToCancel] = useState(null)
 
-  const t = (en, mr) => lang === 'mr' ? mr : en
+  // ── VENDOR-CANCELLED POPUP ─────────────────────────────────────────────
+  const [vendorCancelPopup, setVendorCancelPopup] = useState(null)
+  const prevOrderStatusRef = useRef({})
+  const seenCancelPopupsRef = useRef(new Set())
+
+  // Inline bilingual helper kept for backwards compatibility with the
+  // many `t('English','मराठी')` calls in this file. For Hindi, falls back to
+  // English (or the Marathi text if English is missing). For new strings,
+  // prefer `tt('some.key')` from the global dictionary.
+  const t = (en, mr, hi) => {
+    if (lang === 'mr') return mr ?? en
+    if (lang === 'hi') return hi ?? en ?? mr
+    return en ?? mr
+  }
 
   useNotifications(user?.uid, 'user')
 
@@ -951,6 +1058,47 @@ export default function UserApp() {
   useEffect(() => { if (tab !== 'vendor-menu') localStorage.setItem('feedo_tab', tab) }, [tab])
   useEffect(() => { return getAllVendors(setVendors) }, [])
   useEffect(() => { if (!user) return; return getUserOrders(user.uid, setOrders) }, [user])
+
+  // ── DETECT VENDOR CANCELLATION → SHOW POPUP ────────────────────────────
+  useEffect(() => {
+    if (!user) return
+    try {
+      const stored = localStorage.getItem('feedo_seen_cancel_' + user.uid)
+      if (stored) JSON.parse(stored).forEach(id => seenCancelPopupsRef.current.add(id))
+    } catch {}
+  }, [user])
+
+  useEffect(() => {
+    if (!orders?.length || !user) return
+    orders.forEach(o => {
+      const prevStatus = prevOrderStatusRef.current[o.id]
+      const seenKey = o.id + '_cancelled'
+      const isVendorCancel = o.status === 'cancelled' && o.cancelledBy === 'vendor'
+
+      // First load: don't pop, just remember status
+      if (prevStatus === undefined) {
+        prevOrderStatusRef.current[o.id] = o.status
+        if (isVendorCancel && !seenCancelPopupsRef.current.has(seenKey)) {
+          // Show popup once on first sight (covers app reopen)
+          setVendorCancelPopup(o)
+          seenCancelPopupsRef.current.add(seenKey)
+          try { localStorage.setItem('feedo_seen_cancel_' + user.uid, JSON.stringify([...seenCancelPopupsRef.current])) } catch {}
+          try { navigator.vibrate?.([300, 100, 300]) } catch {}
+        }
+        return
+      }
+
+      // Status transitioned to cancelled by vendor while app is open
+      if (prevStatus !== 'cancelled' && isVendorCancel && !seenCancelPopupsRef.current.has(seenKey)) {
+        setVendorCancelPopup(o)
+        seenCancelPopupsRef.current.add(seenKey)
+        try { localStorage.setItem('feedo_seen_cancel_' + user.uid, JSON.stringify([...seenCancelPopupsRef.current])) } catch {}
+        try { navigator.vibrate?.([300, 100, 300]) } catch {}
+        toast.error(`Order from ${o.vendorName} was cancelled`, { duration: 5000 })
+      }
+      prevOrderStatusRef.current[o.id] = o.status
+    })
+  }, [orders, user])
 
   useEffect(() => {
     if (!selectedVendor) return
@@ -1343,6 +1491,14 @@ export default function UserApp() {
         }} />
       )}
 
+      {vendorCancelPopup && (
+        <VendorCancelPopup
+          order={vendorCancelPopup}
+          onClose={() => setVendorCancelPopup(null)}
+          onViewDetails={() => { setTab('orders'); setSelectedOrder(vendorCancelPopup) }}
+        />
+      )}
+
       {showSupportChat && (
         <SupportChatModal user={user} userData={userData} tickets={myTickets} onClose={() => setShowSupportChat(false)} onSendMessage={handleSendSupportMessage} />
       )}
@@ -1375,7 +1531,7 @@ export default function UserApp() {
               <span style={{ fontSize:20 }}>🔔</span>
               {unreadCount > 0 && <div style={{ position:'absolute', top:-4, right:-4, background:'#fbbf24', color:'#000', borderRadius:'50%', width:16, height:16, fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{unreadCount}</div>}
             </div>
-            <button onClick={() => setLang(l => l==='en'?'mr':'en')} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', padding:'5px 10px', borderRadius:8, fontSize:11, cursor:'pointer', fontFamily:'Poppins' }}>{lang==='en'?'मराठी':'English'}</button>
+            <LanguageSwitcher variant="pill" />
           </div>
         </div>
 
@@ -2196,6 +2352,17 @@ export default function UserApp() {
                       </span>
                     </div>
                     <div style={{ fontSize:12, color:'#6b7280', marginBottom:8 }}>{o.items?.slice(0,2).map(i=>i.qty+'x '+i.name).join(', ')}{o.items?.length>2?` +${o.items.length-2} more`:''}</div>
+                    {o.status === 'cancelled' && o.cancellationReason && (
+                      <div style={{ background:'#fff5f5', borderLeft:'3px solid #dc2626', borderRadius:6, padding:'7px 10px', marginBottom:8, display:'flex', gap:7, alignItems:'flex-start' }}>
+                        <span style={{ fontSize:12, flexShrink:0 }}>🚫</span>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:9, fontWeight:700, color:'#dc2626', letterSpacing:0.5, marginBottom:2 }}>
+                            {o.cancelledBy === 'vendor' ? 'CANCELLED BY RESTAURANT' : o.cancelledBy === 'user' ? 'YOU CANCELLED' : 'CANCELLED'}
+                          </div>
+                          <div style={{ fontSize:11, color:'#7f1d1d', lineHeight:1.45, fontWeight:500 }}>{o.cancellationReason}</div>
+                        </div>
+                      </div>
+                    )}
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                       <span style={{ fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹{o.total}</span>
                       {isActive
@@ -2263,8 +2430,8 @@ export default function UserApp() {
               </div>
             </div>
             <div style={{ background:'#f9fafb', borderRadius:10, padding:'12px 14px', marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <span style={{ fontSize:13, color:'#374151' }}>🌐 Language</span>
-              <button onClick={() => setLang(l=>l==='en'?'mr':'en')} style={{ background:'#FCEBEB', color:'#A32D2D', border:'none', padding:'5px 12px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>{lang==='en'?'Switch to Marathi':'English वर जा'}</button>
+              <span style={{ fontSize:13, color:'#374151' }}>🌐 {tt('lang.label')}</span>
+              <LanguageSwitcher variant="ghost" />
             </div>
             <button onClick={() => { localStorage.removeItem('feedo_location'); logoutUser() }} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500, marginBottom:16 }}>Logout</button>
             <div style={{ marginBottom:4, fontSize:11, color:'#9ca3af', fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>Help & Legal</div>
@@ -2419,10 +2586,10 @@ export default function UserApp() {
       {/* Bottom Nav */}
       <div style={S.bottomNav}>
         {[
-          {id:'home', icon:'🏠', label:t('Home','मुख्यपृष्ठ')},
-          {id:'orders', icon:'📋', label:t('Orders','ऑर्डर')},
-          {id:'cart', icon:'🛒', label:`${t('Cart','कार्ट')}${cartCount>0?` (${cartCount})`:''}`},
-          {id:'profile', icon:'👤', label:t('Profile','प्रोफाइल')}
+          {id:'home', icon:'🏠', label: tt('nav.home')},
+          {id:'orders', icon:'📋', label: tt('nav.orders')},
+          {id:'cart', icon:'🛒', label: `${tt('nav.cart')}${cartCount>0?` (${cartCount})`:''}`},
+          {id:'profile', icon:'👤', label: tt('nav.profile')}
         ].map(item=>(
           <button key={item.id} style={S.bnItem()} onClick={() => setTab(item.id)}>
             <span style={{ fontSize:20 }}>{item.icon}</span>

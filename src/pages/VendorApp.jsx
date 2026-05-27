@@ -14,6 +14,8 @@ import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
 import VendorBill from '../components/VendorBill'
 import { doc, updateDoc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import { useLanguage } from '../i18n/LanguageContext'
+import LanguageSwitcher from '../i18n/LanguageSwitcher'
 
 const STATUS_NEXT  = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
 const STATUS_LABEL = { pending:'Accept Order', accepted:'Start Preparing', preparing:'Mark Ready', ready:'Out for Delivery', out_for_delivery:'Mark Delivered' }
@@ -983,6 +985,7 @@ function AddItemVariantSection({ variants, setVariants, basePrice, setBasePrice 
 
 export default function VendorApp() {
   const { user, userData } = useAuth()
+  const { t: tt } = useLanguage()
   const [tab, setTab] = useState('orders')
   const [orders, setOrders] = useState([])
   const [menuItems, setMenuItems] = useState([])
@@ -1003,6 +1006,7 @@ export default function VendorApp() {
   const [cancelOrderTarget, setCancelOrderTarget] = useState(null)
   const [cancelReason, setCancelReason] = useState('')
   const [cancellingOrder, setCancellingOrder] = useState(false)
+  const [cancelMode, setCancelMode] = useState('cancel') // 'reject' | 'cancel'
 
   const [menuEditMode, setMenuEditMode] = useState(false)
   const [menuCatFilter, setMenuCatFilter] = useState('All')
@@ -1228,16 +1232,19 @@ export default function VendorApp() {
     toast.success(`Order → ${next.replace('_',' ')}`)
   }
 
-  const handleReject = async (order) => {
-    await updateOrderStatus(order.id, 'cancelled', {
-      userUid: order.userUid,
-      vendorName: userData?.storeName || '',
-      cancellationReason: 'Order rejected by restaurant',
-    })
-    toast.error('Order rejected')
+  const handleReject = (order) => {
+    setCancelOrderTarget(order)
+    setCancelReason('')
+    setCancelMode('reject')
+    setShowCancelModal(true)
   }
 
-  const openCancelModal = (order) => { setCancelOrderTarget(order); setCancelReason(''); setShowCancelModal(true) }
+  const openCancelModal = (order) => {
+    setCancelOrderTarget(order)
+    setCancelReason('')
+    setCancelMode('cancel')
+    setShowCancelModal(true)
+  }
 
   const handleVendorCancelOrder = async () => {
     if (!cancelOrderTarget) return
@@ -1245,13 +1252,16 @@ export default function VendorApp() {
     setCancellingOrder(true)
     try {
       await updateOrderStatus(cancelOrderTarget.id, 'cancelled', {
-        userUid: cancelOrderTarget.userUid, vendorName: userData?.storeName || '',
-        cancellationReason: cancelReason.trim(), cancelledBy: 'vendor',
+        userUid: cancelOrderTarget.userUid,
+        vendorName: userData?.storeName || '',
+        cancellationReason: cancelReason.trim(),
+        cancelledBy: 'vendor',
+        rejectionType: cancelMode, // 'reject' (pre-accept) or 'cancel' (post-accept)
       })
-      toast.success('Order cancelled and user notified')
+      toast.success(cancelMode === 'reject' ? 'Order rejected and customer notified' : 'Order cancelled and customer notified')
       setShowCancelModal(false); setCancelOrderTarget(null)
       if (selectedVendorOrder?.id === cancelOrderTarget.id) setSelectedVendorOrder(prev => ({ ...prev, status: 'cancelled' }))
-    } catch { toast.error('Failed to cancel. Try again.') }
+    } catch { toast.error(cancelMode === 'reject' ? 'Failed to reject. Try again.' : 'Failed to cancel. Try again.') }
     setCancellingOrder(false)
   }
 
@@ -1489,8 +1499,8 @@ export default function VendorApp() {
             </div>
             <input ref={vendorPhotoRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleVendorPhotoChange} />
             <div>
-              <div style={{ fontSize:15, fontWeight:600, color:'#fff' }}>{userData?.storeName || 'My Store'}</div>
-              <div style={{ fontSize:10, color:'#888', marginTop:1 }}>📷 Tap photo to change · {userData?.category||'Food'}</div>
+              <div style={{ fontSize:15, fontWeight:600, color:'#fff' }}>{userData?.storeName || tt('v.my_store')}</div>
+              <div style={{ fontSize:10, color:'#888', marginTop:1 }}>📷 {tt('v.tap_change_photo')} · {userData?.category||'Food'}</div>
               {hasSchedule && (
                 <div style={{ fontSize:10, color: inScheduleWindow && !scheduleOverride ? '#4ade80' : scheduleOverride ? '#fbbf24' : '#9ca3af', marginTop:2, fontWeight:600 }}>
                   {scheduleStatusLabel()}
@@ -1498,16 +1508,17 @@ export default function VendorApp() {
               )}
             </div>
           </div>
-          <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6 }}>
+            <LanguageSwitcher variant="dark" />
             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <span style={{ fontSize:11, color: isOpen?'#4ade80':'#9ca3af' }}>{isOpen?'Open':'Closed'}</span>
+              <span style={{ fontSize:11, color: isOpen?'#4ade80':'#9ca3af' }}>{isOpen ? tt('v.store_open') : tt('v.store_closed')}</span>
               <div onClick={toggleStore} style={{ width:44, height:24, background: isOpen?'#16a34a':'#6b7280', borderRadius:12, cursor:'pointer', position:'relative', transition:'background 0.2s' }}>
                 <div style={{ position:'absolute', width:18, height:18, background:'#fff', borderRadius:'50%', top:3, left: isOpen?23:3, transition:'left 0.2s' }} />
               </div>
             </div>
             {scheduleOverride && (
               <div style={{ background:'rgba(251,191,36,0.2)', borderRadius:6, padding:'2px 7px', borderWidth:1, borderStyle:'solid', borderColor:'rgba(251,191,36,0.4)' }}>
-                <span style={{ fontSize:9, color:'#fbbf24', fontWeight:700 }}>⚠️ MANUAL OVERRIDE</span>
+                <span style={{ fontSize:9, color:'#fbbf24', fontWeight:700 }}>⚠️ {tt('v.manual_override')}</span>
               </div>
             )}
           </div>
@@ -1517,11 +1528,11 @@ export default function VendorApp() {
       {/* ── NAV ── */}
       <div style={{ display:'flex', background:'#111', overflowX:'auto', flexShrink:0 }}>
         {[
-          { id:'orders',   label:`Orders${liveOrders.length>0?` (${liveOrders.length})`:''}` },
-          { id:'menu',     label:'Menu' },
-          { id:'combos',   label:`Combos${combos.length>0?` (${combos.length})`:''}` },
-          { id:'earnings', label:'Earnings' },
-          { id:'settings', label:'Settings' }
+          { id:'orders',   label:`${tt('v.nav.orders')}${liveOrders.length>0?` (${liveOrders.length})`:''}` },
+          { id:'menu',     label: tt('v.nav.menu') },
+          { id:'combos',   label:`${tt('v.nav.combos')}${combos.length>0?` (${combos.length})`:''}` },
+          { id:'earnings', label: tt('v.nav.earnings') },
+          { id:'settings', label: tt('v.nav.settings') }
         ].map(t2 => (
           <button key={t2.id} onClick={() => setTab(t2.id)} style={{ flexShrink:0, padding:'11px 16px', fontSize:12, fontWeight:500, color: tab===t2.id?'#E24B4A':'#888', borderBottomWidth:2, borderBottomStyle:'solid', borderBottomColor: tab===t2.id?'#E24B4A':'transparent', borderTop:'none', borderLeft:'none', borderRight:'none', background:'transparent', cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>{t2.label}</button>
         ))}
@@ -1697,7 +1708,7 @@ export default function VendorApp() {
                     <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:10 }}>
                       <div style={{ display:'flex', gap:10 }}>
                         {selectedVendorOrder.status === 'pending' && (
-                          <button onClick={async () => { await handleReject(selectedVendorOrder); setSelectedVendorOrder(prev => ({ ...prev, status: 'cancelled' })) }} style={{ flex:1, background:'transparent', color:'#E24B4A', borderWidth:2, borderStyle:'solid', borderColor:'#E24B4A', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>❌ Reject</button>
+                          <button onClick={() => handleReject(selectedVendorOrder)} style={{ flex:1, background:'transparent', color:'#E24B4A', borderWidth:2, borderStyle:'solid', borderColor:'#E24B4A', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>❌ Reject</button>
                         )}
                         {STATUS_NEXT[selectedVendorOrder.status] && (
                           <button onClick={async () => { await handleStatus(selectedVendorOrder.id, selectedVendorOrder.status, { userUid: selectedVendorOrder.userUid, vendorName: userData?.storeName||'' }); setSelectedVendorOrder(prev => ({ ...prev, status: STATUS_NEXT[prev.status] })) }} style={{ flex:2, background: selectedVendorOrder.status==='pending'?'#E24B4A':'#16a34a', color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>{STATUS_LABEL[selectedVendorOrder.status]} ✓</button>
@@ -2417,22 +2428,56 @@ export default function VendorApp() {
         )}
       </div>
 
-      {/* ── CANCEL ORDER MODAL ── */}
-      {showCancelModal && cancelOrderTarget && (
+      {/* ── REJECT / CANCEL ORDER MODAL ── */}
+      {showCancelModal && cancelOrderTarget && (() => {
+        const isReject = cancelMode === 'reject'
+        const REJECT_REASONS = [
+          'Restaurant is too busy right now',
+          'Item(s) out of stock',
+          'Delivery location too far',
+          'Closing soon — cannot prepare',
+          'Cannot deliver to this address',
+          'Customer details look invalid',
+          'Other',
+        ]
+        const CANCEL_REASONS = [
+          'Delivery location too far',
+          'Out of stock / ingredients unavailable',
+          'Store closing early today',
+          'Unable to prepare on time',
+          'Customer unreachable',
+          'Other',
+        ]
+        const PRESET = isReject ? REJECT_REASONS : CANCEL_REASONS
+        const NON_OTHER = PRESET.filter(r => r !== 'Other')
+        const accent = isReject ? '#f59e0b' : '#dc2626'
+        const accentBg = isReject ? '#fffbeb' : '#fff5f5'
+        const accentBorder = isReject ? '#fde68a' : '#fecaca'
+        const accentText = isReject ? '#92400e' : '#991b1b'
+        const title = isReject ? '❌ Reject Order' : '🚫 Cancel Order'
+        const heading = isReject ? 'Why are you rejecting this order?' : 'Select cancellation reason *'
+        const confirmLabel = cancellingOrder ? (isReject ? '⏳ Rejecting...' : '⏳ Cancelling...') : (isReject ? '❌ Confirm Reject Order' : '🚫 Confirm Cancel Order')
+        const keepLabel = isReject ? 'Keep & Review Later' : 'Keep Order Active'
+
+        return (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1100, display:'flex', flexDirection:'column', justifyContent:'flex-end' }} onClick={e => { if(e.target===e.currentTarget) setShowCancelModal(false) }}>
           <div style={{ background:'#fff', borderRadius:'22px 22px 0 0', maxHeight:'85vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
             <div style={{ display:'flex', justifyContent:'center', padding:'12px 0 0' }}><div style={{ width:40, height:4, borderRadius:2, background:'#e5e7eb' }} /></div>
             <div style={{ padding:'16px 20px 12px', display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
               <div>
-                <div style={{ fontSize:16, fontWeight:800, color:'#dc2626' }}>🚫 Cancel Order</div>
+                <div style={{ fontSize:16, fontWeight:800, color:accent }}>{title}</div>
                 <div style={{ fontSize:12, color:'#9ca3af', marginTop:3 }}>Order #{cancelOrderTarget.id.slice(-6).toUpperCase()} · {cancelOrderTarget.userName}</div>
               </div>
               <button onClick={() => setShowCancelModal(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
             </div>
             <div style={{ padding:'0 20px 36px' }}>
-              <div style={{ background:'#fff5f5', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca', borderRadius:12, padding:'12px 14px', marginBottom:16, display:'flex', gap:10, alignItems:'flex-start' }}>
-                <span style={{ fontSize:18, flexShrink:0 }}>⚠️</span>
-                <div style={{ fontSize:12, color:'#991b1b', lineHeight:1.6 }}>The customer will be notified. This action cannot be undone.</div>
+              <div style={{ background:accentBg, borderWidth:1, borderStyle:'solid', borderColor:accentBorder, borderRadius:12, padding:'12px 14px', marginBottom:16, display:'flex', gap:10, alignItems:'flex-start' }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>{isReject ? '⚠️' : '⚠️'}</span>
+                <div style={{ fontSize:12, color:accentText, lineHeight:1.6 }}>
+                  {isReject
+                    ? 'The customer will be notified with your reason. They can re-order from another restaurant.'
+                    : 'The customer will be notified. This action cannot be undone.'}
+                </div>
               </div>
               <div style={{ background:'#f9fafb', borderRadius:10, padding:'10px 14px', marginBottom:16 }}>
                 <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:6 }}>ORDER SUMMARY</div>
@@ -2440,32 +2485,33 @@ export default function VendorApp() {
                 <div style={{ fontSize:14, fontWeight:700, color:'#E24B4A', marginTop:4 }}>₹{cancelOrderTarget.total}</div>
               </div>
               <div style={{ marginBottom:14 }}>
-                <div style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:10 }}>Select cancellation reason *</div>
+                <div style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:10 }}>{heading}</div>
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  {['Delivery location too far','Out of stock / ingredients unavailable','Store closing early today','Unable to prepare on time','Customer unreachable','Other'].map(reason => (
-                    <button key={reason} onClick={() => setCancelReason(reason==='Other'?'':reason)} style={{ width:'100%', padding:'11px 14px', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', fontSize:13, fontWeight:500, textAlign:'left', display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:cancelReason===reason?'#E24B4A':'#e5e7eb', background:cancelReason===reason?'#fff5f5':'#fff', color:'#374151', transition:'all 0.15s' }}>
-                      <div style={{ width:18, height:18, borderRadius:'50%', flexShrink:0, borderWidth:2, borderStyle:'solid', borderColor:cancelReason===reason?'#E24B4A':'#d1d5db', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                        {cancelReason===reason && <div style={{ width:8, height:8, borderRadius:'50%', background:'#E24B4A' }} />}
+                  {PRESET.map(reason => (
+                    <button key={reason} onClick={() => setCancelReason(reason==='Other'?'':reason)} style={{ width:'100%', padding:'11px 14px', borderRadius:10, cursor:'pointer', fontFamily:'Poppins', fontSize:13, fontWeight:500, textAlign:'left', display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:cancelReason===reason?accent:'#e5e7eb', background:cancelReason===reason?accentBg:'#fff', color:'#374151', transition:'all 0.15s' }}>
+                      <div style={{ width:18, height:18, borderRadius:'50%', flexShrink:0, borderWidth:2, borderStyle:'solid', borderColor:cancelReason===reason?accent:'#d1d5db', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        {cancelReason===reason && <div style={{ width:8, height:8, borderRadius:'50%', background:accent }} />}
                       </div>
                       {reason}
                     </button>
                   ))}
                 </div>
               </div>
-              {(cancelReason==='' || !['Delivery location too far','Out of stock / ingredients unavailable','Store closing early today','Unable to prepare on time','Customer unreachable'].includes(cancelReason)) && (
+              {(cancelReason==='' || !NON_OTHER.includes(cancelReason)) && (
                 <div style={{ marginBottom:16 }}>
                   <div style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:6 }}>{cancelReason===''?'Or type a custom reason:':'Custom reason:'}</div>
-                  <textarea value={!['Delivery location too far','Out of stock / ingredients unavailable','Store closing early today','Unable to prepare on time','Customer unreachable'].includes(cancelReason)?cancelReason:''} onChange={e => setCancelReason(e.target.value)} placeholder="Describe why you are cancelling..." rows={3} style={{ width:'100%', padding:'10px 12px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', lineHeight:1.6 }} />
+                  <textarea value={!NON_OTHER.includes(cancelReason)?cancelReason:''} onChange={e => setCancelReason(e.target.value)} placeholder={isReject ? 'Tell the customer why you cannot accept this order...' : 'Describe why you are cancelling...'} rows={3} style={{ width:'100%', padding:'10px 12px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:10, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', lineHeight:1.6 }} />
                 </div>
               )}
-              <button onClick={handleVendorCancelOrder} disabled={cancellingOrder || !cancelReason.trim()} style={{ width:'100%', background:(cancellingOrder||!cancelReason.trim())?'#fca5a5':'#dc2626', color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:(cancellingOrder||!cancelReason.trim())?'not-allowed':'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-                {cancellingOrder?'⏳ Cancelling...':'🚫 Confirm Cancel Order'}
+              <button onClick={handleVendorCancelOrder} disabled={cancellingOrder || !cancelReason.trim()} style={{ width:'100%', background:(cancellingOrder||!cancelReason.trim())?'#fca5a5':accent, color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:(cancellingOrder||!cancelReason.trim())?'not-allowed':'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                {confirmLabel}
               </button>
-              <button onClick={() => setShowCancelModal(false)} style={{ width:'100%', background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:12, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Keep Order Active</button>
+              <button onClick={() => setShowCancelModal(false)} style={{ width:'100%', background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:'12px 0', borderRadius:12, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>{keepLabel}</button>
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* ── VENDOR BILL MODAL ── */}
       {showVendorBill && vendorBillOrder && (
