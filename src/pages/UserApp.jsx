@@ -16,7 +16,6 @@ import LiveOrderTracking from '../components/LiveOrderTracking'
 import toast from 'react-hot-toast'
 import { useLanguage } from '../i18n/LanguageContext'
 import LanguageSwitcher from '../i18n/LanguageSwitcher'
-import FeedoChatBot from '../components/FeedoChatBot'
 
 // ─── Delivery charge: vendor fixed OR distance-based ─────────────────────────
 function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
@@ -2157,7 +2156,6 @@ export default function UserApp() {
             <div style={{ background:'#fafafa', borderRadius:12, overflow:'hidden', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', marginBottom:80 }}>
               {[
                 {icon:'💬',label:'Contact Support',sub:'Chat with our support team',badge: supportUnreadCount > 0 ? supportUnreadCount : null, action: handleOpenSupportChat},
-                {icon:'🤖',label:'Chat with AI Assistant',sub:'Instant 24/7 help for any problem', action:()=>{ try { window.dispatchEvent(new CustomEvent('feedo-open-chatbot')) } catch {} }},
                 {icon:'📜',label:'Terms & Conditions',sub:'Our terms of service',action:()=>setShowTerms(true)},
                 {icon:'🔒',label:'Privacy Policy',sub:'How we handle your data',action:()=>setShowPrivacy(true)}
               ].map((item,i,arr)=>(
@@ -2360,8 +2358,6 @@ export default function UserApp() {
           ── (Floating download pill removed) ──
       ══════════════════════════════════════ */}
 
-      {/* ── 24/7 CUSTOMER-CARE CHATBOT ── */}
-      <FeedoChatBot />
     </div>
   )
 }
