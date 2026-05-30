@@ -10,7 +10,6 @@ const LanguageContext = createContext({
   t: (key) => key,
   languages: SUPPORTED_LANGUAGES,
 })
-
 function detectInitialLang() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
