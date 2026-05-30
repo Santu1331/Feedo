@@ -185,113 +185,7 @@ export default function LoginPage() {
     </div>
   )
 
-  // ── PLAY STORE BANNER ──
-  const PlayStoreBanner = () => (
-    <div
-      onClick={() => window.open('https://play.google.com/store/apps/details?id=com.feedozone.app2024', '_blank')}
-      style={{
-        marginTop: 24,
-        borderRadius: 16,
-        overflow: 'hidden',
-        cursor: 'pointer',
-        position: 'relative',
-        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
-        boxShadow: '0 4px 20px rgba(226,75,74,0.2)',
-      }}
-    >
-      {/* Top glow accent */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-        background: 'linear-gradient(90deg, #E24B4A, #ff8c42, #E24B4A)',
-      }} />
-
-      <div style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
-
-        {/* App Icon */}
-        <div style={{
-          width: 56, height: 56, borderRadius: 14, flexShrink: 0,
-          background: '#E24B4A',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 2px 10px rgba(226,75,74,0.4)',
-        }}>
-          <span style={{ fontSize: 26 }}>🍔</span>
-        </div>
-
-        {/* Text Content */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#ffffff', fontFamily: 'Poppins, sans-serif' }}>
-              FeedoZone
-            </span>
-            <span style={{
-              fontSize: 9, fontWeight: 600, color: '#4ade80',
-              background: 'rgba(74,222,128,0.15)', padding: '2px 7px',
-              borderRadius: 20, border: '1px solid rgba(74,222,128,0.3)',
-              fontFamily: 'Poppins, sans-serif', letterSpacing: 0.5,
-            }}>
-              FREE
-            </span>
-          </div>
-
-          <div style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'Poppins, sans-serif', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            Order food. Fast. Simple. Local. 🚀
-          </div>
-
-          {/* Star Rating */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <div style={{ display: 'flex', gap: 1 }}>
-              {[1,2,3,4,5].map(i => (
-                <span key={i} style={{ fontSize: 10, color: i <= 4 ? '#facc15' : '#475569' }}>★</span>
-              ))}
-            </div>
-            <span style={{ fontSize: 10, color: '#64748b', fontFamily: 'Poppins, sans-serif' }}>4.5 · Food & Drink</span>
-          </div>
-        </div>
-
-        {/* Play Store Badge */}
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          gap: 3, flexShrink: 0,
-        }}>
-          <div style={{
-            background: '#E24B4A', borderRadius: 10, padding: '8px 14px',
-            display: 'flex', alignItems: 'center', gap: 6,
-            boxShadow: '0 2px 8px rgba(226,75,74,0.35)',
-          }}>
-            {/* Google Play triangle icon */}
-            <svg width="13" height="14" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M1 1.5L11.5 7L1 12.5V1.5Z" fill="white" stroke="white" strokeWidth="0.5" strokeLinejoin="round"/>
-            </svg>
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', fontFamily: 'Poppins, sans-serif', whiteSpace: 'nowrap' }}>
-              Get App
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-            {/* Google Play "G" colors */}
-            <svg width="10" height="10" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path d="M3.18 23.4c.36.2.77.3 1.2.3.3 0 .6-.06.88-.16L14.5 12 5.26.46A2.55 2.55 0 0 0 3.18.6C2.46 1 2 1.8 2 2.7v18.6c0 .9.46 1.7 1.18 2.1z" fill="#4285F4"/>
-              <path d="M22 12l-3.96-2.27-4.54 4.54 4.54 4.54L22 16.4c.63-.36 1-.99 1-1.7 0-.7-.37-1.33-1-1.7z" fill="#FBBC05"/>
-              <path d="M4.38.46L14.5 12l3.54-3.54L5.26.14A2.54 2.54 0 0 0 4.38.46z" fill="#EA4335"/>
-              <path d="M4.38 23.54l12.66-7.08L14.5 12 4.38 23.54z" fill="#34A853"/>
-            </svg>
-            <span style={{ fontSize: 9, color: '#64748b', fontFamily: 'Poppins, sans-serif' }}>Google Play</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom strip */}
-      <div style={{
-        background: 'rgba(255,255,255,0.04)',
-        borderTop: '1px solid rgba(255,255,255,0.07)',
-        padding: '7px 18px',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-      }}>
-        <span style={{ fontSize: 10, color: '#64748b', fontFamily: 'Poppins, sans-serif' }}>
-          📲 Download for a better experience
-        </span>
-      </div>
-    </div>
-  )
+  // ── PLAY STORE BANNER (removed) ──
 
   return (
     <div style={{ maxWidth:430, margin:'0 auto', background:'#fff', minHeight:'100vh', display:'flex', flexDirection:'column', padding:'32px 24px 40px', fontFamily:'Poppins, sans-serif', overflowY:'auto' }}>
@@ -344,7 +238,6 @@ export default function LoginPage() {
             </span>
           </p>
 
-          <PlayStoreBanner />
         </div>
       ) : (
         <>
@@ -460,7 +353,6 @@ export default function LoginPage() {
                 <span onClick={() => { setMode('login'); resetFields() }} style={{ color:'#E24B4A', cursor:'pointer', fontWeight:600 }}>Login here</span>
               </p>
 
-              <PlayStoreBanner />
             </form>
           )}
 
@@ -498,7 +390,6 @@ export default function LoginPage() {
                 </p>
               )}
 
-              <PlayStoreBanner />
             </form>
           )}
 
