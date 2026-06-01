@@ -1,0 +1,16 @@
+# ─── FeedoZone — robots.txt ─────────────────────────────────────────────────
+# Public landing pages are open to all search engines. Authenticated app
+# routes (home, vendor, founder dashboards) are blocked because they require
+# login and serve no SEO value.
+
+User-agent: *
+Allow: /
+Allow: /privacy-policy
+Allow: /delete-account
+Disallow: /home
+Disallow: /vendor
+Disallow: /founder
+Disallow: /founder-login
+Disallow: /api/
+
+Sitemap: https://feedo-ruddy.vercel.app/sitemap.xml
