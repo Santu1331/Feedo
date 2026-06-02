@@ -137,6 +137,39 @@ export const sendExpoPushNotification = async ({ expoPushToken, title, body, dat
   }
 }
 
+// ── WEB BROWSER PUSH (FCM) ────────────────────────────────────────────────
+// Sends a notification to a browser via Firebase Cloud Messaging. Fires even
+// when the tab is closed/backgrounded — the service worker shows the banner
+// with sound + vibration. Pass a single fcmToken or an array.
+export const sendWebPushNotification = async ({ fcmToken, fcmTokens, title, body, data = {} }) => {
+  const tokens = Array.isArray(fcmTokens)
+    ? fcmTokens
+    : (fcmToken ? [fcmToken] : [])
+  const clean = tokens.filter(t => typeof t === 'string' && t.trim().length > 0)
+  if (clean.length === 0) return
+  try {
+    await fetch('/api/send-fcm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tokens: clean, title, body, data }),
+    })
+  } catch (err) {
+    console.error('Web push failed:', err)
+  }
+}
+
+// ── Read FCM web token from Firestore ─────────────────────────────────────
+export const getFcmToken = async (uid, role = 'user') => {
+  if (!uid) return null
+  try {
+    const col = role === 'vendor' ? 'vendors' : 'users'
+    const snap = await getDoc(doc(db, col, uid))
+    return snap.exists() ? (snap.data()?.fcmToken || null) : null
+  } catch {
+    return null
+  }
+}
+
 export const saveExpoPushToken = async (uid, token, role = 'user') => {
   if (!uid || !token) return
   try {
@@ -352,6 +385,23 @@ export const placeOrder = async (orderData) => {
     })
     .catch(err => console.error('Get vendor push token failed:', err))
 
+  // 🔔 Web browser push (FCM) — fires even when the vendor's tab is CLOSED
+  // or backgrounded. Plays sound + vibrates the device via the service
+  // worker registered at /firebase-messaging-sw.js.
+  getFcmToken(orderData.vendorUid, 'vendor')
+    .then(fcmToken => {
+      if (fcmToken) {
+        const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
+        sendWebPushNotification({
+          fcmToken,
+          title: '🛎️ New Order Received!',
+          body: `₹${orderData.total} from ${orderData.userName} · ${itemsSummary.slice(0, 80)}`,
+          data: { orderId: ref.id, type: 'new_order', url: '/vendor' },
+        }).catch(err => console.error('Vendor FCM push failed:', err))
+      }
+    })
+    .catch(err => console.error('Get vendor FCM token failed:', err))
+
   return ref
 }
 
@@ -433,6 +483,21 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
         }
       } catch (err) {
         console.error('User push notification failed:', err)
+      }
+
+      // 🔔 Web browser push (FCM) to user — fires even if tab is closed
+      try {
+        const userFcm = await getFcmToken(orderData.userUid, 'user')
+        if (userFcm) {
+          await sendWebPushNotification({
+            fcmToken: userFcm,
+            title: msg.title,
+            body: msg.body,
+            data: { orderId, type: 'order_status', url: '/home' },
+          })
+        }
+      } catch (err) {
+        console.error('User FCM push failed:', err)
       }
     }
   }
