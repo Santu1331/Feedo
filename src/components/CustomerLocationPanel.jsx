@@ -41,7 +41,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { doc, onSnapshot } from 'firebase/firestore'
+import { doc, getDoc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase/config'
 
 const escapeHtml = (unsafe) => {
@@ -140,22 +140,55 @@ function useDeliveryCoords(order) {
   // Resolve customer location once
   useEffect(() => {
     if (!order) return
-    // Priority 1: live GPS saved on order doc (from UserApp)
-    if (order.customerLocation?.lat) {
-      setCustomerCoords(order.customerLocation)
+    let cancelled = false
+
+    // Priority 1: GPS coords saved on the order doc itself.
+    // UserApp checkout writes `userLat` / `userLng`. Older code paths used
+    // a nested `customerLocation { lat, lng }`. Accept either shape.
+    const gpsLat = order.customerLocation?.lat ?? order.userLat
+    const gpsLng = order.customerLocation?.lng ?? order.userLng
+    if (typeof gpsLat === 'number' && typeof gpsLng === 'number') {
+      setCustomerCoords({ lat: gpsLat, lng: gpsLng })
       setLocSource('gps')
       return
     }
-    // Priority 2: geocode delivery address text
-    if (order.address) {
-      geocodeAddress(order.address).then(coords => {
-        if (coords) { setCustomerCoords(coords); setLocSource('geocode') }
-        else setLocError('Could not locate this address on the map.')
-      })
-    } else {
-      setLocError('No delivery address found for this order.')
+
+    // Priority 2: the customer's last-known GPS from their user profile.
+    // This handles older orders placed before location was granted, or
+    // orders where the user typed only a building name like "tkiet".
+    const fetchProfileLocAndFallback = async () => {
+      if (order.userUid) {
+        try {
+          const snap = await getDoc(doc(db, 'users', order.userUid))
+          const loc = snap.exists() ? snap.data()?.location : null
+          if (!cancelled && loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
+            setCustomerCoords({ lat: loc.lat, lng: loc.lng })
+            setLocSource('profile')
+            return
+          }
+        } catch {
+          // Ignore — fall through to address geocoding.
+        }
+      }
+
+      // Priority 3: geocode the typed delivery address.
+      if (order.address) {
+        try {
+          const coords = await geocodeAddress(order.address)
+          if (cancelled) return
+          if (coords) { setCustomerCoords(coords); setLocSource('geocode') }
+          else setLocError('Could not locate this address on the map.')
+        } catch {
+          if (!cancelled) setLocError('Could not locate this address on the map.')
+        }
+      } else if (!cancelled) {
+        setLocError('No delivery address found for this order.')
+      }
     }
-  }, [order?.id]) // eslint-dg
+
+    fetchProfileLocAndFallback()
+    return () => { cancelled = true }
+  }, [order?.id, order?.userUid]) // eslint-dg
   // isable-line
 
   // Live-subscribe to rider GPS on the order Firestore doc
@@ -478,17 +511,32 @@ export default function CustomerLocationPanel({ order, onClose }) {
     : null
 
   // ────────────────────────────────────────────────────────────────────────
+  // Close-on-Escape — keyboard fallback for the X button. Without this the
+  // close button can feel unresponsive on browsers where the click target
+  // gets covered by leaflet panes.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
-      zIndex: 2100, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-    }}>
-      <div style={{
-        background: '#fff', borderRadius: '22px 22px 0 0',
-        maxHeight: '94vh', display: 'flex', flexDirection: 'column',
-        maxWidth: 430, width: '100%', margin: '0 auto',
-        fontFamily: 'Poppins, sans-serif', overflow: 'hidden',
-      }}>
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) onClose?.() }}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
+        zIndex: 2100, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: '22px 22px 0 0',
+          maxHeight: '94vh', display: 'flex', flexDirection: 'column',
+          maxWidth: 430, width: '100%', margin: '0 auto',
+          fontFamily: 'Poppins, sans-serif', overflow: 'hidden',
+        }}
+      >
 
         {/* ── Header ── */}
         <div style={{
@@ -515,12 +563,17 @@ export default function CustomerLocationPanel({ order, onClose }) {
                 #{order.id.slice(-6).toUpperCase()} · {order.userName}
               </div>
             </div>
-            <button onClick={onClose} style={{
-              background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff',
-              width: 34, height: 34, borderRadius: '50%', fontSize: 16,
-              cursor: 'pointer', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', flexShrink: 0,
-            }}>✕</button>
+            <button
+              onClick={onClose}
+              aria-label="Close map"
+              style={{
+                background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff',
+                width: 40, height: 40, borderRadius: '50%', fontSize: 18, fontWeight: 700,
+                cursor: 'pointer', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', flexShrink: 0,
+                position: 'relative', zIndex: 5,
+              }}
+            >✕</button>
           </div>
 
           {/* Stats row — shown once coords are ready */}
@@ -529,16 +582,16 @@ export default function CustomerLocationPanel({ order, onClose }) {
 
               {/* Source badge */}
               <div style={{
-                background: locSource === 'gps' ? 'rgba(74,222,128,0.2)' : 'rgba(251,191,36,0.2)',
+                background: locSource === 'gps' ? 'rgba(74,222,128,0.2)' : locSource === 'profile' ? 'rgba(96,165,250,0.2)' : 'rgba(251,191,36,0.2)',
                 borderRadius: 10, padding: '6px 10px', flex: 1, textAlign: 'center',
                 borderWidth: 1, borderStyle: 'solid',
-                borderColor: locSource === 'gps' ? 'rgba(74,222,128,0.4)' : 'rgba(251,191,36,0.4)',
+                borderColor: locSource === 'gps' ? 'rgba(74,222,128,0.4)' : locSource === 'profile' ? 'rgba(96,165,250,0.4)' : 'rgba(251,191,36,0.4)',
               }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: locSource === 'gps' ? '#4ade80' : '#fbbf24' }}>
-                  {locSource === 'gps' ? '📡 LIVE GPS' : '📍 ADDRESS'}
+                <div style={{ fontSize: 10, fontWeight: 700, color: locSource === 'gps' ? '#4ade80' : locSource === 'profile' ? '#60a5fa' : '#fbbf24' }}>
+                  {locSource === 'gps' ? '📡 LIVE GPS' : locSource === 'profile' ? '👤 PROFILE GPS' : '📍 ADDRESS'}
                 </div>
                 <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', marginTop: 1 }}>
-                  {locSource === 'gps' ? 'Customer GPS' : 'Geocoded'}
+                  {locSource === 'gps' ? 'Order GPS' : locSource === 'profile' ? 'Saved location' : 'Geocoded'}
                 </div>
               </div>
 
@@ -590,7 +643,7 @@ export default function CustomerLocationPanel({ order, onClose }) {
               Finding customer location…
             </div>
             <div style={{ fontSize: 11, color: '#9ca3af' }}>
-              {order.customerLocation?.lat ? 'Reading live GPS…' : 'Geocoding delivery address…'}
+              {(order.customerLocation?.lat || typeof order.userLat === 'number') ? 'Reading live GPS…' : 'Geocoding delivery address…'}
             </div>
           </div>
         )}

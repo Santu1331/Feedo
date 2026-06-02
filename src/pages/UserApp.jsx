@@ -811,30 +811,48 @@ export default function UserApp() {
     if (token && typeof token === 'string' && token.trim() !== '') saveExpoPushToken(user.uid, token, 'user')
   }, [user?.uid])
 
+  // ─── Detect user's location on first load ──────────────────────────────
+  // Zomato-style: use cached coords if we have them, otherwise fire the
+  // browser geolocation popup right away. No custom overlay — just the
+  // native "Allow Location" dialog the browser shows automatically.
+  // If the user denies or the call fails, we silently leave userLat/userLng
+  // null and they can pick a location manually from the header pin.
   useEffect(() => {
-    const cached = localStorage.getItem('feedo_location')
-    if (cached) {
-      try { const { lat, lng, name } = JSON.parse(cached); setUserLat(lat); setUserLng(lng); setLocationName(name); return } catch {}
-    }
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const { latitude: lat, longitude: lng } = pos.coords
-          setUserLat(lat); setUserLng(lng)
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
-            const data = await res.json()
-            const addr = data.address || {}
-            const name = addr.suburb || addr.neighbourhood || addr.village || addr.town || addr.city || 'Your Location'
-            setLocationName(name)
-            localStorage.setItem('feedo_location', JSON.stringify({ lat, lng, name }))
-            if (user) await saveUserLocation(user.uid, lat, lng)
-          } catch { setLocationName('Your Location') }
-        },
-        () => {},
-        { enableHighAccuracy: true, timeout: 10000 }
-      )
-    }
+    // Fast path: cached coords from a previous session.
+    try {
+      const cached = localStorage.getItem('feedo_location')
+      if (cached) {
+        const { lat, lng, name } = JSON.parse(cached)
+        if (typeof lat === 'number' && typeof lng === 'number') {
+          setUserLat(lat); setUserLng(lng); setLocationName(name || null)
+          return
+        }
+      }
+    } catch {}
+
+    if (!navigator.geolocation) return
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords
+        setUserLat(lat); setUserLng(lng)
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+          const data = await res.json()
+          const addr = data.address || {}
+          const name = addr.suburb || addr.neighbourhood || addr.village || addr.town || addr.city || 'Your Location'
+          setLocationName(name)
+          try { localStorage.setItem('feedo_location', JSON.stringify({ lat, lng, name })) } catch {}
+        } catch {
+          setLocationName('Your Location')
+          try { localStorage.setItem('feedo_location', JSON.stringify({ lat, lng, name: 'Your Location' })) } catch {}
+        }
+        try { if (user) await saveUserLocation(user.uid, lat, lng) } catch {}
+      },
+      () => { /* user denied or timed out — silent, user can pick manually */ },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -1003,7 +1021,10 @@ export default function UserApp() {
 
   const handleGetLocation = async () => {
     setLocationLoading(true)
-    try { const { lat, lng } = await getUserLocation(); await handleLocationGranted(lat, lng) }
+    try {
+      const { lat, lng } = await getUserLocation()
+      await handleLocationGranted(lat, lng)
+    }
     catch { toast.error('Could not get location. Enable GPS.') }
     setLocationLoading(false)
   }
@@ -1196,6 +1217,8 @@ export default function UserApp() {
         : null,
     }))
     .filter(v => {
+      // No location yet → show all vendors (Zomato behavior). Once we have
+      // coords, restrict to vendors within the delivery radius.
       if (!userLat || !userLng) return true
       if (v.distance === null) return true
       return v.distance <= MAX_DELIVERY_KM

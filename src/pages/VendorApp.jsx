@@ -19,6 +19,10 @@ import LanguageSwitcher from '../i18n/LanguageSwitcher'
 
 const STATUS_NEXT  = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
 const STATUS_LABEL = { pending:'Accept Order', accepted:'Start Preparing', preparing:'Mark Ready', ready:'Out for Delivery', out_for_delivery:'Mark Delivered' }
+// Statuses where a vendor is still allowed to cancel an order. Once the
+// rider is "out for delivery" the order can no longer be cancelled — that
+// keeps the live rider tracking flow simple and prevents accidental
+// cancellations during last-mile delivery.
 const CANCELLABLE_STATUSES = ['accepted', 'preparing', 'ready']
 const DEFAULT_CATEGORIES = ['Thali','Biryani','Chinese','Snacks','Drinks','Sweets','Roti','Rice']
 const EMPTY_ITEM = { name:'', price:'', category:'Thali', description:'', isVeg: true }
@@ -1226,10 +1230,25 @@ export default function VendorApp() {
     }
   }
 
+  // Track in-flight status updates so a double-tap on "Mark Delivered" /
+  // "Out for Delivery" doesn't push the order through two transitions.
+  const statusUpdatingRef = useRef(new Set())
+
   const handleStatus = async (orderId, current, orderData = {}) => {
     const next = STATUS_NEXT[current]; if (!next) return
-    await updateOrderStatus(orderId, next, orderData)
-    toast.success(`Order → ${next.replace('_',' ')}`)
+    if (statusUpdatingRef.current.has(orderId)) return
+    statusUpdatingRef.current.add(orderId)
+    try {
+      await updateOrderStatus(orderId, next, orderData)
+      toast.success(`Order → ${next.replace(/_/g,' ')}`)
+    } catch (err) {
+      console.warn('Status update failed:', err)
+      toast.error('Could not update order. Please try again.')
+    } finally {
+      // Brief debounce so the Firestore listener can refresh before we
+      // accept another tap on the same button.
+      setTimeout(() => { statusUpdatingRef.current.delete(orderId) }, 600)
+    }
   }
 
   const handleReject = (order) => {
@@ -1711,7 +1730,21 @@ export default function VendorApp() {
                           <button onClick={() => handleReject(selectedVendorOrder)} style={{ flex:1, background:'transparent', color:'#E24B4A', borderWidth:2, borderStyle:'solid', borderColor:'#E24B4A', padding:'14px 0', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>❌ Reject</button>
                         )}
                         {STATUS_NEXT[selectedVendorOrder.status] && (
-                          <button onClick={async () => { await handleStatus(selectedVendorOrder.id, selectedVendorOrder.status, { userUid: selectedVendorOrder.userUid, vendorName: userData?.storeName||'' }); setSelectedVendorOrder(prev => ({ ...prev, status: STATUS_NEXT[prev.status] })) }} style={{ flex:2, background: selectedVendorOrder.status==='pending'?'#E24B4A':'#16a34a', color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>{STATUS_LABEL[selectedVendorOrder.status]} ✓</button>
+                          <button
+                            onClick={async () => {
+                              const before = selectedVendorOrder.status
+                              const next = STATUS_NEXT[before]
+                              await handleStatus(selectedVendorOrder.id, before, { userUid: selectedVendorOrder.userUid, vendorName: userData?.storeName||'' })
+                              // Only roll the local detail-card status forward if the
+                              // Firestore update actually advanced. The orders listener
+                              // is the source of truth, but we mirror it here so the
+                              // detail card reacts instantly without a re-tap.
+                              setSelectedVendorOrder(prev => prev ? { ...prev, status: next } : prev)
+                            }}
+                            style={{ flex:2, background: selectedVendorOrder.status==='pending'?'#E24B4A':'#16a34a', color:'#fff', border:'none', padding:'14px 0', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
+                          >
+                            {STATUS_LABEL[selectedVendorOrder.status]} ✓
+                          </button>
                         )}
                       </div>
                       {CANCELLABLE_STATUSES.includes(selectedVendorOrder.status) && (
