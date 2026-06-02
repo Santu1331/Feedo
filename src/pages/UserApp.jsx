@@ -33,6 +33,11 @@ function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
 
 const MAX_DELIVERY_KM = 4
 
+// ─── WhatsApp Community ──────────────────────────────────────────────────────
+// Public invite link for the FeedoZone community group. Used by the home-tab
+// banner and the Profile menu entry. Updating this one constant updates both.
+const WHATSAPP_COMMUNITY_URL = 'https://chat.whatsapp.com/BfM3K3v2HBCDEJ8VKG6jAH'
+
 const S = {
   shell: { maxWidth:430, margin:'0 auto', background:'#f7f7f7', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' },
   redHdr: { background:'#E24B4A', color:'#fff', padding:'16px', flexShrink:0 },
@@ -100,6 +105,134 @@ function useCancelCountdown(order) {
     return () => clearInterval(id)
   }, [order])
   return secondsLeft
+}
+
+// ─── WhatsApp Community Banner ──────────────────────────────────────────────
+// Eye-catching promo card on the home tab that nudges users to join the
+// FeedoZone WhatsApp community for offers, free-delivery coupons, and
+// new-vendor announcements. Dismissible (saved in localStorage so it stays
+// hidden after one tap on ✕).
+function WhatsAppCommunityBanner() {
+  const [dismissed, setDismissed] = useState(
+    () => { try { return !!localStorage.getItem('feedo_wa_banner_dismissed') } catch { return false } }
+  )
+
+  if (dismissed) return null
+
+  const handleJoin = () => {
+    try { window.open(WHATSAPP_COMMUNITY_URL, '_blank', 'noopener,noreferrer') } catch {}
+  }
+  const handleDismiss = (e) => {
+    e.stopPropagation()
+    try { localStorage.setItem('feedo_wa_banner_dismissed', '1') } catch {}
+    setDismissed(true)
+  }
+
+  return (
+    <>
+      <style>{`
+        @keyframes waPulseRing {
+          0%   { box-shadow: 0 0 0 0 rgba(37,211,102,0.55); }
+          70%  { box-shadow: 0 0 0 14px rgba(37,211,102,0); }
+          100% { box-shadow: 0 0 0 0 rgba(37,211,102,0); }
+        }
+        @keyframes waShine {
+          0%   { background-position: -180% center; }
+          100% { background-position:  180% center; }
+        }
+        @keyframes waBounce {
+          0%, 100% { transform: translateY(0); }
+          50%      { transform: translateY(-3px); }
+        }
+        .feedo-wa-card {
+          margin: 12px 16px 4px;
+          border-radius: 18px;
+          overflow: hidden;
+          position: relative;
+          background: linear-gradient(135deg, #075E54 0%, #128C7E 45%, #25D366 100%);
+          box-shadow: 0 10px 28px rgba(18,140,126,0.32), 0 2px 6px rgba(0,0,0,0.08);
+          cursor: pointer;
+          font-family: Poppins, sans-serif;
+          isolation: isolate;
+        }
+        .feedo-wa-card::before {
+          content: '';
+          position: absolute; inset: 0;
+          background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.25) 50%, transparent 70%);
+          background-size: 200% 100%;
+          animation: waShine 3.2s ease-in-out infinite;
+          pointer-events: none;
+          z-index: 1;
+        }
+        .feedo-wa-icon {
+          animation: waBounce 2.4s ease-in-out infinite, waPulseRing 2.4s ease-in-out infinite;
+        }
+      `}</style>
+      <div className="feedo-wa-card" onClick={handleJoin} role="button" aria-label="Join FeedoZone WhatsApp community">
+        {/* Decorative bubbles */}
+        <div style={{ position:'absolute', top:-22, right:-22, width:110, height:110, borderRadius:'50%', background:'rgba(255,255,255,0.08)', pointerEvents:'none' }} />
+        <div style={{ position:'absolute', bottom:-36, left:-12, width:90, height:90, borderRadius:'50%', background:'rgba(255,255,255,0.06)', pointerEvents:'none' }} />
+
+        {/* Dismiss */}
+        <button
+          onClick={handleDismiss}
+          aria-label="Dismiss"
+          style={{
+            position:'absolute', top:8, right:8, zIndex:3,
+            background:'rgba(0,0,0,0.25)', border:'none', borderRadius:'50%',
+            width:24, height:24, color:'#fff', cursor:'pointer',
+            fontSize:11, lineHeight:1, display:'flex', alignItems:'center', justifyContent:'center',
+            fontFamily:'Poppins',
+          }}
+        >✕</button>
+
+        <div style={{ position:'relative', zIndex:2, padding:'16px 16px 14px', display:'flex', alignItems:'center', gap:14 }}>
+          {/* WhatsApp logo bubble (pure SVG so no asset dependency) */}
+          <div className="feedo-wa-icon" style={{
+            width:54, height:54, borderRadius:14, flexShrink:0,
+            background:'#fff',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            boxShadow:'0 4px 14px rgba(0,0,0,0.18)',
+          }}>
+            <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
+              <path fill="#25D366" d="M16 0C7.18 0 0 7.18 0 16c0 2.82.74 5.46 2.04 7.76L0 32l8.46-2.22A15.92 15.92 0 0 0 16 32c8.82 0 16-7.18 16-16S24.82 0 16 0z"/>
+              <path fill="#fff" d="M23.4 19.5c-.4-.2-2.36-1.16-2.72-1.3-.36-.14-.62-.2-.88.2-.26.4-1 1.3-1.22 1.56-.22.26-.45.3-.84.1-.4-.2-1.68-.62-3.2-1.97-1.18-1.05-1.98-2.36-2.21-2.76-.23-.4-.02-.62.18-.82.18-.18.4-.46.6-.7.2-.23.27-.4.4-.66.14-.27.07-.5-.04-.7-.1-.2-.88-2.12-1.2-2.9-.32-.78-.64-.66-.88-.66h-.74c-.26 0-.66.1-1.02.5-.36.4-1.36 1.32-1.36 3.22s1.4 3.74 1.6 4c.2.27 2.74 4.2 6.64 5.88.93.4 1.65.64 2.22.82.93.3 1.78.26 2.45.16.75-.11 2.36-.97 2.7-1.9.33-.93.33-1.73.23-1.9-.1-.18-.36-.27-.76-.47z"/>
+            </svg>
+          </div>
+
+          {/* Text */}
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
+              <span style={{
+                fontSize:9, fontWeight:800, color:'#fff', letterSpacing:0.6,
+                background:'rgba(255,255,255,0.18)', padding:'2px 7px', borderRadius:20,
+                borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,255,255,0.25)',
+              }}>EXCLUSIVE</span>
+              <span style={{ fontSize:9, fontWeight:700, color:'#fff', opacity:0.85 }}>· Members only</span>
+            </div>
+            <div style={{ fontSize:15, fontWeight:800, color:'#fff', lineHeight:1.2, marginBottom:3 }}>
+              Join FeedoZone Community
+            </div>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,0.92)', lineHeight:1.45 }}>
+              🎁 Free-delivery coupons · 🔥 Hot offers · 🍽️ New vendor alerts
+            </div>
+          </div>
+
+          {/* Join CTA */}
+          <div style={{
+            flexShrink:0, background:'#fff', color:'#075E54',
+            padding:'10px 14px', borderRadius:24,
+            display:'flex', alignItems:'center', gap:6,
+            boxShadow:'0 4px 12px rgba(0,0,0,0.18)',
+            fontSize:12, fontWeight:800, fontFamily:'Poppins',
+          }}>
+            Join
+            <span style={{ fontSize:14 }}>›</span>
+          </div>
+        </div>
+      </div>
+    </>
+  )
 }
 
 // ─── Zomato-style Price Filter Bottom Sheet ───────────────────────────────────
@@ -1338,8 +1471,9 @@ export default function UserApp() {
             </div>
 
             {/* ══════════════════════════════════════════
-                ── (App download banner removed) ──
+                ── JOIN WHATSAPP COMMUNITY (Home Tab) ──
             ══════════════════════════════════════════ */}
+            <WhatsAppCommunityBanner />
 
             {searchQuery.trim() && (
               <div style={{ padding:'10px 16px 0', fontSize:12, color:'#6b7280' }}>
@@ -2156,6 +2290,7 @@ export default function UserApp() {
             <div style={{ background:'#fafafa', borderRadius:12, overflow:'hidden', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', marginBottom:80 }}>
               {[
                 {icon:'💬',label:'Contact Support',sub:'Chat with our support team',badge: supportUnreadCount > 0 ? supportUnreadCount : null, action: handleOpenSupportChat},
+                {icon:'🟢',label:'Join WhatsApp Community',sub:'Free-delivery coupons & hot offers', action:()=>{ try { window.open(WHATSAPP_COMMUNITY_URL, '_blank', 'noopener,noreferrer') } catch {} }},
                 {icon:'📜',label:'Terms & Conditions',sub:'Our terms of service',action:()=>setShowTerms(true)},
                 {icon:'🔒',label:'Privacy Policy',sub:'How we handle your data',action:()=>setShowPrivacy(true)}
               ].map((item,i,arr)=>(
