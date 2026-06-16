@@ -1039,6 +1039,13 @@ export default function VendorApp() {
   const [showVendorBill, setShowVendorBill] = useState(false)
   const [vendorBillOrder, setVendorBillOrder] = useState(null)
 
+  // ── SUBSCRIPTION STATE ────────────────────────────────────────────────
+  const [subscriptionStatus, setSubscriptionStatus] = useState(null) // 'active' | 'due' | 'grace' | null
+  const [subscriptionFee, setSubscriptionFee] = useState(0)
+  const [subscriptionDueDate, setSubscriptionDueDate] = useState(null)
+  const [showSubPayModal, setShowSubPayModal] = useState(false)
+  // ─────────────────────────────────────────────────────────────────────
+
   const [newOrderAlert, setNewOrderAlert] = useState(null)
   const [alertDismissed, setAlertDismissed] = useState(false)
   const [audioUnlocked, setAudioUnlocked] = useState(false)
@@ -1139,11 +1146,55 @@ export default function VendorApp() {
     if (userData?.openTime) setOpenTime(userData.openTime)
     if (userData?.closeTime) setCloseTime(userData.closeTime)
     if (userData?.location) { setVendorLocation(userData.location); setLocationName(userData.locationName || '') }
+
     const u1 = getVendorOrders(user.uid, setOrders)
     const u2 = getMenuItems(user.uid, setMenuItems)
     const u3 = getCombos(user.uid, (fetchedCombos) => { setCombos(fetchedCombos) })
     return () => { u1(); u2(); u3() }
   }, [user, userData])
+
+  // ── SUBSCRIPTION: live listener on vendors/{uid} ──────────────────────
+  // useAuth reads from users/ collection which doesn't have subscriptionFee.
+  // The founder saves subscriptionFee to vendors/ collection, so we listen
+  // to that doc directly to always get the latest fee and status.
+  useEffect(() => {
+    if (!user?.uid) return
+    const unsub = onSnapshot(doc(db, 'vendors', user.uid), (snap) => {
+      if (!snap.exists()) return
+      const data = snap.data()
+
+      // Fee
+      const fee = data.subscriptionFee ?? 0
+      setSubscriptionFee(fee)
+
+      // Status + due date
+      const now = new Date()
+      const dueDate = data.subscriptionDueDate?.toDate?.() || null
+      const onboardedAt = data.onboardedAt?.toDate?.() || data.createdAt?.toDate?.() || null
+
+      if (dueDate) {
+        setSubscriptionDueDate(dueDate)
+        const daysLeft = Math.ceil((dueDate - now) / 86400000)
+        if (data.subscriptionStatus === 'active' && daysLeft > 0) {
+          setSubscriptionStatus(daysLeft <= 2 ? 'grace' : 'active')
+        } else {
+          setSubscriptionStatus('due')
+        }
+      } else if (onboardedAt) {
+        const oneMonthLater = new Date(onboardedAt.getTime() + 30 * 24 * 3600 * 1000)
+        setSubscriptionDueDate(oneMonthLater)
+        const daysLeft = Math.ceil((oneMonthLater - now) / 86400000)
+        if (daysLeft > 2) setSubscriptionStatus('active')
+        else if (daysLeft > 0) setSubscriptionStatus('grace')
+        else setSubscriptionStatus('due')
+      } else {
+        // Brand new vendor — give them full active status until manually set
+        setSubscriptionStatus('active')
+      }
+    })
+    return () => unsub()
+  }, [user?.uid])
+  // ─────────────────────────────────────────────────────────────────────
 
   const reverseGeocode = async (lat, lng) => {
     try {
@@ -1508,6 +1559,151 @@ export default function VendorApp() {
   return (
     <div style={{ maxWidth:430, margin:'0 auto', background:'#fff', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' }}>
 
+      {/* ── SUBSCRIPTION PAYMENT MODAL ── */}
+      {showSubPayModal && (() => {
+        // subscriptionFee state is always up-to-date from the vendors/ live listener
+        const fee = subscriptionFee || 0
+        const feeDisplay = fee > 0 ? `₹${fee}` : 'Contact Admin'
+        const feeNum = fee > 0 ? fee : ''
+        return (
+          <div
+            style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', zIndex:4000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}
+            onClick={() => setShowSubPayModal(false)}
+          >
+            {/* stop clicks inside the sheet from closing the modal */}
+            <div
+              style={{ background:'#fff', borderRadius:'22px 22px 0 0', maxHeight:'92vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ background:'linear-gradient(135deg,#1a1a1a,#0f3460)', padding:'20px 20px 24px', borderRadius:'22px 22px 0 0', position:'relative', overflow:'hidden' }}>
+                <div style={{ position:'absolute', right:-10, top:-10, fontSize:70, opacity:0.06 }}>💳</div>
+                <div style={{ display:'flex', justifyContent:'center', marginBottom:12 }}><div style={{ width:40, height:4, borderRadius:2, background:'rgba(255,255,255,0.3)' }} /></div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                  <div>
+                    <div style={{ fontSize:10, color:'rgba(255,255,255,0.6)', fontWeight:700, letterSpacing:1, marginBottom:4 }}>MONTHLY SUBSCRIPTION</div>
+                    <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>💳 Pay Subscription</div>
+                    <div style={{ fontSize:12, color:'rgba(255,255,255,0.65)', marginTop:4 }}>{userData?.storeName}</div>
+                  </div>
+                  <button
+                    onClick={() => setShowSubPayModal(false)}
+                    style={{ background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', width:34, height:34, borderRadius:'50%', fontSize:16, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}
+                  >✕</button>
+                </div>
+              </div>
+              <div style={{ padding:'20px 20px 40px' }}>
+
+                {/* Amount badge */}
+                <div style={{ background:'#fff5f5', borderRadius:14, padding:'16px 18px', marginBottom:18, borderWidth:1.5, borderStyle:'solid', borderColor:'#fecaca', textAlign:'center' }}>
+                  <div style={{ fontSize:11, color:'#9ca3af', fontWeight:600, marginBottom:4 }}>Monthly Subscription Fee</div>
+                  <div style={{ fontSize:34, fontWeight:900, color:'#E24B4A' }}>{feeDisplay}</div>
+                  <div style={{ fontSize:11, color:'#6b7280', marginTop:4 }}>per month · FeedoZone Platform Fee</div>
+                </div>
+
+                {/* Instructions */}
+                <div style={{ background:'#f0f9ff', borderRadius:12, padding:'12px 14px', marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#bae6fd' }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#0369a1', marginBottom:6 }}>📋 How to Pay</div>
+                  <div style={{ fontSize:11, color:'#0c4a6e', lineHeight:1.9 }}>
+                    1. Scan the QR code below using any UPI app<br/>
+                    2. Pay <strong>{feeDisplay}</strong> to <strong>computerenginner2027-2@okicici</strong><br/>
+                    3. Take a screenshot of payment confirmation<br/>
+                    4. Send it on WhatsApp to <strong>9665234493</strong><br/>
+                    5. Your account will be activated within minutes ✅
+                  </div>
+                </div>
+
+                {/* QR Code */}
+                <div style={{ background:'#fff', borderRadius:14, padding:20, marginBottom:16, borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', textAlign:'center', boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#1f2937', marginBottom:12 }}>📱 Scan to Pay · UPI</div>
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent('upi://pay?pa=computerenginner2027-2@okicici&pn=Santosh%20Sangnod&am=' + feeNum + '&cu=INR&tn=FeedoZone%20Subscription')}`}
+                    alt="UPI QR Code"
+                    style={{ width:200, height:200, borderRadius:10 }}
+                  />
+                  <div style={{ fontSize:11, color:'#6b7280', marginTop:10 }}>Santosh Sangnod (Santu)</div>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#0369a1', marginTop:4 }}>computerenginner2027-2@okicici</div>
+                </div>
+
+                {/* Contact */}
+                <div style={{ background:'#f0fdf4', borderRadius:12, padding:'12px 14px', marginBottom:14, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#15803d', marginBottom:8 }}>📞 Contact for Help / After Payment</div>
+                  <div style={{ fontSize:13, fontWeight:600, color:'#1f2937', marginBottom:10 }}>9665234493</div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <a href="tel:9665234493" style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'11px 0', background:'#E24B4A', borderRadius:10, textDecoration:'none' }}>
+                      <span style={{ fontSize:16 }}>📞</span>
+                      <span style={{ fontSize:12, fontWeight:700, color:'#fff', fontFamily:'Poppins' }}>Call Admin</span>
+                    </a>
+                    <a
+                      href={`https://wa.me/919665234493?text=${encodeURIComponent('Hi, I have paid ' + feeDisplay + ' subscription for ' + (userData?.storeName || '') + ' on FeedoZone. Please activate my account.')}`}
+                      target="_blank" rel="noreferrer"
+                      style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'11px 0', background:'#25D366', borderRadius:10, textDecoration:'none' }}>
+                      <span style={{ fontSize:16 }}>💬</span>
+                      <span style={{ fontSize:12, fontWeight:700, color:'#fff', fontFamily:'Poppins' }}>WhatsApp</span>
+                    </a>
+                  </div>
+                </div>
+
+                <div style={{ background:'#fffbeb', borderRadius:10, padding:'10px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', display:'flex', gap:8, alignItems:'flex-start' }}>
+                  <span style={{ fontSize:14, flexShrink:0 }}>⚠️</span>
+                  <div style={{ fontSize:11, color:'#92400e', lineHeight:1.6 }}>After paying, send your payment screenshot to WhatsApp <strong>9665234493</strong>. Your account will be activated within a few minutes.</div>
+                </div>
+
+                {/* Bottom close button — easier to tap */}
+                <button
+                  onClick={() => setShowSubPayModal(false)}
+                  style={{ width:'100%', marginTop:16, background:'#f3f4f6', color:'#374151', border:'none', borderRadius:12, padding:'13px 0', fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── SUBSCRIPTION LOCK SCREEN (full block when due) ── */}
+      {subscriptionStatus === 'due' && (() => {
+        const fee = subscriptionFee || 0
+        const feeDisplay = fee > 0 ? `₹${fee}` : 'Contact Admin'
+        return (
+          <div style={{ position:'fixed', inset:0, background:'rgba(15,15,15,0.95)', zIndex:3500, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24, fontFamily:'Poppins,sans-serif' }}>
+            <div style={{ textAlign:'center', maxWidth:360, width:'100%' }}>
+              <div style={{ fontSize:60, marginBottom:10 }}>🔒</div>
+              <div style={{ fontSize:22, fontWeight:900, color:'#fff', marginBottom:6 }}>Subscription Expired</div>
+              <div style={{ fontSize:13, color:'rgba(255,255,255,0.65)', marginBottom:20, lineHeight:1.7 }}>
+                Your 1-month free period has ended.<br/>
+                Pay your monthly subscription to regain full access.
+              </div>
+              <div style={{ background:'rgba(226,75,74,0.15)', borderRadius:14, padding:'14px 18px', marginBottom:20, borderWidth:1, borderStyle:'solid', borderColor:'rgba(226,75,74,0.4)' }}>
+                <div style={{ fontSize:11, color:'rgba(255,255,255,0.55)', marginBottom:4 }}>Monthly Fee</div>
+                <div style={{ fontSize:36, fontWeight:900, color:'#E24B4A' }}>{feeDisplay}</div>
+                <div style={{ fontSize:11, color:'rgba(255,255,255,0.4)', marginTop:4 }}>per month · FeedoZone Platform</div>
+              </div>
+              <button
+                onClick={() => setShowSubPayModal(true)}
+                style={{ width:'100%', background:'linear-gradient(135deg,#E24B4A,#c73232)', color:'#fff', border:'none', borderRadius:14, padding:'16px 0', fontSize:15, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', marginBottom:12, display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:'0 6px 20px rgba(226,75,74,0.4)' }}
+              >
+                <span style={{ fontSize:20 }}>💳</span> Scan &amp; Pay Now
+              </button>
+              <div style={{ display:'flex', gap:10, marginBottom:16 }}>
+                <a href="tel:9665234493" style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'12px 0', background:'rgba(255,255,255,0.1)', borderRadius:12, textDecoration:'none', borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,255,255,0.15)' }}>
+                  <span style={{ fontSize:16 }}>📞</span>
+                  <span style={{ fontSize:12, fontWeight:700, color:'#fff', fontFamily:'Poppins' }}>Call Admin</span>
+                </a>
+                <a href={`https://wa.me/919665234493?text=${encodeURIComponent('Hi, I want to pay ' + feeDisplay + ' subscription for ' + (userData?.storeName || '') + ' on FeedoZone.')}`} target="_blank" rel="noreferrer"
+                  style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'12px 0', background:'#25D366', borderRadius:12, textDecoration:'none' }}>
+                  <span style={{ fontSize:16 }}>💬</span>
+                  <span style={{ fontSize:12, fontWeight:700, color:'#fff', fontFamily:'Poppins' }}>WhatsApp</span>
+                </a>
+              </div>
+              <div style={{ fontSize:10, color:'rgba(255,255,255,0.35)', lineHeight:1.6 }}>
+                You can still view your past orders and settings.<br/>
+                Order actions are locked until payment is confirmed.
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* ── HEADER ── */}
       <div style={{ background:'#1a1a1a', padding:16, flexShrink:0 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -1558,6 +1754,23 @@ export default function VendorApp() {
       </div>
 
       <div style={{ flex:1, overflowY:'auto', padding:14 }}>
+
+        {/* ── SUBSCRIPTION GRACE BANNER (2 days left) ── */}
+        {subscriptionStatus === 'grace' && (
+          <div style={{ background:'linear-gradient(135deg,#f59e0b,#d97706)', borderRadius:12, padding:'12px 14px', marginBottom:14, display:'flex', gap:10, alignItems:'flex-start', boxShadow:'0 4px 14px rgba(245,158,11,0.35)' }}>
+            <span style={{ fontSize:22, flexShrink:0 }}>⚠️</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:13, fontWeight:800, color:'#fff', marginBottom:2 }}>Subscription expires in 2 days!</div>
+              <div style={{ fontSize:11, color:'rgba(255,255,255,0.85)', lineHeight:1.6, marginBottom:8 }}>
+                Pay <strong>{subscriptionFee > 0 ? `₹${subscriptionFee}` : 'subscription fee'}</strong> now to avoid service interruption.
+                {subscriptionDueDate && ` Due: ${subscriptionDueDate.toLocaleDateString('en-IN')}`}
+              </div>
+              <button onClick={() => setShowSubPayModal(true)} style={{ background:'#fff', color:'#d97706', border:'none', borderRadius:8, padding:'8px 16px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+                💳 Pay Now
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── ORDERS TAB ── */}
         {tab === 'orders' && (
@@ -2457,6 +2670,38 @@ export default function VendorApp() {
             </div>
 
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>Logout</button>
+
+            {/* ── SUBSCRIPTION SECTION ── */}
+            <div style={{ background: subscriptionStatus === 'due' ? 'linear-gradient(135deg,#fee2e2,#fef2f2)' : subscriptionStatus === 'grace' ? 'linear-gradient(135deg,#fffbeb,#fef3c7)' : 'linear-gradient(135deg,#f0fdf4,#dcfce7)', borderRadius:12, padding:14, borderWidth:1.5, borderStyle:'solid', borderColor: subscriptionStatus === 'due' ? '#fecaca' : subscriptionStatus === 'grace' ? '#fde68a' : '#bbf7d0' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>💳 Subscription</div>
+                <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:20, background: subscriptionStatus === 'due' ? '#fee2e2' : subscriptionStatus === 'grace' ? '#fef3c7' : '#dcfce7', color: subscriptionStatus === 'due' ? '#991b1b' : subscriptionStatus === 'grace' ? '#92400e' : '#065f46' }}>
+                  {subscriptionStatus === 'due' ? '🔴 EXPIRED' : subscriptionStatus === 'grace' ? '⚠️ DUE SOON' : '🟢 ACTIVE'}
+                </span>
+              </div>
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'rgba(0,0,0,0.06)' }}>
+                <span style={{ fontSize:11, color:'#6b7280' }}>Monthly Fee</span>
+                <span style={{ fontSize:12, fontWeight:600 }}>₹{subscriptionFee > 0 ? subscriptionFee : userData?.subscriptionFee || '—'}</span>
+              </div>
+              {subscriptionDueDate && (
+                <div style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'rgba(0,0,0,0.06)' }}>
+                  <span style={{ fontSize:11, color:'#6b7280' }}>Due Date</span>
+                  <span style={{ fontSize:12, fontWeight:600, color: subscriptionStatus === 'due' ? '#dc2626' : subscriptionStatus === 'grace' ? '#d97706' : '#16a34a' }}>{subscriptionDueDate.toLocaleDateString('en-IN')}</span>
+                </div>
+              )}
+              <button onClick={() => setShowSubPayModal(true)} style={{ width:'100%', background: subscriptionStatus === 'active' ? '#16a34a' : '#E24B4A', color:'#fff', border:'none', borderRadius:10, padding:'11px 0', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginTop:12, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                <span>💳</span> {subscriptionStatus === 'active' ? 'Pay Next Month in Advance' : 'Pay Now to Activate'}
+              </button>
+              <div style={{ marginTop:10, display:'flex', gap:8 }}>
+                <a href="tel:9665234493" style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:5, padding:'9px 0', background:'rgba(0,0,0,0.06)', borderRadius:9, textDecoration:'none', color:'#374151', fontSize:11, fontWeight:600, fontFamily:'Poppins' }}>
+                  📞 Call Admin
+                </a>
+                <a href="https://wa.me/919665234493" target="_blank" rel="noreferrer"
+                  style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:5, padding:'9px 0', background:'#25D366', borderRadius:9, textDecoration:'none', color:'#fff', fontSize:11, fontWeight:600, fontFamily:'Poppins' }}>
+                  💬 WhatsApp
+                </a>
+              </div>
+            </div>
           </div>
         )}
       </div>

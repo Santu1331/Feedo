@@ -435,6 +435,11 @@ export default function FounderApp() {
   // ── NEW: User DB export filter ────────────────────────────────────────
   const [userExportFilter, setUserExportFilter] = useState('all')
 
+  // ── NEW: Subscription management ─────────────────────────────────────
+  const [globalSubFee, setGlobalSubFee] = useState('')
+  const [savingSubFee, setSavingSubFee] = useState(false)
+  const [activatingVendor, setActivatingVendor] = useState(null)
+
   const PUSH_PRESETS = [
     { icon: '🌞', label: 'Lunch Time', title: '🍛 Hungry? Lunch Time!', body: 'Your favourite food is ready to order on FeedoZone! Order now 🚀' },
     { icon: '🌙', label: 'Dinner Time', title: '🌙 Dinner Time on FeedoZone!', body: 'Skip cooking tonight! Your favourite vendors are open. Order now 🍽️' },
@@ -513,7 +518,7 @@ export default function FounderApp() {
     return d.getDate() === today.getDate() && d.getMonth() === today.getMonth()
   })
   const todayRevenue = todayOrders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
-  const subRevenue = vendors.length * 500
+  const subRevenue = vendors.filter(v => v.subscriptionStatus === 'active').reduce((s, v) => s + (v.subscriptionFee || 0), 0)
 
   const allTowns = [...new Set(vendors.map(v => v.town || v.locationName || null).filter(Boolean))].sort()
 
@@ -895,6 +900,60 @@ export default function FounderApp() {
       toast.error('Failed to update vendor: ' + err.message)
     }
     setTogglingVendor(null)
+  }
+
+  // ── NEW: SUBSCRIPTION MANAGEMENT ─────────────────────────────────────
+  const handleSaveGlobalSubFee = async () => {
+    const fee = Number(globalSubFee)
+    if (!fee || fee <= 0) return toast.error('Enter a valid subscription fee')
+    setSavingSubFee(true)
+    try {
+      // Update subscriptionFee on every vendor doc — no separate settings doc needed
+      await Promise.all(vendors.map(v => updateDoc(doc(db, 'vendors', v.id), { subscriptionFee: fee })))
+      toast.success(`✅ Subscription fee set to ₹${fee} for all ${vendors.length} vendors!`)
+    } catch (err) {
+      toast.error('Failed to save: ' + err.message)
+    }
+    setSavingSubFee(false)
+  }
+
+  const handleActivateVendor = async (vendorId, vendorName) => {
+    setActivatingVendor(vendorId)
+    try {
+      const dueDate = new Date()
+      dueDate.setDate(dueDate.getDate() + 30) // 30 days from now
+      await updateDoc(doc(db, 'vendors', vendorId), {
+        subscriptionStatus: 'active',
+        subscriptionDueDate: dueDate,
+        subscriptionActivatedAt: new Date()
+      })
+      toast.success(`✅ ${vendorName} activated! Valid till ${dueDate.toLocaleDateString('en-IN')}`)
+    } catch (err) {
+      toast.error('Failed to activate: ' + err.message)
+    }
+    setActivatingVendor(null)
+  }
+
+  const handleDeactivateVendor = async (vendorId, vendorName) => {
+    if (!window.confirm(`Deactivate subscription for "${vendorName}"? They will lose order access.`)) return
+    setActivatingVendor(vendorId)
+    try {
+      await updateDoc(doc(db, 'vendors', vendorId), {
+        subscriptionStatus: 'due',
+        subscriptionDueDate: new Date() // expired now
+      })
+      toast.success(`🔴 ${vendorName} subscription deactivated`)
+    } catch (err) {
+      toast.error('Failed to deactivate: ' + err.message)
+    }
+    setActivatingVendor(null)
+  }
+
+  // Helper: days left for vendor subscription
+  const getVendorSubDaysLeft = (v) => {
+    const dueDate = v.subscriptionDueDate?.toDate?.() || null
+    if (!dueDate) return null
+    return Math.ceil((dueDate - new Date()) / 86400000)
   }
 
   // ── PUSH NOTIFICATION HELPERS ─────────────────────────────────────────
@@ -1858,6 +1917,67 @@ export default function FounderApp() {
               </div>
             </div>
 
+            {/* ── SUBSCRIPTION MANAGEMENT ── */}
+            <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', marginBottom: 4 }}>💳 Subscription Management</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14, lineHeight: 1.6 }}>
+                Set monthly fee · activate/deactivate vendors · vendors get notified automatically
+              </div>
+
+              {/* Stats */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
+                {[
+                  { val: vendors.filter(v => v.subscriptionStatus === 'active' && getVendorSubDaysLeft(v) > 0).length, label: 'Active', color: '#4ade80' },
+                  { val: vendors.filter(v => v.subscriptionStatus !== 'active' || !v.subscriptionDueDate || getVendorSubDaysLeft(v) <= 0).length, label: 'Due/Expired', color: '#f87171' },
+                  { val: vendors.filter(v => { const d = getVendorSubDaysLeft(v); return d !== null && d <= 2 && d > 0 }).length, label: 'Expiring Soon', color: '#fbbf24' },
+                ].map(s => (
+                  <div key={s.label} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.val}</div>
+                    <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Set global fee */}
+              <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0', marginBottom: 8 }}>Set Monthly Subscription Fee</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 700, color: '#E24B4A' }}>₹</span>
+                    <input
+                      type="number"
+                      placeholder="e.g. 149"
+                      value={globalSubFee}
+                      onChange={e => setGlobalSubFee(e.target.value)}
+                      style={{ width: '100%', padding: '11px 12px 11px 28px', borderWidth: 1, borderStyle: 'solid', borderColor: 'rgba(255,255,255,0.15)', borderRadius: 9, fontSize: 14, fontFamily: 'Poppins', outline: 'none', background: 'rgba(255,255,255,0.08)', color: '#fff', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <button
+                    onClick={handleSaveGlobalSubFee}
+                    disabled={savingSubFee}
+                    style={{ background: savingSubFee ? '#374151' : '#E24B4A', color: '#fff', border: 'none', borderRadius: 9, padding: '11px 16px', fontSize: 12, fontWeight: 700, cursor: savingSubFee ? 'not-allowed' : 'pointer', fontFamily: 'Poppins', whiteSpace: 'nowrap' }}>
+                    {savingSubFee ? '⏳...' : '✅ Set Fee'}
+                  </button>
+                </div>
+                <div style={{ fontSize: 10, color: '#64748b', marginTop: 6 }}>
+                  Current fee: ₹{vendors[0]?.subscriptionFee || '—'} · Setting this notifies all vendors on their dashboard
+                </div>
+              </div>
+
+              {/* Contact */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <a href="tel:9665234493" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', background: 'rgba(255,255,255,0.1)', borderRadius: 9, textDecoration: 'none', borderWidth: 1, borderStyle: 'solid', borderColor: 'rgba(255,255,255,0.1)' }}>
+                  <span style={{ fontSize: 14 }}>📞</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', fontFamily: 'Poppins' }}>9665234493</span>
+                </a>
+                <a href="https://wa.me/919665234493" target="_blank" rel="noreferrer"
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', background: '#25D366', borderRadius: 9, textDecoration: 'none' }}>
+                  <span style={{ fontSize: 14 }}>💬</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', fontFamily: 'Poppins' }}>WhatsApp Admin</span>
+                </a>
+              </div>
+            </div>
+
             {/* Town filter */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 8 }}>📍 Filter by Town</div>
@@ -1914,7 +2034,44 @@ export default function FounderApp() {
                   <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 8 }}>{v.email} · {v.category}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 10 }}>🚴 Delivery: {v.deliveryCharge === 0 ? 'Free' : ('₹' + (v.deliveryCharge ?? 30))} · 📞 {v.phone || '—'}</div>
 
-                  {/* ── NEW: On/Off Toggle in card ── */}
+                  {/* ── SUBSCRIPTION STATUS IN CARD ── */}
+                  {(() => {
+                    const daysLeft = getVendorSubDaysLeft(v)
+                    const isActive = v.subscriptionStatus === 'active' && daysLeft !== null && daysLeft > 0
+                    const isGrace = isActive && daysLeft <= 2
+                    const isDue = !isActive
+                    const dueDate = v.subscriptionDueDate?.toDate?.()
+                    return (
+                      <div style={{ background: isDue ? '#fff5f5' : isGrace ? '#fffbeb' : '#f0fdf4', borderRadius: 10, padding: '10px 12px', marginBottom: 10, borderWidth: 1, borderStyle: 'solid', borderColor: isDue ? '#fecaca' : isGrace ? '#fde68a' : '#bbf7d0' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: isDue ? '#dc2626' : isGrace ? '#d97706' : '#15803d' }}>
+                            {isDue ? '🔴 Subscription Due' : isGrace ? `⚠️ Expires in ${daysLeft}d` : `🟢 Active · ${daysLeft}d left`}
+                          </div>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: isDue ? '#fee2e2' : isGrace ? '#fef3c7' : '#dcfce7', color: isDue ? '#991b1b' : isGrace ? '#92400e' : '#065f46' }}>
+                            ₹{v.subscriptionFee || '—'}
+                          </span>
+                        </div>
+                        {dueDate && <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 8 }}>Due: {dueDate.toLocaleDateString('en-IN')}</div>}
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            onClick={() => handleActivateVendor(v.id, v.storeName)}
+                            disabled={activatingVendor === v.id}
+                            style={{ flex: 1, padding: '7px 0', background: activatingVendor === v.id ? '#e5e7eb' : '#16a34a', color: activatingVendor === v.id ? '#9ca3af' : '#fff', border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: activatingVendor === v.id ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
+                            {activatingVendor === v.id ? '⏳' : '✅ Activate (+30d)'}
+                          </button>
+                          {isActive && (
+                            <button
+                              onClick={() => handleDeactivateVendor(v.id, v.storeName)}
+                              disabled={activatingVendor === v.id}
+                              style={{ flex: 1, padding: '7px 0', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: activatingVendor === v.id ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
+                              🔴 Deactivate
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: v.isOpen ? '#f0fdf4' : '#fff5f5', borderRadius: 10, padding: '10px 14px', marginBottom: 10, borderWidth: 1, borderStyle: 'solid', borderColor: v.isOpen ? '#bbf7d0' : '#fecaca' }}>
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 700, color: v.isOpen ? '#15803d' : '#dc2626' }}>
