@@ -160,6 +160,68 @@ function CustomerProfileModal({ customer, orders, onClose, broadcastMsg, broadca
   )
 }
 
+// ── VENDOR SUBSCRIPTION FEE ROW (used in subscription tab) ───────────────────
+function VendorSubFeeRow({ vendor, activatingVendor, onActivate, onDeactivate }) {
+  const [customFee, setCustomFee] = useState(String(vendor.subscriptionFee || ''))
+  const [savingFee, setSavingFee] = useState(false)
+
+  const handleSaveCustomFee = async () => {
+    const fee = Number(customFee)
+    if (!fee || fee <= 0) { toast.error('Enter a valid fee amount'); return }
+    setSavingFee(true)
+    try {
+      await updateDoc(doc(db, 'vendors', vendor.id), { subscriptionFee: fee })
+      toast.success(`✅ Fee ₹${fee} set for ${vendor.storeName}`)
+    } catch (err) {
+      toast.error('Failed: ' + err.message)
+    }
+    setSavingFee(false)
+  }
+
+  const isActive = vendor.subscriptionStatus === 'active'
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {/* Custom fee input */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: 1 }}>
+          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, fontWeight: 700, color: '#E24B4A' }}>₹</span>
+          <input
+            type="number"
+            placeholder="Custom fee e.g. 149"
+            value={customFee}
+            onChange={e => setCustomFee(e.target.value)}
+            style={{ width: '100%', padding: '8px 10px 8px 24px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 8, fontSize: 13, fontFamily: 'Poppins', outline: 'none', boxSizing: 'border-box', background: '#f9fafb' }}
+          />
+        </div>
+        <button
+          onClick={handleSaveCustomFee}
+          disabled={savingFee || !customFee || Number(customFee) <= 0}
+          style={{ padding: '8px 14px', background: savingFee ? '#e5e7eb' : (!customFee || Number(customFee) <= 0) ? '#f3f4f6' : '#1f2937', color: (!customFee || Number(customFee) <= 0 || savingFee) ? '#9ca3af' : '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: (!customFee || Number(customFee) <= 0 || savingFee) ? 'not-allowed' : 'pointer', fontFamily: 'Poppins', whiteSpace: 'nowrap' }}>
+          {savingFee ? '⏳' : '💾 Set Fee'}
+        </button>
+      </div>
+      {/* Activate / Deactivate buttons */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          onClick={() => onActivate(vendor.id, vendor.storeName)}
+          disabled={activatingVendor === vendor.id}
+          style={{ flex: 1, padding: '9px 0', background: activatingVendor === vendor.id ? '#e5e7eb' : '#16a34a', color: activatingVendor === vendor.id ? '#9ca3af' : '#fff', border: 'none', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: activatingVendor === vendor.id ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
+          {activatingVendor === vendor.id ? '⏳ Working...' : '✅ Activate +30 Days'}
+        </button>
+        {isActive && (
+          <button
+            onClick={() => onDeactivate(vendor.id, vendor.storeName)}
+            disabled={activatingVendor === vendor.id}
+            style={{ flex: 1, padding: '9px 0', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: activatingVendor === vendor.id ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
+            🔴 Deactivate
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── VENDOR REORDER MODAL ─────────────────────────────────────────────────────
 function VendorReorderModal({ vendors, onClose, onSave }) {
   const [list, setList] = useState(() =>
@@ -1455,6 +1517,7 @@ export default function FounderApp() {
               { id: 'vendors',    icon: '🏪', label: 'Vendors',    count: vendors.length },
               { id: 'customers',  icon: '👥', label: 'Customers',  count: customerStats.total },
               { id: 'addvendor',  icon: '➕', label: 'Add Vendor' },
+              { id: 'subscription', icon: '💳', label: 'Subscriptions', count: vendors.filter(v => v.subscriptionStatus !== 'active' || !v.subscriptionDueDate || getVendorSubDaysLeft(v) <= 0).length, alert: vendors.filter(v => v.subscriptionStatus !== 'active' || !v.subscriptionDueDate || getVendorSubDaysLeft(v) <= 0).length > 0 },
               { id: 'userdb',     icon: '🗄️', label: 'User DB',     count: users.length },
               { id: 'push',       icon: '🔔', label: 'Push',        count: usersWithTokenCount },
               { id: 'broadcast',  icon: '📣', label: 'Broadcast',   count: users.length },
@@ -1523,6 +1586,7 @@ export default function FounderApp() {
               { id: 'vendors', label: `Vendors (${vendors.length})` },
               { id: 'customers', label: `👥 Customers (${customerStats.total})` },
               { id: 'addvendor', label: '+ Add Vendor' },
+              { id: 'subscription', label: `💳 Subscriptions` },
               { id: 'userdb', label: `🗄️ User DB (${users.length})` },
               { id: 'push', label: `🔔 Push${usersWithTokenCount > 0 ? ` (${usersWithTokenCount})` : ''}` },
               { id: 'broadcast', label: `📣 Broadcast${users.length > 0 ? ` (${users.length})` : ''}` },
@@ -1917,67 +1981,6 @@ export default function FounderApp() {
               </div>
             </div>
 
-            {/* ── SUBSCRIPTION MANAGEMENT ── */}
-            <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', marginBottom: 4 }}>💳 Subscription Management</div>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14, lineHeight: 1.6 }}>
-                Set monthly fee · activate/deactivate vendors · vendors get notified automatically
-              </div>
-
-              {/* Stats */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
-                {[
-                  { val: vendors.filter(v => v.subscriptionStatus === 'active' && getVendorSubDaysLeft(v) > 0).length, label: 'Active', color: '#4ade80' },
-                  { val: vendors.filter(v => v.subscriptionStatus !== 'active' || !v.subscriptionDueDate || getVendorSubDaysLeft(v) <= 0).length, label: 'Due/Expired', color: '#f87171' },
-                  { val: vendors.filter(v => { const d = getVendorSubDaysLeft(v); return d !== null && d <= 2 && d > 0 }).length, label: 'Expiring Soon', color: '#fbbf24' },
-                ].map(s => (
-                  <div key={s.label} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.val}</div>
-                    <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2 }}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Set global fee */}
-              <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0', marginBottom: 8 }}>Set Monthly Subscription Fee</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div style={{ position: 'relative', flex: 1 }}>
-                    <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 700, color: '#E24B4A' }}>₹</span>
-                    <input
-                      type="number"
-                      placeholder="e.g. 149"
-                      value={globalSubFee}
-                      onChange={e => setGlobalSubFee(e.target.value)}
-                      style={{ width: '100%', padding: '11px 12px 11px 28px', borderWidth: 1, borderStyle: 'solid', borderColor: 'rgba(255,255,255,0.15)', borderRadius: 9, fontSize: 14, fontFamily: 'Poppins', outline: 'none', background: 'rgba(255,255,255,0.08)', color: '#fff', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <button
-                    onClick={handleSaveGlobalSubFee}
-                    disabled={savingSubFee}
-                    style={{ background: savingSubFee ? '#374151' : '#E24B4A', color: '#fff', border: 'none', borderRadius: 9, padding: '11px 16px', fontSize: 12, fontWeight: 700, cursor: savingSubFee ? 'not-allowed' : 'pointer', fontFamily: 'Poppins', whiteSpace: 'nowrap' }}>
-                    {savingSubFee ? '⏳...' : '✅ Set Fee'}
-                  </button>
-                </div>
-                <div style={{ fontSize: 10, color: '#64748b', marginTop: 6 }}>
-                  Current fee: ₹{vendors[0]?.subscriptionFee || '—'} · Setting this notifies all vendors on their dashboard
-                </div>
-              </div>
-
-              {/* Contact */}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <a href="tel:9665234493" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', background: 'rgba(255,255,255,0.1)', borderRadius: 9, textDecoration: 'none', borderWidth: 1, borderStyle: 'solid', borderColor: 'rgba(255,255,255,0.1)' }}>
-                  <span style={{ fontSize: 14 }}>📞</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', fontFamily: 'Poppins' }}>9665234493</span>
-                </a>
-                <a href="https://wa.me/919665234493" target="_blank" rel="noreferrer"
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', background: '#25D366', borderRadius: 9, textDecoration: 'none' }}>
-                  <span style={{ fontSize: 14 }}>💬</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', fontFamily: 'Poppins' }}>WhatsApp Admin</span>
-                </a>
-              </div>
-            </div>
-
             {/* Town filter */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 8 }}>📍 Filter by Town</div>
@@ -2033,44 +2036,6 @@ export default function FounderApp() {
                   </div>
                   <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 8 }}>{v.email} · {v.category}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 10 }}>🚴 Delivery: {v.deliveryCharge === 0 ? 'Free' : ('₹' + (v.deliveryCharge ?? 30))} · 📞 {v.phone || '—'}</div>
-
-                  {/* ── SUBSCRIPTION STATUS IN CARD ── */}
-                  {(() => {
-                    const daysLeft = getVendorSubDaysLeft(v)
-                    const isActive = v.subscriptionStatus === 'active' && daysLeft !== null && daysLeft > 0
-                    const isGrace = isActive && daysLeft <= 2
-                    const isDue = !isActive
-                    const dueDate = v.subscriptionDueDate?.toDate?.()
-                    return (
-                      <div style={{ background: isDue ? '#fff5f5' : isGrace ? '#fffbeb' : '#f0fdf4', borderRadius: 10, padding: '10px 12px', marginBottom: 10, borderWidth: 1, borderStyle: 'solid', borderColor: isDue ? '#fecaca' : isGrace ? '#fde68a' : '#bbf7d0' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: isDue ? '#dc2626' : isGrace ? '#d97706' : '#15803d' }}>
-                            {isDue ? '🔴 Subscription Due' : isGrace ? `⚠️ Expires in ${daysLeft}d` : `🟢 Active · ${daysLeft}d left`}
-                          </div>
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: isDue ? '#fee2e2' : isGrace ? '#fef3c7' : '#dcfce7', color: isDue ? '#991b1b' : isGrace ? '#92400e' : '#065f46' }}>
-                            ₹{v.subscriptionFee || '—'}
-                          </span>
-                        </div>
-                        {dueDate && <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 8 }}>Due: {dueDate.toLocaleDateString('en-IN')}</div>}
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button
-                            onClick={() => handleActivateVendor(v.id, v.storeName)}
-                            disabled={activatingVendor === v.id}
-                            style={{ flex: 1, padding: '7px 0', background: activatingVendor === v.id ? '#e5e7eb' : '#16a34a', color: activatingVendor === v.id ? '#9ca3af' : '#fff', border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: activatingVendor === v.id ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
-                            {activatingVendor === v.id ? '⏳' : '✅ Activate (+30d)'}
-                          </button>
-                          {isActive && (
-                            <button
-                              onClick={() => handleDeactivateVendor(v.id, v.storeName)}
-                              disabled={activatingVendor === v.id}
-                              style={{ flex: 1, padding: '7px 0', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: activatingVendor === v.id ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
-                              🔴 Deactivate
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })()}
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: v.isOpen ? '#f0fdf4' : '#fff5f5', borderRadius: 10, padding: '10px 14px', marginBottom: 10, borderWidth: 1, borderStyle: 'solid', borderColor: v.isOpen ? '#bbf7d0' : '#fecaca' }}>
                     <div>
@@ -3200,6 +3165,129 @@ export default function FounderApp() {
             </div>
           </div>
         )}
+
+        {/* ════════════════ TAB: SUBSCRIPTION MANAGEMENT ════════════════ */}
+        {tab === 'subscription' && (() => {
+          const dueVendors = sortedVendors.filter(v => v.subscriptionStatus !== 'active' || !v.subscriptionDueDate || getVendorSubDaysLeft(v) <= 0)
+          const activeVendors = sortedVendors.filter(v => v.subscriptionStatus === 'active' && v.subscriptionDueDate && getVendorSubDaysLeft(v) > 0)
+          const graceVendors = sortedVendors.filter(v => { const d = getVendorSubDaysLeft(v); return d !== null && d <= 2 && d > 0 })
+          const currentGlobalFee = sortedVendors.find(v => v.subscriptionFee)?.subscriptionFee || null
+
+          return (
+            <>
+              {/* Header */}
+              <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 14, padding: 16, marginBottom: 16, position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', right: -10, top: -10, fontSize: 60, opacity: 0.06 }}>💳</div>
+                <div style={{ fontSize: 10, color: '#818cf8', fontWeight: 700, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>Founder Panel</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: '#fff', marginBottom: 4 }}>💳 Subscription Management</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14 }}>Set custom fees, activate vendors, track payments</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  {[
+                    { val: activeVendors.length, label: 'Active', color: '#4ade80' },
+                    { val: dueVendors.length, label: 'Due / Expired', color: '#f87171' },
+                    { val: graceVendors.length, label: 'Expiring ≤2d', color: '#fbbf24' },
+                  ].map(s => (
+                    <div key={s.label} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.val}</div>
+                      <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2 }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── SET SAME AMOUNT FOR ALL VENDORS ── */}
+              <div style={{ background: '#fff', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937', marginBottom: 4 }}>🌐 Set Same Amount for All Vendors</div>
+                <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 12 }}>
+                  Current global fee: <strong style={{ color: '#1f2937' }}>{currentGlobalFee ? `₹${currentGlobalFee}` : '—'}</strong>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 700, color: '#E24B4A' }}>₹</span>
+                    <input
+                      type="number"
+                      placeholder="e.g. 149"
+                      value={globalSubFee}
+                      onChange={e => setGlobalSubFee(e.target.value)}
+                      style={{ width: '100%', padding: '11px 12px 11px 28px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 9, fontSize: 14, fontFamily: 'Poppins', outline: 'none', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <button
+                    onClick={handleSaveGlobalSubFee}
+                    disabled={savingSubFee}
+                    style={{ background: savingSubFee ? '#e5e7eb' : '#E24B4A', color: savingSubFee ? '#9ca3af' : '#fff', border: 'none', borderRadius: 9, padding: '11px 18px', fontSize: 13, fontWeight: 700, cursor: savingSubFee ? 'not-allowed' : 'pointer', fontFamily: 'Poppins', whiteSpace: 'nowrap' }}>
+                    {savingSubFee ? '⏳ Saving...' : '✅ Set for All'}
+                  </button>
+                </div>
+                <div style={{ marginTop: 8, fontSize: 11, color: '#9ca3af', lineHeight: 1.6 }}>
+                  This sets the same fee for all {vendors.length} vendors. Each vendor will see this amount in their payment screen.
+                </div>
+              </div>
+
+              {/* ── VENDOR LIST WITH INDIVIDUAL CONTROLS ── */}
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937', marginBottom: 10 }}>
+                🏪 All Vendors · Individual Control
+              </div>
+
+              {sortedVendors.map(v => {
+                const daysLeft = getVendorSubDaysLeft(v)
+                const isActive = v.subscriptionStatus === 'active' && daysLeft !== null && daysLeft > 0
+                const isGrace = isActive && daysLeft <= 2
+                const isDue = !isActive
+                const dueDate = v.subscriptionDueDate?.toDate?.()
+
+                return (
+                  <div key={v.id} style={{
+                    background: '#fff', borderRadius: 12, marginBottom: 12, overflow: 'hidden',
+                    borderWidth: 1.5, borderStyle: 'solid',
+                    borderColor: isDue ? '#fecaca' : isGrace ? '#fde68a' : '#bbf7d0',
+                    boxShadow: '0 1px 6px rgba(0,0,0,0.05)'
+                  }}>
+                    {/* Vendor header row */}
+                    <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6' }}>
+                      <div style={{ width: 40, height: 40, borderRadius: 10, overflow: 'hidden', flexShrink: 0, background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {v.photo ? <img src={v.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 18 }}>🏪</span>}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.storeName}</div>
+                        <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 1 }}>{v.email} · {v.category}</div>
+                      </div>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, flexShrink: 0,
+                        background: isDue ? '#fee2e2' : isGrace ? '#fef3c7' : '#dcfce7',
+                        color: isDue ? '#991b1b' : isGrace ? '#92400e' : '#065f46'
+                      }}>
+                        {isDue ? '🔴 DUE' : isGrace ? '⚠️ SOON' : '🟢 ACTIVE'}
+                      </span>
+                    </div>
+
+                    <div style={{ padding: '12px 14px' }}>
+                      {/* Status row */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 11, color: '#6b7280' }}>
+                            {isActive ? `Expires: ${dueDate?.toLocaleDateString('en-IN') || '—'} · ${daysLeft}d left` : dueDate ? `Expired: ${dueDate.toLocaleDateString('en-IN')}` : 'Never activated'}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#E24B4A' }}>
+                          ₹{v.subscriptionFee || '—'}<span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 400 }}>/mo</span>
+                        </div>
+                      </div>
+
+                      {/* Custom fee for this vendor */}
+                      <VendorSubFeeRow
+                        vendor={v}
+                        activatingVendor={activatingVendor}
+                        onActivate={handleActivateVendor}
+                        onDeactivate={handleDeactivateVendor}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          )
+        })()}
 
       </div>
       </div>

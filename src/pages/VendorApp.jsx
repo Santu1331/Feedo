@@ -1621,6 +1621,19 @@ export default function VendorApp() {
                   />
                   <div style={{ fontSize:11, color:'#6b7280', marginTop:10 }}>Santosh Sangnod (Santu)</div>
                   <div style={{ fontSize:12, fontWeight:700, color:'#0369a1', marginTop:4 }}>computerenginner2027-2@okicici</div>
+
+                  {/* UPI deep-link redirect button */}
+                  <a
+                    href={`upi://pay?pa=computerenginner2027-2@okicici&pn=Santosh%20Sangnod&am=${feeNum}&cu=INR&tn=${encodeURIComponent('FeedoZone Sub - ' + (userData?.storeName || 'Vendor'))}`}
+                    style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginTop:14, padding:'12px 0', background:'linear-gradient(135deg,#6366f1,#4f46e5)', borderRadius:12, textDecoration:'none', boxShadow:'0 4px 14px rgba(99,102,241,0.35)' }}
+                  >
+                    <span style={{ fontSize:20 }}>📲</span>
+                    <span style={{ fontSize:13, fontWeight:800, color:'#fff', fontFamily:'Poppins' }}>Open UPI App to Pay</span>
+                  </a>
+                  <div style={{ fontSize:10, color:'#9ca3af', marginTop:8, lineHeight:1.6 }}>
+                    Note: <strong>{userData?.storeName || 'Your store'}</strong> — FeedoZone monthly subscription<br/>
+                    Opens GPay, PhonePe, Paytm or any UPI app directly
+                  </div>
                 </div>
 
                 {/* Contact */}
