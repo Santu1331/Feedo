@@ -1044,6 +1044,8 @@ export default function VendorApp() {
   const [subscriptionFee, setSubscriptionFee] = useState(0)
   const [subscriptionDueDate, setSubscriptionDueDate] = useState(null)
   const [showSubPayModal, setShowSubPayModal] = useState(false)
+  const [vendorLastBill, setVendorLastBill] = useState(null)
+  const [showVendorSubBill, setShowVendorSubBill] = useState(false)
   // ─────────────────────────────────────────────────────────────────────
 
   const [newOrderAlert, setNewOrderAlert] = useState(null)
@@ -1166,6 +1168,9 @@ export default function VendorApp() {
       // Fee
       const fee = data.subscriptionFee ?? 0
       setSubscriptionFee(fee)
+
+      // Last bill
+      if (data.lastBill) setVendorLastBill(data.lastBill)
 
       // Status + due date
       const now = new Date()
@@ -1665,6 +1670,113 @@ export default function VendorApp() {
                   onClick={() => setShowSubPayModal(false)}
                   style={{ width:'100%', marginTop:16, background:'#f3f4f6', color:'#374151', border:'none', borderRadius:12, padding:'13px 0', fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
                 >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── VENDOR SUBSCRIPTION BILL MODAL ── */}
+      {showVendorSubBill && vendorLastBill && (() => {
+        const bill = vendorLastBill
+        const activatedDate = bill.activatedAt ? new Date(bill.activatedAt).toLocaleDateString('en-IN', { day:'2-digit', month:'long', year:'numeric' }) : '—'
+        const dueDate = bill.dueDate ? new Date(bill.dueDate).toLocaleDateString('en-IN', { day:'2-digit', month:'long', year:'numeric' }) : '—'
+        const invoiceNo = bill.invoiceNo || ('FZ-INV-' + String(bill.activatedAt || Date.now()).slice(-6).toUpperCase())
+
+        const printBill = () => {
+          const pw = window.open('', '_blank', 'width=800,height=900')
+          pw.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>FeedoZone Invoice - ${bill.storeName}</title>
+<style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Segoe UI',Arial,sans-serif;background:#f4f6fa;}.page{width:794px;min-height:1123px;margin:0 auto;background:#fff;position:relative;overflow:hidden;}.watermark{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-35deg);font-size:90px;font-weight:900;color:rgba(226,75,74,0.04);letter-spacing:8px;pointer-events:none;white-space:nowrap;}.header{background:linear-gradient(135deg,#1a1a2e 0%,#0f3460 60%,#E24B4A 100%);padding:36px 40px 28px;position:relative;overflow:hidden;}.hc1{position:absolute;width:200px;height:200px;border-radius:50%;background:rgba(255,255,255,0.04);top:-60px;right:-40px;}.brand-name{font-size:28px;font-weight:900;color:#fff;}.brand-tag{font-size:11px;color:rgba(255,255,255,0.5);margin-top:3px;letter-spacing:1px;text-transform:uppercase;}.inv-label{text-align:right;}.inv-title{font-size:22px;font-weight:800;color:#fff;text-transform:uppercase;letter-spacing:1px;}.inv-no{font-size:13px;color:#fbbf24;font-weight:600;margin-top:4px;}.inv-date{font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;}.brand-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}.status{display:inline-flex;align-items:center;gap:6px;background:rgba(74,222,128,0.18);border:1.5px solid rgba(74,222,128,0.4);border-radius:20px;padding:5px 14px;margin-top:12px;}.sdot{width:8px;height:8px;background:#4ade80;border-radius:50%;}.stext{font-size:11px;font-weight:700;color:#4ade80;letter-spacing:.5px;text-transform:uppercase;}.paid-stamp{position:absolute;top:120px;right:40px;width:110px;height:110px;border:5px solid rgba(74,222,128,0.6);border-radius:50%;display:flex;align-items:center;justify-content:center;transform:rotate(-15deg);}.paid-inner{font-size:22px;font-weight:900;color:#16a34a;text-align:center;line-height:1.2;}.body{padding:32px 40px;}.sec-title{font-size:11px;font-weight:700;color:#9ca3af;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px;}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;}.info-card{background:#f8fafc;border-radius:12px;padding:16px 18px;border:1px solid #e5e7eb;}.card-title{font-size:10px;font-weight:700;color:#9ca3af;letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;}.info-row{display:flex;justify-content:space-between;margin-bottom:6px;}.il{font-size:11px;color:#6b7280;}.iv{font-size:11px;font-weight:600;color:#1f2937;text-align:right;}.table{width:100%;border-collapse:collapse;margin-bottom:20px;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;}.table thead tr{background:linear-gradient(90deg,#1a1a2e,#0f3460);}.table th{padding:12px 16px;font-size:11px;font-weight:700;color:#fff;text-align:left;letter-spacing:.8px;text-transform:uppercase;}.table tbody tr{border-bottom:1px solid #f3f4f6;}.table td{padding:14px 16px;font-size:12px;color:#374151;}.table td.amt{font-weight:800;font-size:14px;color:#E24B4A;}.totals{background:linear-gradient(135deg,#fff5f5,#fff);border:2px solid #fecaca;border-radius:14px;padding:18px 22px;margin-bottom:24px;}.trow{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}.trow:last-child{margin:0;border-top:2px dashed #fecaca;padding-top:12px;margin-top:8px;}.tl{font-size:12px;color:#6b7280;}.tv{font-size:12px;font-weight:600;color:#374151;}.gl{font-size:15px;font-weight:800;color:#1f2937;}.gv{font-size:20px;font-weight:900;color:#E24B4A;}.access{background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #86efac;border-radius:14px;padding:18px 22px;margin-bottom:24px;display:flex;gap:14px;}.aicon{font-size:30px;flex-shrink:0;}.atitle{font-size:14px;font-weight:800;color:#15803d;margin-bottom:4px;}.atext{font-size:11px;color:#166534;line-height:1.8;}.next{background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1.5px solid #fde68a;border-radius:14px;padding:16px 20px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:center;}.nl{font-size:12px;color:#92400e;font-weight:600;}.nv{font-size:15px;font-weight:800;color:#d97706;}.footer{background:#f8fafc;border-top:2px solid #e5e7eb;padding:20px 40px;display:flex;justify-content:space-between;align-items:flex-end;}.fb{font-size:13px;font-weight:700;color:#1f2937;}.fs{font-size:10px;color:#9ca3af;margin-top:2px;}.fc{text-align:right;font-size:10px;color:#9ca3af;line-height:1.7;}.fc span{color:#E24B4A;font-weight:600;}@media print{body{background:#fff;}.page{box-shadow:none;}}</style>
+</head><body><div class="page">
+<div class="watermark">FEEDOZONE</div>
+<div class="header"><div class="hc1"></div><div class="brand-row"><div><div class="brand-name">● FeedoZone</div><div class="brand-tag">Warananagar, Kolhapur · feedozone.com</div></div><div class="inv-label"><div class="inv-title">Invoice</div><div class="inv-no">${invoiceNo}</div><div class="inv-date">Date: ${activatedDate}</div></div></div><div class="status"><div class="sdot"></div><div class="stext">Payment Successful</div></div></div>
+<div class="paid-stamp"><div class="paid-inner">PAID✓</div></div>
+<div class="body">
+<div class="info-grid">
+<div class="info-card"><div class="card-title">🏪 Billed To</div><div class="info-row"><span class="il">Store</span><span class="iv">${bill.storeName||'—'}</span></div><div class="info-row"><span class="il">Owner</span><span class="iv">${bill.ownerName||'—'}</span></div><div class="info-row"><span class="il">Email</span><span class="iv">${bill.email||'—'}</span></div><div class="info-row"><span class="il">Phone</span><span class="iv">${bill.phone||'—'}</span></div><div class="info-row"><span class="il">Category</span><span class="iv">${bill.category||'—'}</span></div><div class="info-row"><span class="il">Town</span><span class="iv">${bill.town||'—'}</span></div></div>
+<div class="info-card"><div class="card-title">🏢 Billed By</div><div class="info-row"><span class="il">Platform</span><span class="iv">FeedoZone</span></div><div class="info-row"><span class="il">Owner</span><span class="iv">Santosh Sangnod</span></div><div class="info-row"><span class="il">UPI</span><span class="iv">computerenginner2027-2@okicici</span></div><div class="info-row"><span class="il">Phone</span><span class="iv">9665234493</span></div><div class="info-row"><span class="il">Location</span><span class="iv">Warananagar, Kolhapur</span></div><div class="info-row"><span class="il">Invoice</span><span class="iv" style="color:#E24B4A;font-weight:700;">${invoiceNo}</span></div></div>
+</div>
+<div class="sec-title">Service Details</div>
+<table class="table"><thead><tr><th>#</th><th>Description</th><th>Period</th><th>Duration</th><th>Amount</th></tr></thead><tbody><tr><td>01</td><td><strong>FeedoZone Vendor Dashboard</strong><br/><span style="color:#9ca3af;font-size:10px;">Monthly Subscription · Full Access</span></td><td>${activatedDate}<br/><span style="color:#9ca3af;font-size:10px;">to ${dueDate}</span></td><td>30 Days</td><td class="amt">₹${bill.fee||'—'}</td></tr></tbody></table>
+<div class="totals"><div class="trow"><span class="tl">Subtotal</span><span class="tv">₹${bill.fee||'—'}</span></div><div class="trow"><span class="tl">GST / Tax</span><span class="tv">₹0.00 (inclusive)</span></div><div class="trow"><span class="gl">Total Paid</span><span class="gv">₹${bill.fee||'—'}</span></div></div>
+<div class="access"><div class="aicon">🎉</div><div><div class="atitle">Subscription Activated Successfully!</div><div class="atext">Your FeedoZone vendor dashboard is now fully active.<br/>Accept orders · Manage menu · Track earnings<br/><strong>Access valid: ${activatedDate} → ${dueDate}</strong></div></div></div>
+<div class="next"><div><div class="nl">⏰ Next Payment Due</div><div style="font-size:10px;color:#a16207;margin-top:3px;">Renew before this date to avoid interruption</div></div><div class="nv">${dueDate}</div></div>
+</div>
+<div class="footer"><div><div class="fb">FeedoZone Platform</div><div class="fs">Warananagar, Kolhapur · feedozone.com</div><div class="fs" style="margin-top:6px;font-style:italic;color:#d1d5db;">Thank you for being part of FeedoZone 🙏</div></div><div class="fc"><div>Support: <span>9665234493</span></div><div>WhatsApp: <span>wa.me/919665234493</span></div><div style="margin-top:6px;">Generated: ${new Date().toLocaleDateString('en-IN')}</div><div style="color:#E24B4A;font-size:9px;margin-top:4px;">Computer-generated invoice</div></div></div>
+</div><script>window.onload=function(){window.print();}</script></body></html>`)
+          pw.document.close()
+        }
+
+        return (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:9000, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+            onClick={() => setShowVendorSubBill(false)}>
+            <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', width:'100%', maxWidth:430, maxHeight:'92vh', overflowY:'auto', fontFamily:'Poppins,sans-serif' }}
+              onClick={e => e.stopPropagation()}>
+
+              {/* Header */}
+              <div style={{ background:'linear-gradient(135deg,#1a1a2e,#0f3460)', padding:'18px 20px', borderRadius:'20px 20px 0 0', position:'relative', overflow:'hidden' }}>
+                <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.06 }}>📄</div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                  <div>
+                    <div style={{ fontSize:10, color:'rgba(255,255,255,0.5)', fontWeight:700, letterSpacing:1, marginBottom:3 }}>SUBSCRIPTION INVOICE</div>
+                    <div style={{ fontSize:17, fontWeight:800, color:'#fff' }}>💳 Payment Receipt</div>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', marginTop:3 }}>{bill.storeName} · {invoiceNo}</div>
+                  </div>
+                  <button onClick={() => setShowVendorSubBill(false)} style={{ background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', width:32, height:32, borderRadius:'50%', fontSize:16, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+                </div>
+                <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(74,222,128,0.2)', border:'1px solid rgba(74,222,128,0.4)', borderRadius:20, padding:'5px 14px', marginTop:12 }}>
+                  <div style={{ width:7, height:7, background:'#4ade80', borderRadius:'50%' }} />
+                  <span style={{ fontSize:10, fontWeight:700, color:'#4ade80', letterSpacing:0.5 }}>PAYMENT SUCCESSFUL</span>
+                </div>
+              </div>
+
+              <div style={{ padding:'18px 20px 30px' }}>
+                {/* Amount */}
+                <div style={{ background:'linear-gradient(135deg,#fff5f5,#fff)', border:'2px solid #fecaca', borderRadius:14, padding:'16px 20px', marginBottom:14, textAlign:'center' }}>
+                  <div style={{ fontSize:10, color:'#9ca3af', fontWeight:600, marginBottom:4, letterSpacing:1 }}>AMOUNT PAID</div>
+                  <div style={{ fontSize:40, fontWeight:900, color:'#E24B4A' }}>₹{bill.fee || '—'}</div>
+                  <div style={{ fontSize:11, color:'#6b7280', marginTop:4 }}>FeedoZone Monthly Subscription</div>
+                </div>
+
+                {/* Store info */}
+                <div style={{ background:'#f8fafc', borderRadius:12, padding:'12px 14px', marginBottom:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:1, marginBottom:10, textTransform:'uppercase' }}>Billed To</div>
+                  {[['🏪 Store', bill.storeName],['👤 Owner', bill.ownerName],['📧 Email', bill.email],['📞 Phone', bill.phone],['🏷️ Category', bill.category],['📍 Town', bill.town]].filter(([,v]) => v).map(([label, value]) => (
+                    <div key={label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingBottom:7, marginBottom:7, borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+                      <span style={{ fontSize:11, color:'#6b7280' }}>{label}</span>
+                      <span style={{ fontSize:11, fontWeight:600, color:'#1f2937', maxWidth:'60%', textAlign:'right', wordBreak:'break-word' }}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Period */}
+                <div style={{ background:'#f0fdf4', borderRadius:12, padding:'12px 14px', marginBottom:12, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:1, marginBottom:10, textTransform:'uppercase' }}>Subscription Period</div>
+                  {[['📅 Activated', activatedDate],['⏰ Expires', dueDate],['📆 Duration', '30 Days'],['🔖 Invoice No', invoiceNo]].map(([label, value]) => (
+                    <div key={label} style={{ display:'flex', justifyContent:'space-between', paddingBottom:7, marginBottom:7, borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#dcfce7' }}>
+                      <span style={{ fontSize:11, color:'#166534' }}>{label}</span>
+                      <span style={{ fontSize:11, fontWeight:700, color:'#15803d' }}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Access confirmation */}
+                <div style={{ background:'linear-gradient(135deg,#eff6ff,#dbeafe)', borderRadius:12, padding:'12px 14px', marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#1e40af', marginBottom:6 }}>🎉 Dashboard Fully Active!</div>
+                  <div style={{ fontSize:11, color:'#1e3a8a', lineHeight:1.8 }}>
+                    Full access to your FeedoZone dashboard for <strong>30 days</strong>.<br/>
+                    Accept orders · Manage menu · Track earnings<br/>
+                    <strong>Next payment due: {dueDate}</strong>
+                  </div>
+                </div>
+
+                {/* Download */}
+                <button onClick={printBill} style={{ width:'100%', background:'linear-gradient(135deg,#1a1a2e,#0f3460)', color:'#fff', border:'none', borderRadius:12, padding:'14px 0', fontSize:14, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:10, boxShadow:'0 4px 16px rgba(15,52,96,0.35)' }}>
+                  <span style={{ fontSize:18 }}>📥</span> Download as PDF
+                </button>
+                <button onClick={() => setShowVendorSubBill(false)} style={{ width:'100%', background:'#f3f4f6', color:'#374151', border:'none', borderRadius:12, padding:'12px 0', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
                   Close
                 </button>
               </div>
@@ -2705,6 +2817,16 @@ export default function VendorApp() {
               <button onClick={() => setShowSubPayModal(true)} style={{ width:'100%', background: subscriptionStatus === 'active' ? '#16a34a' : '#E24B4A', color:'#fff', border:'none', borderRadius:10, padding:'11px 0', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginTop:12, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
                 <span>💳</span> {subscriptionStatus === 'active' ? 'Pay Next Month in Advance' : 'Pay Now to Activate'}
               </button>
+
+              {/* View subscription bill */}
+              {vendorLastBill && (
+                <button
+                  onClick={() => setShowVendorSubBill(true)}
+                  style={{ width:'100%', marginTop:8, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'11px 0', background:'linear-gradient(135deg,#eff6ff,#dbeafe)', color:'#1e40af', border:'1.5px solid #bfdbfe', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+                  <span>📄</span> View My Subscription Bill
+                </button>
+              )}
+
               <div style={{ marginTop:10, display:'flex', gap:8 }}>
                 <a href="tel:9665234493" style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:5, padding:'9px 0', background:'rgba(0,0,0,0.06)', borderRadius:9, textDecoration:'none', color:'#374151', fontSize:11, fontWeight:600, fontFamily:'Poppins' }}>
                   📞 Call Admin

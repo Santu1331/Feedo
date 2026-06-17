@@ -160,6 +160,330 @@ function CustomerProfileModal({ customer, orders, onClose, broadcastMsg, broadca
   )
 }
 
+// ── SUBSCRIPTION BILL COMPONENT ───────────────────────────────────────────────
+function SubscriptionBill({ bill, onClose }) {
+  if (!bill) return null
+
+  const printBill = () => {
+    const printWindow = window.open('', '_blank', 'width=800,height=900')
+    const activatedDate = bill.activatedAt ? new Date(bill.activatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'
+    const dueDate = bill.dueDate ? new Date(bill.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'
+    const invoiceNo = bill.invoiceNo || ('FZ-INV-' + String(bill.activatedAt || Date.now()).slice(-6).toUpperCase())
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <title>FeedoZone Subscription Invoice - ${bill.storeName}</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Segoe UI',Arial,sans-serif; background:#f4f6fa; color:#1a1a2e; }
+    .page { width:794px; min-height:1123px; margin:0 auto; background:#fff; position:relative; overflow:hidden; }
+    /* Watermark */
+    .watermark { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-35deg); font-size:90px; font-weight:900; color:rgba(226,75,74,0.04); letter-spacing:8px; pointer-events:none; white-space:nowrap; }
+    /* Header */
+    .header { background:linear-gradient(135deg,#1a1a2e 0%,#0f3460 60%,#E24B4A 100%); padding:36px 40px 28px; position:relative; overflow:hidden; }
+    .header-circle1 { position:absolute; width:200px; height:200px; border-radius:50%; background:rgba(255,255,255,0.04); top:-60px; right:-40px; }
+    .header-circle2 { position:absolute; width:120px; height:120px; border-radius:50%; background:rgba(255,255,255,0.06); bottom:-30px; left:60px; }
+    .brand-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+    .brand-name { font-size:28px; font-weight:900; color:#fff; letter-spacing:-0.5px; }
+    .brand-dot { display:inline-block; width:10px; height:10px; background:#E24B4A; border-radius:50%; margin-right:8px; }
+    .brand-tag { font-size:11px; color:rgba(255,255,255,0.55); margin-top:3px; letter-spacing:1px; text-transform:uppercase; }
+    .invoice-label { text-align:right; }
+    .invoice-label .inv-title { font-size:22px; font-weight:800; color:#fff; letter-spacing:1px; text-transform:uppercase; }
+    .invoice-label .inv-no { font-size:13px; color:#fbbf24; font-weight:600; margin-top:4px; letter-spacing:1px; }
+    .invoice-label .inv-date { font-size:11px; color:rgba(255,255,255,0.55); margin-top:2px; }
+    .status-badge { display:inline-flex; align-items:center; gap:6px; background:rgba(74,222,128,0.18); border:1.5px solid rgba(74,222,128,0.4); border-radius:20px; padding:5px 14px; margin-top:12px; }
+    .status-dot { width:8px; height:8px; background:#4ade80; border-radius:50%; animation:pulse 1.4s infinite; }
+    .status-text { font-size:11px; font-weight:700; color:#4ade80; letter-spacing:0.5px; text-transform:uppercase; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    /* Body */
+    .body { padding:32px 40px; }
+    .section-title { font-size:11px; font-weight:700; color:#9ca3af; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:10px; }
+    /* Info cards */
+    .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
+    .info-card { background:#f8fafc; border-radius:12px; padding:16px 18px; border:1px solid #e5e7eb; }
+    .info-card .card-title { font-size:10px; font-weight:700; color:#9ca3af; letter-spacing:1px; text-transform:uppercase; margin-bottom:10px; }
+    .info-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; }
+    .info-label { font-size:11px; color:#6b7280; }
+    .info-value { font-size:11px; font-weight:600; color:#1f2937; text-align:right; max-width:55%; word-break:break-word; }
+    /* Invoice table */
+    .inv-table { width:100%; border-collapse:collapse; margin-bottom:20px; border-radius:12px; overflow:hidden; border:1px solid #e5e7eb; }
+    .inv-table thead tr { background:linear-gradient(90deg,#1a1a2e,#0f3460); }
+    .inv-table th { padding:12px 16px; font-size:11px; font-weight:700; color:#fff; text-align:left; letter-spacing:0.8px; text-transform:uppercase; }
+    .inv-table tbody tr { border-bottom:1px solid #f3f4f6; }
+    .inv-table tbody tr:last-child { border-bottom:none; }
+    .inv-table td { padding:14px 16px; font-size:12px; color:#374151; vertical-align:middle; }
+    .inv-table td.amount { font-weight:800; font-size:14px; color:#E24B4A; }
+    /* Totals */
+    .totals-box { background:linear-gradient(135deg,#fff5f5,#fff); border:2px solid #fecaca; border-radius:14px; padding:18px 22px; margin-bottom:24px; }
+    .total-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .total-row:last-child { margin-bottom:0; border-top:2px dashed #fecaca; padding-top:12px; margin-top:8px; }
+    .total-label { font-size:12px; color:#6b7280; }
+    .total-value { font-size:12px; font-weight:600; color:#374151; }
+    .grand-label { font-size:15px; font-weight:800; color:#1f2937; }
+    .grand-value { font-size:20px; font-weight:900; color:#E24B4A; }
+    /* Access card */
+    .access-card { background:linear-gradient(135deg,#f0fdf4,#dcfce7); border:1.5px solid #86efac; border-radius:14px; padding:18px 22px; margin-bottom:24px; display:flex; gap:14px; align-items:flex-start; }
+    .access-icon { font-size:30px; flex-shrink:0; }
+    .access-title { font-size:14px; font-weight:800; color:#15803d; margin-bottom:4px; }
+    .access-text { font-size:11px; color:#166534; line-height:1.8; }
+    /* Next payment */
+    .next-card { background:linear-gradient(135deg,#fffbeb,#fef3c7); border:1.5px solid #fde68a; border-radius:14px; padding:16px 20px; margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; }
+    .next-label { font-size:12px; color:#92400e; font-weight:600; }
+    .next-date { font-size:15px; font-weight:800; color:#d97706; }
+    /* Footer */
+    .footer { background:#f8fafc; border-top:2px solid #e5e7eb; padding:20px 40px; display:flex; justify-content:space-between; align-items:flex-end; }
+    .footer-brand { font-size:13px; font-weight:700; color:#1f2937; }
+    .footer-sub { font-size:10px; color:#9ca3af; margin-top:2px; }
+    .footer-contact { text-align:right; font-size:10px; color:#9ca3af; line-height:1.7; }
+    .footer-contact span { color:#E24B4A; font-weight:600; }
+    .paid-stamp { position:absolute; top:180px; right:40px; width:110px; height:110px; border:5px solid rgba(74,222,128,0.6); border-radius:50%; display:flex; align-items:center; justify-content:center; transform:rotate(-15deg); opacity:0.9; }
+    .paid-stamp-inner { font-size:22px; font-weight:900; color:#16a34a; letter-spacing:2px; text-transform:uppercase; text-align:center; line-height:1.2; }
+    @media print { body{background:#fff;} .page{box-shadow:none;} .no-print{display:none!important;} }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="watermark">FEEDOZONE</div>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-circle1"></div>
+    <div class="header-circle2"></div>
+    <div class="brand-row">
+      <div>
+        <div class="brand-name"><span class="brand-dot"></span>FeedoZone</div>
+        <div class="brand-tag">Warananagar, Kolhapur · feedozone.com</div>
+      </div>
+      <div class="invoice-label">
+        <div class="inv-title">Invoice</div>
+        <div class="inv-no">${invoiceNo}</div>
+        <div class="inv-date">Date: ${activatedDate}</div>
+      </div>
+    </div>
+    <div class="status-badge">
+      <div class="status-dot"></div>
+      <div class="status-text">Payment Successful</div>
+    </div>
+  </div>
+
+  <!-- PAID STAMP -->
+  <div class="paid-stamp">
+    <div class="paid-stamp-inner">PAID✓</div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body">
+
+    <!-- Info Grid -->
+    <div class="info-grid">
+      <div class="info-card">
+        <div class="card-title">🏪 Billed To</div>
+        <div class="info-row"><span class="info-label">Store Name</span><span class="info-value">${bill.storeName || '—'}</span></div>
+        <div class="info-row"><span class="info-label">Owner</span><span class="info-value">${bill.ownerName || '—'}</span></div>
+        <div class="info-row"><span class="info-label">Email</span><span class="info-value">${bill.email || '—'}</span></div>
+        <div class="info-row"><span class="info-label">Phone</span><span class="info-value">${bill.phone || '—'}</span></div>
+        <div class="info-row"><span class="info-label">Category</span><span class="info-value">${bill.category || '—'}</span></div>
+        <div class="info-row"><span class="info-label">Town</span><span class="info-value">${bill.town || '—'}</span></div>
+      </div>
+      <div class="info-card">
+        <div class="card-title">🏢 Billed By</div>
+        <div class="info-row"><span class="info-label">Platform</span><span class="info-value">FeedoZone</span></div>
+        <div class="info-row"><span class="info-label">Owner</span><span class="info-value">Santosh Sangnod</span></div>
+        <div class="info-row"><span class="info-label">UPI ID</span><span class="info-value">computerenginner2027-2@okicici</span></div>
+        <div class="info-row"><span class="info-label">Contact</span><span class="info-value">9665234493</span></div>
+        <div class="info-row"><span class="info-label">Location</span><span class="info-value">Warananagar, Kolhapur</span></div>
+        <div class="info-row"><span class="info-label">Invoice #</span><span class="info-value" style="color:#E24B4A;font-weight:700;">${invoiceNo}</span></div>
+      </div>
+    </div>
+
+    <!-- Invoice Table -->
+    <div class="section-title">Service Details</div>
+    <table class="inv-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Description</th>
+          <th>Period</th>
+          <th>Duration</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>01</td>
+          <td>
+            <strong>FeedoZone Vendor Dashboard</strong><br/>
+            <span style="color:#9ca3af;font-size:10px;">Monthly Subscription · Full Access</span>
+          </td>
+          <td>${activatedDate}<br/><span style="color:#9ca3af;font-size:10px;">to ${dueDate}</span></td>
+          <td>30 Days</td>
+          <td class="amount">₹${bill.fee || '—'}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Totals -->
+    <div class="totals-box">
+      <div class="total-row">
+        <span class="total-label">Subtotal</span>
+        <span class="total-value">₹${bill.fee || '—'}</span>
+      </div>
+      <div class="total-row">
+        <span class="total-label">GST / Tax</span>
+        <span class="total-value">₹0.00 (inclusive)</span>
+      </div>
+      <div class="total-row">
+        <span class="grand-label">Total Paid</span>
+        <span class="grand-value">₹${bill.fee || '—'}</span>
+      </div>
+    </div>
+
+    <!-- Access confirmation -->
+    <div class="access-card">
+      <div class="access-icon">🎉</div>
+      <div>
+        <div class="access-title">Subscription Activated Successfully!</div>
+        <div class="access-text">
+          Your FeedoZone vendor dashboard is now fully active.<br/>
+          You can accept orders, manage your menu, track earnings and more.<br/>
+          <strong>Access valid from ${activatedDate} to ${dueDate}</strong> (30 days).
+        </div>
+      </div>
+    </div>
+
+    <!-- Next payment reminder -->
+    <div class="next-card">
+      <div>
+        <div class="next-label">⏰ Next Payment Due</div>
+        <div style="font-size:10px;color:#a16207;margin-top:3px;">Renew before this date to avoid interruption</div>
+      </div>
+      <div class="next-date">${dueDate}</div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div>
+      <div class="footer-brand">FeedoZone Platform</div>
+      <div class="footer-sub">Warananagar, Kolhapur · feedozone.com</div>
+      <div class="footer-sub" style="margin-top:6px;font-style:italic;color:#d1d5db;">Thank you for being a part of FeedoZone 🙏</div>
+    </div>
+    <div class="footer-contact">
+      <div>Support: <span>9665234493</span></div>
+      <div>WhatsApp: <span>wa.me/919665234493</span></div>
+      <div style="margin-top:6px;">Invoice generated on ${new Date().toLocaleDateString('en-IN')}</div>
+      <div style="color:#E24B4A;font-size:9px;margin-top:4px;">This is a computer-generated invoice</div>
+    </div>
+  </div>
+
+</div>
+<script>window.onload=function(){window.print();}</script>
+</body>
+</html>`)
+    printWindow.document.close()
+  }
+
+  const activatedDate = bill.activatedAt ? new Date(bill.activatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'
+  const dueDate = bill.dueDate ? new Date(bill.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'
+  const invoiceNo = bill.invoiceNo || ('FZ-INV-' + String(bill.activatedAt || Date.now()).slice(-6).toUpperCase())
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:9000, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', width:'100%', maxWidth:500, maxHeight:'92vh', overflowY:'auto', fontFamily:'Poppins,sans-serif' }}
+        onClick={e => e.stopPropagation()}>
+
+        {/* Modal header */}
+        <div style={{ background:'linear-gradient(135deg,#1a1a2e,#0f3460)', padding:'18px 20px', borderRadius:'20px 20px 0 0', position:'relative', overflow:'hidden' }}>
+          <div style={{ position:'absolute', right:-10, top:-10, fontSize:60, opacity:0.06 }}>📄</div>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+            <div>
+              <div style={{ fontSize:10, color:'rgba(255,255,255,0.5)', fontWeight:700, letterSpacing:1, marginBottom:3 }}>SUBSCRIPTION INVOICE</div>
+              <div style={{ fontSize:17, fontWeight:800, color:'#fff' }}>💳 Payment Receipt</div>
+              <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', marginTop:3 }}>{bill.storeName} · {invoiceNo}</div>
+            </div>
+            <button onClick={onClose} style={{ background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', width:32, height:32, borderRadius:'50%', fontSize:16, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+          </div>
+          {/* Paid badge */}
+          <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(74,222,128,0.2)', border:'1px solid rgba(74,222,128,0.4)', borderRadius:20, padding:'5px 14px', marginTop:12 }}>
+            <div style={{ width:7, height:7, background:'#4ade80', borderRadius:'50%' }} />
+            <span style={{ fontSize:10, fontWeight:700, color:'#4ade80', letterSpacing:0.5 }}>PAYMENT SUCCESSFUL</span>
+          </div>
+        </div>
+
+        <div style={{ padding:'18px 20px 30px' }}>
+
+          {/* Amount highlight */}
+          <div style={{ background:'linear-gradient(135deg,#fff5f5,#fff)', border:'2px solid #fecaca', borderRadius:14, padding:'16px 20px', marginBottom:16, textAlign:'center' }}>
+            <div style={{ fontSize:10, color:'#9ca3af', fontWeight:600, marginBottom:4, letterSpacing:1 }}>AMOUNT PAID</div>
+            <div style={{ fontSize:40, fontWeight:900, color:'#E24B4A' }}>₹{bill.fee || '—'}</div>
+            <div style={{ fontSize:11, color:'#6b7280', marginTop:4 }}>FeedoZone Monthly Subscription</div>
+          </div>
+
+          {/* Vendor info */}
+          <div style={{ background:'#f8fafc', borderRadius:12, padding:'12px 14px', marginBottom:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
+            <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:1, marginBottom:10, textTransform:'uppercase' }}>Billed To</div>
+            {[
+              ['🏪 Store', bill.storeName],
+              ['👤 Owner', bill.ownerName],
+              ['📧 Email', bill.email],
+              ['📞 Phone', bill.phone],
+              ['🏷️ Category', bill.category],
+              ['📍 Town', bill.town],
+            ].filter(([,v]) => v).map(([label, value]) => (
+              <div key={label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingBottom:7, marginBottom:7, borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
+                <span style={{ fontSize:11, color:'#6b7280' }}>{label}</span>
+                <span style={{ fontSize:11, fontWeight:600, color:'#1f2937', maxWidth:'60%', textAlign:'right', wordBreak:'break-word' }}>{value}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Period */}
+          <div style={{ background:'#f0fdf4', borderRadius:12, padding:'12px 14px', marginBottom:12, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+            <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:1, marginBottom:10, textTransform:'uppercase' }}>Subscription Period</div>
+            {[
+              ['📅 Activated', activatedDate],
+              ['⏰ Expires', dueDate],
+              ['📆 Duration', '30 Days'],
+              ['🔖 Invoice No', invoiceNo],
+            ].map(([label, value]) => (
+              <div key={label} style={{ display:'flex', justifyContent:'space-between', paddingBottom:7, marginBottom:7, borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#dcfce7' }}>
+                <span style={{ fontSize:11, color:'#166534' }}>{label}</span>
+                <span style={{ fontSize:11, fontWeight:700, color:'#15803d' }}>{value}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Access message */}
+          <div style={{ background:'linear-gradient(135deg,#eff6ff,#dbeafe)', borderRadius:12, padding:'12px 14px', marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
+            <div style={{ fontSize:13, fontWeight:700, color:'#1e40af', marginBottom:6 }}>🎉 Your Dashboard is Now Active!</div>
+            <div style={{ fontSize:11, color:'#1e3a8a', lineHeight:1.8 }}>
+              You have full access to your FeedoZone vendor dashboard for <strong>30 days</strong>.<br/>
+              Accept orders · Manage menu · Track earnings<br/>
+              <strong>Next payment due: {dueDate}</strong>
+            </div>
+          </div>
+
+          {/* Download button */}
+          <button
+            onClick={printBill}
+            style={{ width:'100%', background:'linear-gradient(135deg,#1a1a2e,#0f3460)', color:'#fff', border:'none', borderRadius:12, padding:'14px 0', fontSize:14, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:10, boxShadow:'0 4px 16px rgba(15,52,96,0.35)' }}>
+            <span style={{ fontSize:18 }}>📥</span> Download as PDF
+          </button>
+          <button
+            onClick={onClose}
+            style={{ width:'100%', background:'#f3f4f6', color:'#374151', border:'none', borderRadius:12, padding:'12px 0', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── VENDOR SUBSCRIPTION FEE ROW (used in subscription tab) ───────────────────
 function VendorSubFeeRow({ vendor, activatingVendor, onActivate, onDeactivate }) {
   const [customFee, setCustomFee] = useState(String(vendor.subscriptionFee || ''))
@@ -501,6 +825,9 @@ export default function FounderApp() {
   const [globalSubFee, setGlobalSubFee] = useState('')
   const [savingSubFee, setSavingSubFee] = useState(false)
   const [activatingVendor, setActivatingVendor] = useState(null)
+
+  // ── Subscription bill viewer ──────────────────────────────────────────
+  const [viewingBill, setViewingBill] = useState(null) // bill object to show in modal
 
   const PUSH_PRESETS = [
     { icon: '🌞', label: 'Lunch Time', title: '🍛 Hungry? Lunch Time!', body: 'Your favourite food is ready to order on FeedoZone! Order now 🚀' },
@@ -984,12 +1311,40 @@ export default function FounderApp() {
     try {
       const dueDate = new Date()
       dueDate.setDate(dueDate.getDate() + 30) // 30 days from now
+      const activatedAt = new Date()
+      const vendor = vendors.find(v => v.id === vendorId) || {}
+      const fee = vendor.subscriptionFee || 0
+      const invoiceNo = 'FZ-INV-' + Date.now().toString().slice(-8).toUpperCase()
+
+      // Build bill data
+      const billData = {
+        invoiceNo,
+        vendorId,
+        storeName: vendor.storeName || vendorName,
+        ownerName: vendor.ownerName || vendor.storeName || vendorName,
+        email: vendor.email || '',
+        phone: vendor.phone || '',
+        category: vendor.category || '',
+        town: vendor.town || vendor.locationName || '',
+        fee,
+        activatedAt: activatedAt.getTime(),
+        dueDate: dueDate.getTime(),
+        activatedBy: user?.email || 'founder',
+        createdAt: serverTimestamp(),
+      }
+
       await updateDoc(doc(db, 'vendors', vendorId), {
         subscriptionStatus: 'active',
         subscriptionDueDate: dueDate,
-        subscriptionActivatedAt: new Date()
+        subscriptionActivatedAt: activatedAt,
+        lastBill: { ...billData, createdAt: activatedAt.getTime() },
       })
+      // Also save to subscriptionBills collection for history
+      await addDoc(collection(db, 'subscriptionBills'), billData)
+
       toast.success(`✅ ${vendorName} activated! Valid till ${dueDate.toLocaleDateString('en-IN')}`)
+      // Auto-show the bill
+      setViewingBill({ ...billData, createdAt: activatedAt.getTime() })
     } catch (err) {
       toast.error('Failed to activate: ' + err.message)
     }
@@ -1453,6 +1808,11 @@ export default function FounderApp() {
       flexDirection: isDesktop ? 'row' : 'column',
       fontFamily: 'Poppins,sans-serif'
     }}>
+
+      {/* Subscription Bill Modal */}
+      {viewingBill && (
+        <SubscriptionBill bill={viewingBill} onClose={() => setViewingBill(null)} />
+      )}
 
       {showReorderModal && (
         <VendorReorderModal
@@ -3281,6 +3641,15 @@ export default function FounderApp() {
                         onActivate={handleActivateVendor}
                         onDeactivate={handleDeactivateVendor}
                       />
+
+                      {/* View last bill */}
+                      {v.lastBill && (
+                        <button
+                          onClick={() => setViewingBill(v.lastBill)}
+                          style={{ width: '100%', marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '9px 0', background: 'linear-gradient(135deg,#eff6ff,#dbeafe)', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                          <span>📄</span> View / Download Last Bill · {v.lastBill.invoiceNo}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )
