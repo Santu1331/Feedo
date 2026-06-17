@@ -186,10 +186,11 @@ function SubscriptionBill({ bill, onClose }) {
     .header-circle1 { position:absolute; width:200px; height:200px; border-radius:50%; background:rgba(255,255,255,0.04); top:-60px; right:-40px; }
     .header-circle2 { position:absolute; width:120px; height:120px; border-radius:50%; background:rgba(255,255,255,0.06); bottom:-30px; left:60px; }
     .brand-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
-    .brand-name { font-size:28px; font-weight:900; color:#fff; letter-spacing:-0.5px; }
-    .brand-dot { display:inline-block; width:10px; height:10px; background:#E24B4A; border-radius:50%; margin-right:8px; }
-    .brand-tag { font-size:11px; color:rgba(255,255,255,0.55); margin-top:3px; letter-spacing:1px; text-transform:uppercase; }
-    .invoice-label { text-align:right; }
+    .brand-name { font-size:30px; font-weight:900; letter-spacing:-0.5px; line-height:1; }
+    .brand-f { color:#E24B4A; }
+    .brand-rest { color:#fff; }
+    .brand-online { font-size:11px; font-weight:600; color:rgba(255,255,255,0.5); letter-spacing:1px; vertical-align:super; margin-left:2px; }
+    .brand-tag { font-size:11px; color:rgba(255,255,255,0.55); margin-top:5px; letter-spacing:1px; text-transform:uppercase; }
     .invoice-label .inv-title { font-size:22px; font-weight:800; color:#fff; letter-spacing:1px; text-transform:uppercase; }
     .invoice-label .inv-no { font-size:13px; color:#fbbf24; font-weight:600; margin-top:4px; letter-spacing:1px; }
     .invoice-label .inv-date { font-size:11px; color:rgba(255,255,255,0.55); margin-top:2px; }
@@ -240,7 +241,8 @@ function SubscriptionBill({ bill, onClose }) {
     .footer-contact span { color:#E24B4A; font-weight:600; }
     .paid-stamp { position:absolute; top:180px; right:40px; width:110px; height:110px; border:5px solid rgba(74,222,128,0.6); border-radius:50%; display:flex; align-items:center; justify-content:center; transform:rotate(-15deg); opacity:0.9; }
     .paid-stamp-inner { font-size:22px; font-weight:900; color:#16a34a; letter-spacing:2px; text-transform:uppercase; text-align:center; line-height:1.2; }
-    @media print { body{background:#fff;} .page{box-shadow:none;} .no-print{display:none!important;} }
+    @media print { *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;} body{background:#fff;} .page{box-shadow:none;} .no-print{display:none!important;} .header{background:linear-gradient(135deg,#1a1a2e 0%,#0f3460 60%,#E24B4A 100%)!important;} .inv-table thead tr{background:linear-gradient(90deg,#1a1a2e,#0f3460)!important;} }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
   </style>
 </head>
 <body>
@@ -253,8 +255,8 @@ function SubscriptionBill({ bill, onClose }) {
     <div class="header-circle2"></div>
     <div class="brand-row">
       <div>
-        <div class="brand-name"><span class="brand-dot"></span>FeedoZone</div>
-        <div class="brand-tag">Warananagar, Kolhapur · feedozone.com</div>
+        <div class="brand-name"><span class="brand-f">Feedo</span><span class="brand-rest">Zone</span><span class="brand-online">.online</span></div>
+        <div class="brand-tag">Warananagar, Kolhapur · feedozone.online</div>
       </div>
       <div class="invoice-label">
         <div class="inv-title">Invoice</div>
@@ -368,12 +370,13 @@ function SubscriptionBill({ bill, onClose }) {
   <div class="footer">
     <div>
       <div class="footer-brand">FeedoZone Platform</div>
-      <div class="footer-sub">Warananagar, Kolhapur · feedozone.com</div>
+      <div class="footer-sub">Warananagar, Kolhapur · feedozone.online</div>
       <div class="footer-sub" style="margin-top:6px;font-style:italic;color:#d1d5db;">Thank you for being a part of FeedoZone 🙏</div>
     </div>
     <div class="footer-contact">
       <div>Support: <span>9665234493</span></div>
       <div>WhatsApp: <span>wa.me/919665234493</span></div>
+      <div>Email: <span>feedozone2030@gmail.com</span></div>
       <div style="margin-top:6px;">Invoice generated on ${new Date().toLocaleDateString('en-IN')}</div>
       <div style="color:#E24B4A;font-size:9px;margin-top:4px;">This is a computer-generated invoice</div>
     </div>
