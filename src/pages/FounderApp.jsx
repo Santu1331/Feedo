@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import {
   logoutUser, getAllOrders, getAllVendors, founderCreateVendor,
-  uploadPhoto, updateVendorStore, getBroadcastHistory
+  uploadPhoto, updateVendorStore, getBroadcastHistory, founderCreateManager, getAllManagers
 } from '../firebase/services'
 import {
   doc, deleteDoc, getDocs, query, where, collection, addDoc,
@@ -832,6 +832,16 @@ export default function FounderApp() {
   // ── Subscription bill viewer ──────────────────────────────────────────
   const [viewingBill, setViewingBill] = useState(null) // bill object to show in modal
 
+  // ── MANAGER MANAGEMENT ───────────────────────────────────────────────
+  const [managers, setManagers] = useState([])
+  const [managerForm, setManagerForm] = useState({
+    name: '', email: '', phone: '', password: '', confirmPass: '',
+    city: '', district: '', talukaInput: '', assignedTalukas: []
+  })
+  const [creatingManager, setCreatingManager] = useState(false)
+  const [showManagerForm, setShowManagerForm] = useState(false)
+  const [deletingManager, setDeletingManager] = useState(null)
+
   const PUSH_PRESETS = [
     { icon: '🌞', label: 'Lunch Time', title: '🍛 Hungry? Lunch Time!', body: 'Your favourite food is ready to order on FeedoZone! Order now 🚀' },
     { icon: '🌙', label: 'Dinner Time', title: '🌙 Dinner Time on FeedoZone!', body: 'Skip cooking tonight! Your favourite vendors are open. Order now 🍽️' },
@@ -853,6 +863,7 @@ export default function FounderApp() {
   useEffect(() => {
     const u1 = getAllOrders(setOrders)
     const u2 = getAllVendors(setVendors)
+    const u3 = getAllManagers(setManagers)
 
     const unsubUsers = onSnapshot(collection(db, 'users'), snap =>
       setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })))
@@ -879,6 +890,7 @@ export default function FounderApp() {
     return () => {
       u1()
       u2()
+      u3()
       unsubUsers()
       unsubTickets()
       if (unsubBroadcast) unsubBroadcast()
@@ -1374,6 +1386,50 @@ export default function FounderApp() {
     const dueDate = v.subscriptionDueDate?.toDate?.() || null
     if (!dueDate) return null
     return Math.ceil((dueDate - new Date()) / 86400000)
+  }
+
+  // ── MANAGER HELPERS ───────────────────────────────────────────────────
+  const handleCreateManager = async () => {
+    const { name, email, password, confirmPass, city, district, assignedTalukas } = managerForm
+    if (!name.trim())     return toast.error('Manager name required')
+    if (!email.trim())    return toast.error('Email required')
+    if (!city.trim())     return toast.error('City required')
+    if (!password || password.length < 6) return toast.error('Password must be 6+ characters')
+    if (password !== confirmPass) return toast.error('Passwords do not match')
+    setCreatingManager(true)
+    try {
+      await founderCreateManager(user.uid, {
+        name: name.trim(), email: email.trim(), phone: managerForm.phone.trim(),
+        password, city: city.trim(), district: district.trim() || city.trim(),
+        assignedTalukas,
+      })
+      toast.success(`✅ Manager "${name}" created for ${city}!`)
+      setManagerForm({ name: '', email: '', phone: '', password: '', confirmPass: '', city: '', district: '', talukaInput: '', assignedTalukas: [] })
+      setShowManagerForm(false)
+    } catch (err) { toast.error(err.message) }
+    setCreatingManager(false)
+  }
+
+  const handleDeleteManager = async (managerId, managerName) => {
+    if (!window.confirm(`Delete manager "${managerName}"? This cannot be undone.`)) return
+    setDeletingManager(managerId)
+    try {
+      await deleteDoc(doc(db, 'managers', managerId))
+      await deleteDoc(doc(db, 'users', managerId))
+      toast.success(`"${managerName}" deleted`)
+    } catch (err) { toast.error('Delete failed: ' + err.message) }
+    setDeletingManager(null)
+  }
+
+  const addTaluka = () => {
+    const t = managerForm.talukaInput.trim()
+    if (!t) return
+    if (managerForm.assignedTalukas.includes(t)) return toast.error('Already added')
+    setManagerForm(p => ({ ...p, assignedTalukas: [...p.assignedTalukas, t], talukaInput: '' }))
+  }
+
+  const removeTaluka = (t) => {
+    setManagerForm(p => ({ ...p, assignedTalukas: p.assignedTalukas.filter(x => x !== t) }))
   }
 
   // ── PUSH NOTIFICATION HELPERS ─────────────────────────────────────────
@@ -1880,6 +1936,7 @@ export default function FounderApp() {
               { id: 'vendors',    icon: '🏪', label: 'Vendors',    count: vendors.length },
               { id: 'customers',  icon: '👥', label: 'Customers',  count: customerStats.total },
               { id: 'addvendor',  icon: '➕', label: 'Add Vendor' },
+              { id: 'managers',   icon: '🧑‍💼', label: 'Managers',   count: managers.length },
               { id: 'subscription', icon: '💳', label: 'Subscriptions', count: vendors.filter(v => v.subscriptionStatus !== 'active' || !v.subscriptionDueDate || getVendorSubDaysLeft(v) <= 0).length, alert: vendors.filter(v => v.subscriptionStatus !== 'active' || !v.subscriptionDueDate || getVendorSubDaysLeft(v) <= 0).length > 0 },
               { id: 'userdb',     icon: '🗄️', label: 'User DB',     count: users.length },
               { id: 'push',       icon: '🔔', label: 'Push',        count: usersWithTokenCount },
@@ -1949,6 +2006,7 @@ export default function FounderApp() {
               { id: 'vendors', label: `Vendors (${vendors.length})` },
               { id: 'customers', label: `👥 Customers (${customerStats.total})` },
               { id: 'addvendor', label: '+ Add Vendor' },
+              { id: 'managers', label: `🧑‍💼 Managers (${managers.length})` },
               { id: 'subscription', label: `💳 Subscriptions` },
               { id: 'userdb', label: `🗄️ User DB (${users.length})` },
               { id: 'push', label: `🔔 Push${usersWithTokenCount > 0 ? ` (${usersWithTokenCount})` : ''}` },
@@ -3527,6 +3585,191 @@ export default function FounderApp() {
               💡 After creating, share the email + password with the vendor. New vendor will be added at the end of the display order. You can reorder from the Vendors tab.
             </div>
           </div>
+        )}
+
+        {/* ════════════════ TAB: MANAGERS ════════════════ */}
+        {tab === 'managers' && (
+          <>
+            {/* Header */}
+            <div style={{ background: 'linear-gradient(135deg,#1e1b4b,#312e81)', borderRadius: 14, padding: 16, marginBottom: 14, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', right: -10, top: -10, fontSize: 60, opacity: 0.07 }}>🧑‍💼</div>
+              <div style={{ fontSize: 10, color: '#a5b4fc', fontWeight: 700, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>City Operations</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#fff', marginBottom: 4 }}>🧑‍💼 Manager Dashboard</div>
+              <div style={{ fontSize: 11, color: '#a5b4fc', marginBottom: 14, lineHeight: 1.6 }}>Create city managers who handle vendors, orders and operations for their district</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                {[
+                  { val: managers.length, label: 'Total Managers', color: '#c7d2fe' },
+                  { val: managers.filter(m => m.isActive).length, label: 'Active', color: '#86efac' },
+                  { val: [...new Set(managers.map(m => m.city).filter(Boolean))].length, label: 'Cities Covered', color: '#fde68a' },
+                ].map(s => (
+                  <div key={s.label} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.val}</div>
+                    <div style={{ fontSize: 9, color: '#a5b4fc', marginTop: 2 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Add Manager Button */}
+            {!showManagerForm && (
+              <button onClick={() => setShowManagerForm(true)} style={{ width: '100%', background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: '#fff', border: 'none', borderRadius: 12, padding: '13px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 14, boxShadow: '0 4px 16px rgba(79,70,229,0.35)' }}>
+                <span style={{ fontSize: 18 }}>➕</span> Create New City Manager
+              </button>
+            )}
+
+            {/* Create Manager Form */}
+            {showManagerForm && (
+              <div style={{ background: '#fff', borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1.5, borderStyle: 'solid', borderColor: '#e0e7ff' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1f2937' }}>➕ New Manager</div>
+                  <button onClick={() => setShowManagerForm(false)} style={{ background: '#f3f4f6', border: 'none', borderRadius: '50%', width: 30, height: 30, fontSize: 14, cursor: 'pointer' }}>✕</button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Manager Name *</label>
+                    <input style={inp} placeholder="e.g. Ravi Patil" value={managerForm.name} onChange={e => setManagerForm(p => ({ ...p, name: e.target.value }))} /></div>
+                  <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Email *</label>
+                    <input style={inp} type="email" placeholder="manager@email.com" value={managerForm.email} onChange={e => setManagerForm(p => ({ ...p, email: e.target.value }))} /></div>
+                  <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Phone</label>
+                    <input style={inp} placeholder="+91 98765 43210" value={managerForm.phone} onChange={e => setManagerForm(p => ({ ...p, phone: e.target.value }))} /></div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Password *</label>
+                      <input style={inp} type="password" placeholder="Min 6 chars" value={managerForm.password} onChange={e => setManagerForm(p => ({ ...p, password: e.target.value }))} /></div>
+                    <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Confirm *</label>
+                      <input style={inp} type="password" placeholder="Repeat" value={managerForm.confirmPass} onChange={e => setManagerForm(p => ({ ...p, confirmPass: e.target.value }))} /></div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>City / HQ *</label>
+                      <input style={inp} placeholder="e.g. Nanded" value={managerForm.city} onChange={e => setManagerForm(p => ({ ...p, city: e.target.value }))} /></div>
+                    <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>District</label>
+                      <input style={inp} placeholder="e.g. Nanded" value={managerForm.district} onChange={e => setManagerForm(p => ({ ...p, district: e.target.value }))} /></div>
+                  </div>
+
+                  {/* Taluka assignment */}
+                  <div>
+                    <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Assigned Talukas / Areas</label>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      <input style={{ ...inp, marginTop: 0, flex: 1 }} placeholder="e.g. Hadgaon, Kinwat..." value={managerForm.talukaInput} onChange={e => setManagerForm(p => ({ ...p, talukaInput: e.target.value }))} onKeyDown={e => e.key === 'Enter' && addTaluka()} />
+                      <button onClick={addTaluka} style={{ padding: '10px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins', whiteSpace: 'nowrap' }}>+ Add</button>
+                    </div>
+                    {managerForm.assignedTalukas.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                        {managerForm.assignedTalukas.map(t => (
+                          <span key={t} style={{ background: '#ede9fe', color: '#5b21b6', fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '3px 10px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            📍 {t}
+                            <button onClick={() => removeTaluka(t)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>Manager will handle all vendors in these talukas and the city</div>
+                  </div>
+
+                  <div style={{ background: '#eff6ff', borderRadius: 10, padding: '10px 14px', fontSize: 11, color: '#1e40af', lineHeight: 1.7 }}>
+                    💡 Manager can login at <strong>/manager</strong> with these credentials and will see only their city's vendors and orders.
+                  </div>
+
+                  <button onClick={handleCreateManager} disabled={creatingManager} style={{ background: creatingManager ? '#e5e7eb' : 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: creatingManager ? '#9ca3af' : '#fff', border: 'none', borderRadius: 10, padding: '13px 0', fontSize: 14, fontWeight: 700, cursor: creatingManager ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
+                    {creatingManager ? '⏳ Creating...' : '✅ Create Manager Account'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Managers list */}
+            {managers.length === 0 && !showManagerForm && (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9ca3af' }}>
+                <div style={{ fontSize: 48, marginBottom: 10 }}>🧑‍💼</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>No managers yet</div>
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>Create your first city manager to start expanding FeedoZone to new cities</div>
+              </div>
+            )}
+
+            {managers.map(m => {
+              const cityVendorCount = vendors.filter(v => {
+                const vt = (v.town || v.locationName || '').toLowerCase()
+                return vt.includes((m.city || '').toLowerCase()) || (m.assignedTalukas || []).some(t => vt.includes(t.toLowerCase()))
+              }).length
+              const cityOrderCount = orders.filter(o => {
+                const vt = (vendors.find(v => v.id === o.vendorUid)?.town || '').toLowerCase()
+                return vt.includes((m.city || '').toLowerCase())
+              }).length
+
+              return (
+                <div key={m.id} style={{ background: '#fff', borderRadius: 14, marginBottom: 12, overflow: 'hidden', borderWidth: 1.5, borderStyle: 'solid', borderColor: m.isActive ? '#e0e7ff' : '#fecaca' }}>
+                  {/* Card header */}
+                  <div style={{ background: m.isActive ? 'linear-gradient(135deg,#1e1b4b,#312e81)' : '#374151', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <span style={{ fontSize: 20, fontWeight: 800, color: '#fff' }}>{(m.name || 'M')[0].toUpperCase()}</span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{m.email}</div>
+                    </div>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: m.isActive ? 'rgba(74,222,128,0.2)' : 'rgba(239,68,68,0.2)', color: m.isActive ? '#4ade80' : '#f87171', flexShrink: 0 }}>
+                      {m.isActive ? '🟢 Active' : '🔴 Inactive'}
+                    </span>
+                  </div>
+
+                  <div style={{ padding: '12px 14px' }}>
+                    {/* Info grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                      {[
+                        { icon: '📍', label: 'City', val: m.city || '—' },
+                        { icon: '🗺️', label: 'District', val: m.district || m.city || '—' },
+                        { icon: '📞', label: 'Phone', val: m.phone || '—' },
+                        { icon: '📅', label: 'Joined', val: m.createdAt?.toDate?.()?.toLocaleDateString('en-IN') || '—' },
+                      ].map(s => (
+                        <div key={s.label} style={{ background: '#f8fafc', borderRadius: 8, padding: '8px 10px' }}>
+                          <div style={{ fontSize: 10, color: '#9ca3af' }}>{s.icon} {s.label}</div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937', marginTop: 1 }}>{s.val}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Talukas */}
+                    {m.assignedTalukas?.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, marginBottom: 6 }}>📍 Assigned Areas</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                          {m.assignedTalukas.map(t => (
+                            <span key={t} style={{ background: '#ede9fe', color: '#5b21b6', fontSize: 10, fontWeight: 600, borderRadius: 20, padding: '2px 9px' }}>{t}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Stats */}
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                      <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: '#16a34a' }}>{cityVendorCount}</div>
+                        <div style={{ fontSize: 9, color: '#6b7280' }}>Vendors in City</div>
+                      </div>
+                      <div style={{ flex: 1, background: '#fff5f5', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: '#E24B4A' }}>{cityOrderCount}</div>
+                        <div style={{ fontSize: 9, color: '#6b7280' }}>Total City Orders</div>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => updateDoc(doc(db, 'managers', m.id), { isActive: !m.isActive }).then(() => toast.success(m.isActive ? '🔴 Manager deactivated' : '🟢 Manager activated')).catch(e => toast.error(e.message))}
+                        style={{ flex: 1, padding: '9px 0', background: m.isActive ? '#fff5f5' : '#f0fdf4', color: m.isActive ? '#dc2626' : '#16a34a', border: `1px solid ${m.isActive ? '#fecaca' : '#bbf7d0'}`, borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
+                        {m.isActive ? '🔴 Deactivate' : '🟢 Activate'}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteManager(m.id, m.name)}
+                        disabled={deletingManager === m.id}
+                        style={{ flex: 1, padding: '9px 0', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: deletingManager === m.id ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
+                        {deletingManager === m.id ? '⏳' : '🗑️ Delete'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </>
         )}
 
         {/* ════════════════ TAB: SUBSCRIPTION MANAGEMENT ════════════════ */}

@@ -285,12 +285,16 @@ export const founderCreateVendor = async (founderUid, vendorData) => {
     banner:           '',
     location:         vendorData.location || null,
     locationName:     vendorData.locationName || '',
+    town:             vendorData.town || vendorData.locationName || '',
     deliveryCharge:   vendorData.deliveryCharge ?? 0,
     fssai:            vendorData.fssai || '',
     openTime:         vendorData.openTime || '',
     closeTime:        vendorData.closeTime || '',
+    sortOrder:        vendorData.sortOrder ?? 9999,
     createdBy:        founderUid,
-    createdAt:        serverTimestamp()
+    createdAt:        serverTimestamp(),
+    ...(vendorData.createdByManager ? { createdByManager: vendorData.createdByManager } : {}),
+    ...(vendorData.managerCity ? { managerCity: vendorData.managerCity } : {}),
   }
 
   try {
@@ -561,4 +565,63 @@ export const getBroadcastHistory = (callback) =>
     query(collection(db, 'broadcastHistory'), orderBy('sentAt', 'desc'), limit(20)),
     snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
     err => { console.error('Broadcast history error:', err); callback([]) }
+  )
+
+// ── FOUNDER: CREATE MANAGER ───────────────────────────────────────────────
+export const founderCreateManager = async (founderUid, managerData) => {
+  const { email, password, name, phone, city, district, assignedTalukas } = managerData
+
+  if (!email || !password || !name || !city) {
+    throw new Error('Email, password, name and city are required.')
+  }
+  if (password.length < 6) {
+    throw new Error('Password must be at least 6 characters.')
+  }
+
+  const secondaryApp  = initializeApp(auth.app.options, 'mgr-' + Date.now())
+  const secondaryAuth = getAuth(secondaryApp)
+
+  let managerUid
+  try {
+    const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password)
+    managerUid = cred.user.uid
+    await updateProfile(cred.user, { displayName: name })
+    await signOut(secondaryAuth)
+  } catch (err) {
+    try { await deleteApp(secondaryApp) } catch (_) {}
+    const errorMessages = {
+      'auth/email-already-in-use': 'This email is already registered.',
+      'auth/invalid-email':        'Invalid email address.',
+      'auth/weak-password':        'Password is too weak (min 6 chars).',
+    }
+    throw new Error(errorMessages[err.code] || `Failed to create manager: ${err.message}`)
+  }
+
+  try { await deleteApp(secondaryApp) } catch (_) {}
+
+  const managerDoc = {
+    uid: managerUid,
+    role: 'manager',
+    name,
+    email,
+    phone:            phone || '',
+    city,
+    district:         district || city,
+    assignedTalukas:  assignedTalukas || [],
+    isActive:         true,
+    createdBy:        founderUid,
+    createdAt:        serverTimestamp(),
+  }
+
+  await setDoc(doc(db, 'users', managerUid), managerDoc)
+  await setDoc(doc(db, 'managers', managerUid), managerDoc)
+
+  return managerUid
+}
+
+// ── MANAGER DATA ──────────────────────────────────────────────────────────
+export const getAllManagers = (callback) =>
+  onSnapshot(collection(db, 'managers'),
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    err => { console.error('Managers error:', err.code); callback([]) }
   )

@@ -5,6 +5,8 @@ import UserApp from './pages/UserApp'
 import VendorApp from './pages/VendorApp'
 import FounderApp from './pages/FounderApp'
 import FounderLoginPage from './pages/FounderLoginPage'
+import ManagerApp from './pages/ManagerApp'
+import ManagerLoginPage from './pages/ManagerLoginPage'
 import PrivacyPolicy from './pages/privacy-policy'
 import DeleteAccount from './pages/delete-account'
 
@@ -15,8 +17,8 @@ export default function App() {
     if (loading) return
     const path = window.location.pathname
 
-    // ← ADD THIS: don't redirect away from founder-login page
     if (path === '/founder-login') return
+    if (path === '/manager-login') return
     if (path === '/privacy-policy') return
     if (path === '/delete-account') return
 
@@ -28,6 +30,8 @@ export default function App() {
     const role = userData?.role
     if (role === 'founder' && !path.startsWith('/founder')) {
       window.location.replace('/founder')
+    } else if (role === 'manager' && !path.startsWith('/manager')) {
+      window.location.replace('/manager')
     } else if (role === 'vendor' && !path.startsWith('/vendor')) {
       window.location.replace('/vendor')
     } else if (role === 'user' && !path.startsWith('/home')) {
@@ -47,15 +51,16 @@ export default function App() {
 
   const path = window.location.pathname
 
-  // ← ADD THIS: show founder login page at /founder-login
   if (path === '/privacy-policy') return <PrivacyPolicy />
   if (path === '/delete-account') return <DeleteAccount />
   if (path === '/founder-login') return <FounderLoginPage />
+  if (path === '/manager-login') return <ManagerLoginPage />
 
   if (!user || path === '/login') return <LoginPage />
 
   const role = userData?.role
   if (role === 'founder' && path.startsWith('/founder')) return <FounderApp />
+  if (role === 'manager' && path.startsWith('/manager')) return <ManagerApp />
   if (role === 'vendor' && path.startsWith('/vendor')) return <VendorApp />
   if (role === 'user' && path.startsWith('/home')) return <UserApp />
 
