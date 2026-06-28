@@ -904,7 +904,9 @@ export default function UserApp() {
     try {
       await addDoc(collection(db, 'supportTickets'), {
         userUid: user.uid, userName: userData?.name || 'User', userEmail: user.email,
-        userPhone: userData?.mobile || '', category, message: text, status: 'open',
+        userPhone: userData?.mobile || '',
+        userCity: locationName || '',
+        category, message: text, status: 'open',
         founderReply: '', createdAt: serverTimestamp()
       })
     } catch { toast.error('Failed to send. Try again.') }
@@ -1217,11 +1219,41 @@ export default function UserApp() {
         : null,
     }))
     .filter(v => {
-      // No location yet → show all vendors (Zomato behavior). Once we have
-      // coords, restrict to vendors within the delivery radius.
-      if (!userLat || !userLng) return true
-      if (v.distance === null) return true
-      return v.distance <= MAX_DELIVERY_KM
+      // ── LOCATION FILTER (Zomato-style) ────────────────────────────────
+      // Priority 1: both user and vendor have GPS → strict 4km radius
+      if (userLat && userLng && v.distance !== null) {
+        return v.distance <= MAX_DELIVERY_KM
+      }
+
+      // Priority 2: user has GPS but vendor has no GPS coords →
+      // fall back to town-name matching so out-of-town vendors don't show
+      if (userLat && userLng && v.distance === null) {
+        // If vendor has no town info at all, hide it (don't show globally)
+        const vTown = (v.town || v.locationName || '').toLowerCase().trim()
+        if (!vTown) return false
+        // Match user's detected location name against vendor's town
+        const uLoc = (locationName || '').toLowerCase().trim()
+        if (!uLoc) return false
+        // Check if either contains the other (handles "Warananagar" vs "Warananagar, Kolhapur")
+        return vTown.includes(uLoc) || uLoc.includes(vTown) ||
+          vTown.split(/[\s,]+/).some(w => w.length > 3 && uLoc.includes(w)) ||
+          uLoc.split(/[\s,]+/).some(w => w.length > 3 && vTown.includes(w))
+      }
+
+      // Priority 3: user has no GPS → match by town name only
+      // This prevents vendors from Nanded showing up in Kolhapur
+      if (!userLat || !userLng) {
+        const vTown = (v.town || v.locationName || '').toLowerCase().trim()
+        const uLoc  = (locationName || '').toLowerCase().trim()
+        // If we have neither → show nothing (force user to set location)
+        if (!uLoc) return false
+        if (!vTown) return false
+        return vTown.includes(uLoc) || uLoc.includes(vTown) ||
+          vTown.split(/[\s,]+/).some(w => w.length > 3 && uLoc.includes(w)) ||
+          uLoc.split(/[\s,]+/).some(w => w.length > 3 && vTown.includes(w))
+      }
+
+      return false
     })
 
   const openVendors = allFilteredVendors
@@ -1537,12 +1569,27 @@ export default function UserApp() {
             {openVendors.length === 0 && !searchQuery && (
               <div style={{ textAlign:'center', padding:'40px 24px', color:'#9ca3af' }}>
                 <div style={{ fontSize:40, marginBottom:10 }}>🗺️</div>
-                <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:6 }}>No open restaurants nearby</div>
-                <div style={{ fontSize:12, lineHeight:1.6, marginBottom:14 }}>All restaurants are currently closed. Check back later!</div>
-                {closedVendors.length > 0 && (
-                  <button onClick={() => setShowClosedVendors(true)} style={{ background:'#f3f4f6', color:'#374151', border:'none', padding:'10px 20px', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
-                    👀 See {closedVendors.length} closed restaurant{closedVendors.length > 1 ? 's' : ''}
-                  </button>
+                {!locationName ? (
+                  <>
+                    <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:6 }}>Set your location first</div>
+                    <div style={{ fontSize:12, lineHeight:1.6, marginBottom:14 }}>Tap the location pin at the top to find restaurants near you.</div>
+                    <button onClick={() => setShowLocationPicker(true)} style={{ background:'#E24B4A', color:'#fff', border:'none', padding:'10px 20px', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
+                      📍 Set My Location
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:6 }}>No restaurants in {locationName} yet</div>
+                    <div style={{ fontSize:12, lineHeight:1.6, marginBottom:14 }}>FeedoZone hasn't launched in your area yet. Try a nearby city!</div>
+                    <button onClick={() => setShowLocationPicker(true)} style={{ background:'#f3f4f6', color:'#374151', border:'none', padding:'10px 20px', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
+                      📍 Change Location
+                    </button>
+                    {closedVendors.length > 0 && (
+                      <button onClick={() => setShowClosedVendors(true)} style={{ background:'transparent', color:'#E24B4A', border:'1px solid #fecaca', padding:'10px 20px', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginLeft:8 }}>
+                        👀 See {closedVendors.length} closed
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             )}

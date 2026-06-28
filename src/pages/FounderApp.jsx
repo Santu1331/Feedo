@@ -765,6 +765,15 @@ export default function FounderApp() {
   const [users, setUsers] = useState([])
   const [selectedTown, setSelectedTown] = useState('all')
 
+  // ── GLOBAL LOCATION FILTER (persists across ALL tabs) ─────────────────
+  const [globalLocation, setGlobalLocation] = useState('all') // 'all' | location name
+  const [globalLocationCoords, setGlobalLocationCoords] = useState(null) // { lat, lng }
+  const [globalLocationRadius, setGlobalLocationRadius] = useState(50) // km radius
+  const [showLocationFilter, setShowLocationFilter] = useState(false)
+  const [locationFilterSearch, setLocationFilterSearch] = useState('')
+  const [locationFilterSuggestions, setLocationFilterSuggestions] = useState([])
+  const [searchingLocationFilter, setSearchingLocationFilter] = useState(false)
+
   const [supportTickets, setSupportTickets] = useState([])
   const [selectedTicket, setSelectedTicket] = useState(null)
   const [replyText, setReplyText] = useState('')
@@ -842,6 +851,10 @@ export default function FounderApp() {
   const [showManagerForm, setShowManagerForm] = useState(false)
   const [deletingManager, setDeletingManager] = useState(null)
 
+  // ── VENDOR DELETE REQUESTS (from managers) ────────────────────────────
+  const [vendorDeleteRequests, setVendorDeleteRequests] = useState([])
+  const [processingDeleteReq, setProcessingDeleteReq] = useState(null)
+
   const PUSH_PRESETS = [
     { icon: '🌞', label: 'Lunch Time', title: '🍛 Hungry? Lunch Time!', body: 'Your favourite food is ready to order on FeedoZone! Order now 🚀' },
     { icon: '🌙', label: 'Dinner Time', title: '🌙 Dinner Time on FeedoZone!', body: 'Skip cooking tonight! Your favourite vendors are open. Order now 🍽️' },
@@ -867,6 +880,11 @@ export default function FounderApp() {
 
     const unsubUsers = onSnapshot(collection(db, 'users'), snap =>
       setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    )
+
+    // Vendor delete requests from managers
+    const unsubDeleteReqs = onSnapshot(collection(db, 'vendorDeleteRequests'), snap =>
+      setVendorDeleteRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
 
     const unsubTickets = onSnapshot(collection(db, 'supportTickets'), snap => {
@@ -895,6 +913,7 @@ export default function FounderApp() {
       unsubTickets()
       if (unsubBroadcast) unsubBroadcast()
       if (unsubPush) unsubPush()
+      unsubDeleteReqs()
     }
   }, [])
 
@@ -915,18 +934,72 @@ export default function FounderApp() {
   }, [orders])
 
   // ── DERIVED DATA ──────────────────────────────────────────────────────
-  const todayOrders = orders.filter(o => {
+  const allTowns = [...new Set(vendors.map(v => v.town || v.locationName || null).filter(Boolean))].sort()
+
+  // ── GLOBAL LOCATION FILTER helpers ───────────────────────────────────
+  // Haversine distance in km
+  const haversineKm = (lat1, lng1, lat2, lng2) => {
+    const R = 6371
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLng = (lng2 - lng1) * Math.PI / 180
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+  }
+
+  const matchesGlobalLocation = (vendor) => {
+    if (globalLocation === 'all') return true
+    // Priority 1: GPS-based match (most accurate) — vendor has coordinates
+    if (globalLocationCoords && vendor.location?.lat && vendor.location?.lng) {
+      const dist = haversineKm(globalLocationCoords.lat, globalLocationCoords.lng, vendor.location.lat, vendor.location.lng)
+      return dist <= globalLocationRadius
+    }
+    // Priority 2: town name string match (fallback)
+    const vTown = (vendor.town || vendor.locationName || '').toLowerCase().trim()
+    const gLoc  = globalLocation.toLowerCase().trim()
+    if (!vTown || !gLoc) return false
+    return vTown === gLoc ||
+      vTown.includes(gLoc) || gLoc.includes(vTown) ||
+      vTown.split(/[\s,]+/).some(w => w.length > 2 && gLoc.includes(w)) ||
+      gLoc.split(/[\s,]+/).some(w => w.length > 2 && vTown.includes(w))
+  }
+
+  // Location-filtered collections used across all tabs
+  const gVendors = globalLocation === 'all' ? vendors : vendors.filter(v => matchesGlobalLocation(v))
+
+  const gOrders = globalLocation === 'all'
+    ? orders
+    : orders.filter(o => {
+        const vendor = vendors.find(v => v.id === o.vendorUid)
+        if (!vendor) return false
+        return matchesGlobalLocation(vendor)
+      })
+
+  const gUsers = globalLocation === 'all'
+    ? users
+    : (() => {
+        const orderUserUids = new Set(gOrders.map(o => o.userUid).filter(Boolean))
+        return users.filter(u => orderUserUids.has(u.id))
+      })()
+
+  const gTickets = globalLocation === 'all'
+    ? supportTickets
+    : supportTickets.filter(t => {
+        const tCity = (t.userCity || '').toLowerCase()
+        const gLoc  = globalLocation.toLowerCase()
+        return tCity === gLoc || tCity.includes(gLoc) || gLoc.includes(tCity) ||
+          tCity.split(/[\s,]+/).some(w => w.length > 2 && gLoc.includes(w))
+      })
+
+  const todayOrders = gOrders.filter(o => {
     const d = o.createdAt?.toDate?.()
     if (!d) return false
     const today = new Date()
     return d.getDate() === today.getDate() && d.getMonth() === today.getMonth()
   })
   const todayRevenue = todayOrders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
-  const subRevenue = vendors.filter(v => v.subscriptionStatus === 'active').reduce((s, v) => s + (v.subscriptionFee || 0), 0)
+  const subRevenue = gVendors.filter(v => v.subscriptionStatus === 'active').reduce((s, v) => s + (v.subscriptionFee || 0), 0)
 
-  const allTowns = [...new Set(vendors.map(v => v.town || v.locationName || null).filter(Boolean))].sort()
-
-  const sortedVendors = [...vendors].sort((a, b) => {
+  const sortedVendors = [...gVendors].sort((a, b) => {
     const sa = a.sortOrder ?? 9999
     const sb = b.sortOrder ?? 9999
     if (sa !== sb) return sa - sb
@@ -939,7 +1012,7 @@ export default function FounderApp() {
 
   // ── ORDERS: apply filters + sort ─────────────────────────────────────
   const filteredOrders = (() => {
-    let list = [...orders]
+    let list = [...gOrders]
 
     // Status filter (existing chip)
     if (orderFilter !== 'all') {
@@ -1054,7 +1127,7 @@ export default function FounderApp() {
   // ── CUSTOMER ANALYTICS HELPERS ────────────────────────────────────────
   const buildCustomerMap = () => {
     const map = {}
-    users.forEach(u => {
+    gUsers.forEach(u => {
       map[u.id] = {
         id: u.id,
         name: u.name || u.displayName || 'Unknown',
@@ -1072,7 +1145,7 @@ export default function FounderApp() {
         weeklyOrders: {},
       }
     })
-    orders.forEach(o => {
+    gOrders.forEach(o => {
       const uid = o.userUid
       if (!uid) return
       if (!map[uid]) {
@@ -1110,7 +1183,7 @@ export default function FounderApp() {
       if (o.status === 'delivered') { c.deliveredCount++; c.totalSpent += o.total || 0 }
       if (o.status === 'cancelled') c.cancelledCount++
     })
-    return Object.values(map).filter(c => c.orders.length > 0 || users.find(u => u.id === c.id))
+    return Object.values(map).filter(c => c.orders.length > 0 || gUsers.find(u => u.id === c.id))
   }
 
   const allCustomers = buildCustomerMap()
@@ -1430,6 +1503,29 @@ export default function FounderApp() {
 
   const removeTaluka = (t) => {
     setManagerForm(p => ({ ...p, assignedTalukas: p.assignedTalukas.filter(x => x !== t) }))
+  }
+
+  // ── VENDOR DELETE REQUEST HANDLERS ───────────────────────────────────
+  const handleApproveDelete = async (req) => {
+    setProcessingDeleteReq(req.id)
+    try {
+      // Delete vendor from both collections
+      await deleteDoc(doc(db, 'vendors', req.vendorId))
+      await deleteDoc(doc(db, 'users', req.vendorId))
+      // Mark request as approved
+      await updateDoc(doc(db, 'vendorDeleteRequests', req.id), { status: 'approved', processedAt: serverTimestamp() })
+      toast.success(`✅ "${req.storeName}" deleted and manager notified`)
+    } catch (err) { toast.error('Failed: ' + err.message) }
+    setProcessingDeleteReq(null)
+  }
+
+  const handleDenyDelete = async (req) => {
+    setProcessingDeleteReq(req.id)
+    try {
+      await updateDoc(doc(db, 'vendorDeleteRequests', req.id), { status: 'denied', processedAt: serverTimestamp() })
+      toast.success(`❌ Delete request for "${req.storeName}" denied`)
+    } catch (err) { toast.error('Failed: ' + err.message) }
+    setProcessingDeleteReq(null)
   }
 
   // ── PUSH NOTIFICATION HELPERS ─────────────────────────────────────────
@@ -1941,7 +2037,7 @@ export default function FounderApp() {
               { id: 'userdb',     icon: '🗄️', label: 'User DB',     count: users.length },
               { id: 'push',       icon: '🔔', label: 'Push',        count: usersWithTokenCount },
               { id: 'broadcast',  icon: '📣', label: 'Broadcast',   count: users.length },
-              { id: 'support',    icon: '💬', label: 'Support',     count: supportTickets.filter(t => t.status === 'open').length, alert: true },
+              { id: 'support',    icon: '💬', label: 'Support',     count: gTickets.filter(t => t.status === 'open').length, alert: true },
               { id: 'analytics',  icon: '📈', label: 'Analytics' },
             ].map(item => {
               const active = tab === item.id
@@ -2011,7 +2107,7 @@ export default function FounderApp() {
               { id: 'userdb', label: `🗄️ User DB (${users.length})` },
               { id: 'push', label: `🔔 Push${usersWithTokenCount > 0 ? ` (${usersWithTokenCount})` : ''}` },
               { id: 'broadcast', label: `📣 Broadcast${users.length > 0 ? ` (${users.length})` : ''}` },
-              { id: 'support', label: `💬 Support${supportTickets.filter(t => t.status === 'open').length > 0 ? ` (${supportTickets.filter(t => t.status === 'open').length})` : ''}` },
+              { id: 'support', label: `💬 Support${gTickets.filter(t => t.status === 'open').length > 0 ? ` (${gTickets.filter(t => t.status === 'open').length})` : ''}` },
               { id: 'analytics', label: '📊 Analytics' }
             ].map(t2 => (
               <button key={t2.id} onClick={() => setTab(t2.id)} style={{
@@ -2066,6 +2162,99 @@ export default function FounderApp() {
           </div>
         )}
 
+        {/* ── GLOBAL LOCATION FILTER BAR ── */}
+        <div style={{ background: globalLocation !== 'all' ? 'linear-gradient(135deg,#fff5f5,#fef2f2)' : '#fff', borderBottom: '1px solid #e5e7eb', padding: isDesktop ? '10px 28px' : '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0, position: 'sticky', top: isDesktop ? 57 : 0, zIndex: 49 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', flexShrink: 0 }}>📍 Location Filter:</div>
+
+          {/* Active filter badge */}
+          {globalLocation !== 'all' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#E24B4A', borderRadius: 20, padding: '4px 12px' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#fff' }}>📍 {globalLocation}</span>
+              <button onClick={() => { setGlobalLocation('all'); setGlobalLocationCoords(null); setLocationFilterSearch(''); setLocationFilterSuggestions([]) }} style={{ background: 'rgba(255,255,255,0.25)', border: 'none', color: '#fff', borderRadius: '50%', width: 18, height: 18, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Poppins', fontWeight: 700 }}>✕</button>
+            </div>
+          ) : (
+            <span style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>All locations</span>
+          )}
+
+          {/* Quick town chips (from existing vendors) */}
+          <div style={{ display: 'flex', gap: 5, overflowX: 'auto', flex: 1 }}>
+            {allTowns.slice(0, 6).map(town => (
+              <button key={town} onClick={() => { setGlobalLocation(globalLocation === town ? 'all' : town); setGlobalLocationCoords(null) }} style={{ flexShrink: 0, padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 11, fontWeight: 600, background: globalLocation === town ? '#E24B4A' : '#f3f4f6', color: globalLocation === town ? '#fff' : '#374151', transition: 'all 0.15s' }}>
+                {town}
+              </button>
+            ))}
+          </div>
+
+          {/* Nominatim search for any city/village/district/taluka */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 20, background: '#f9fafb' }}>
+              <span style={{ fontSize: 12 }}>🔍</span>
+              <input
+                value={locationFilterSearch}
+                onChange={async (e) => {
+                  const q = e.target.value
+                  setLocationFilterSearch(q)
+                  if (q.length < 2) { setLocationFilterSuggestions([]); return }
+                  setSearchingLocationFilter(true)
+                  try {
+                    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q + ' India')}&format=json&limit=8&countrycodes=in&addressdetails=1`)
+                    const data = await res.json()
+                    setLocationFilterSuggestions(data.map(d => ({
+                      name: d.display_name.split(',').slice(0, 3).join(', '),
+                      shortName: d.address?.village || d.address?.town || d.address?.suburb || d.address?.city || d.address?.county || d.address?.state_district || d.name || d.display_name.split(',')[0],
+                      lat: parseFloat(d.lat),
+                      lng: parseFloat(d.lon),
+                      type: d.addresstype || d.type || '',
+                    })))
+                  } catch { setLocationFilterSuggestions([]) }
+                  setSearchingLocationFilter(false)
+                }}
+                placeholder="Search any city, village, district..."
+                style={{ border: 'none', outline: 'none', fontSize: 11, fontFamily: 'Poppins', width: 180, background: 'transparent' }}
+              />
+              {searchingLocationFilter && <span style={{ fontSize: 10, color: '#9ca3af' }}>...</span>}
+              {locationFilterSearch && <button onClick={() => { setLocationFilterSearch(''); setLocationFilterSuggestions([]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 12, padding: 0 }}>✕</button>}
+            </div>
+
+            {locationFilterSuggestions.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', right: 0, background: '#fff', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 12, zIndex: 200, marginTop: 4, minWidth: 280, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', overflow: 'hidden' }}>
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Select location to filter dashboard
+                </div>
+                {locationFilterSuggestions.map((s, i) => (
+                  <button key={i} onClick={() => {
+                    setGlobalLocation(s.shortName)
+                    setGlobalLocationCoords({ lat: s.lat, lng: s.lng })
+                    setLocationFilterSearch('')
+                    setLocationFilterSuggestions([])
+                    toast.success(`📍 Filtering by: ${s.shortName}`)
+                  }} style={{ width: '100%', padding: '10px 14px', border: 'none', background: '#fff', cursor: 'pointer', textAlign: 'left', fontFamily: 'Poppins', display: 'flex', flexDirection: 'column', gap: 2, borderBottomWidth: i < locationFilterSuggestions.length - 1 ? 1 : 0, borderBottomStyle: 'solid', borderBottomColor: '#f9fafb' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 14 }}>📍</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{s.shortName}</span>
+                      {s.type && <span style={{ fontSize: 9, background: '#f3f4f6', color: '#6b7280', borderRadius: 6, padding: '1px 6px', textTransform: 'capitalize' }}>{s.type}</span>}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#9ca3af', paddingLeft: 22, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Radius selector when GPS coords are set */}
+          {globalLocationCoords && (
+            <select value={globalLocationRadius} onChange={e => setGlobalLocationRadius(Number(e.target.value))} style={{ padding: '4px 8px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 20, fontSize: 11, fontFamily: 'Poppins', outline: 'none', background: '#f9fafb', cursor: 'pointer' }}>
+              {[5, 10, 20, 30, 50, 100].map(r => <option key={r} value={r}>{r}km radius</option>)}
+            </select>
+          )}
+
+          {globalLocation !== 'all' && (
+            <div style={{ fontSize: 10, color: '#E24B4A', fontWeight: 600, flexShrink: 0, background: '#fff5f5', borderRadius: 10, padding: '3px 8px' }}>
+              {gVendors.length}V · {gOrders.length}O · {allCustomers.length}C
+            </div>
+          )}
+        </div>
+
         <div style={{ flex: 1, overflowY: 'auto', padding: isDesktop ? '24px 28px' : 14 }}>
 
         {/* ════════════════ TAB: OVERVIEW ════════════════ */}
@@ -2080,7 +2269,7 @@ export default function FounderApp() {
               {[
                 { label: 'Today Revenue', val: `₹${todayRevenue.toLocaleString()}`, sub: `avg ₹${todayOrders.length ? Math.round(todayRevenue / todayOrders.length) : 0}` },
                 { label: 'Subscriptions', val: `₹${subRevenue.toLocaleString()}`, sub: 'this month' },
-                { label: 'Active Vendors', val: `${vendors.filter(v => v.isOpen).length}/${vendors.length}`, sub: `${vendors.length - vendors.filter(v => v.isOpen).length} offline` }
+                { label: 'Active Vendors', val: `${gVendors.filter(v => v.isOpen).length}/${gVendors.length}`, sub: `${gVendors.length - gVendors.filter(v => v.isOpen).length} offline` }
               ].map(s => (
                 <div key={s.label} style={{ background: '#f9fafb', borderRadius: 10, padding: 12 }}>
                   <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>{s.label}</div>
@@ -3320,14 +3509,14 @@ export default function FounderApp() {
               </div>
             )}
             <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-              {[{ id: 'open', label: 'Open', count: supportTickets.filter(t => t.status === 'open').length }, { id: 'replied', label: 'Replied', count: supportTickets.filter(t => t.status === 'replied').length }, { id: 'resolved', label: 'Resolved', count: supportTickets.filter(t => t.status === 'resolved').length }, { id: 'all_support', label: 'All', count: supportTickets.length }].map(f2 => (
+              {[{ id: 'open', label: 'Open', count: gTickets.filter(t => t.status === 'open').length }, { id: 'replied', label: 'Replied', count: gTickets.filter(t => t.status === 'replied').length }, { id: 'resolved', label: 'Resolved', count: gTickets.filter(t => t.status === 'resolved').length }, { id: 'all_support', label: 'All', count: gTickets.length }].map(f2 => (
                 <button key={f2.id} onClick={() => setOrderFilter(f2.id)}
                   style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 11, fontWeight: 600, background: orderFilter === f2.id ? '#E24B4A' : '#f3f4f6', color: orderFilter === f2.id ? '#fff' : '#6b7280' }}>
                   {f2.label} ({f2.count})
                 </button>
               ))}
             </div>
-            {supportTickets
+            {gTickets
               .filter(t => orderFilter === 'all_support' ? true : t.status === (orderFilter === 'open' ? 'open' : orderFilter === 'replied' ? 'replied' : 'resolved'))
               .map(ticket => (
                 <div key={ticket.id} onClick={() => { setSelectedTicket(ticket); setReplyText(ticket.founderReply || '') }}
@@ -3351,7 +3540,31 @@ export default function FounderApp() {
         {/* ════════════════ TAB: ANALYTICS ════════════════ */}
         {tab === 'analytics' && (
           <>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>📊 Analytics</div>
+            {/* Location analytics header card */}
+            <div style={{ background: globalLocation !== 'all' ? 'linear-gradient(135deg,#1a1a2e,#0f3460)' : 'linear-gradient(135deg,#1f2937,#374151)', borderRadius: 14, padding: 16, marginBottom: 14, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', right: -10, top: -10, fontSize: 80, opacity: 0.06 }}>📊</div>
+              <div style={{ fontSize: 10, color: globalLocation !== 'all' ? '#60a5fa' : '#9ca3af', fontWeight: 700, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>
+                {globalLocation !== 'all' ? `📍 ${globalLocation} — City Report` : 'All Locations Analytics'}
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: '#fff', marginBottom: 12 }}>
+                {globalLocation !== 'all' ? `${globalLocation} Performance` : 'Platform Overview'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+                {[
+                  { label: 'Total Orders', val: gOrders.length, color: '#fff' },
+                  { label: 'Revenue', val: `₹${gOrders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0).toLocaleString()}`, color: '#4ade80' },
+                  { label: 'Delivered', val: gOrders.filter(o=>o.status==='delivered').length, color: '#34d399' },
+                  { label: 'Cancelled', val: gOrders.filter(o=>o.status==='cancelled').length, color: '#f87171' },
+                ].map(s => (
+                  <div key={s.label} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 9, padding: '10px 8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.val}</div>
+                    <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>📊 Analytics {globalLocation !== 'all' ? `· ${globalLocation}` : ''}</div>
             <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto', paddingBottom: 2 }}>
               {[{ id: 'overview', label: '📊 Overview' }, { id: 'monthly', label: '📅 Monthly' }, { id: 'items', label: '🍽️ Items' }, { id: 'vendors', label: '🏪 Vendors' }, { id: 'users', label: '👤 Users' }, { id: 'towns', label: '📍 Towns' }].map(t => (
                 <button key={t.id} onClick={() => setAnalyticsTab(t.id)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontFamily: 'Poppins', fontSize: 11, fontWeight: 600, background: analyticsTab === t.id ? '#E24B4A' : '#f3f4f6', color: analyticsTab === t.id ? '#fff' : '#6b7280' }}>{t.label}</button>
@@ -3359,23 +3572,29 @@ export default function FounderApp() {
             </div>
 
             {analyticsTab === 'overview' && (() => {
-              const totalRev = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
-              const activeUsers = [...new Set(orders.filter(o => { const d = o.createdAt?.toDate?.(); return d && (now - d) < 30 * 86400000 }).map(o => o.userUid))].length
+              const totalRev = gOrders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
+              const activeUsers = [...new Set(gOrders.filter(o => { const d = o.createdAt?.toDate?.(); return d && (now - d) < 30 * 86400000 }).map(o => o.userUid))].length
+              const avgOrderVal = gOrders.filter(o=>o.status==='delivered').length ? Math.round(totalRev / gOrders.filter(o=>o.status==='delivered').length) : 0
+              const cancelRate = gOrders.length ? Math.round((gOrders.filter(o=>o.status==='cancelled').length / gOrders.length)*100) : 0
               return (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? 'repeat(4,1fr)' : '1fr 1fr', gap: 10 }}>
                   {[
-                    { icon: '📦', label: 'Total Orders', val: orders.length, bg: '#fff5f5' },
-                    { icon: '💰', label: 'Total Revenue', val: '₹' + totalRev.toLocaleString(), bg: '#f0fdf4' },
-                    { icon: '✅', label: 'Delivered', val: orders.filter(o => o.status === 'delivered').length, bg: '#f0fdf4' },
-                    { icon: '❌', label: 'Cancelled', val: orders.filter(o => o.status === 'cancelled').length, bg: '#fff5f5' },
-                    { icon: '⏳', label: 'Pending', val: orders.filter(o => o.status === 'pending').length, bg: '#fffbeb' },
-                    { icon: '👥', label: 'Total Users', val: users.length, bg: '#eff6ff' },
-                    { icon: '🔥', label: 'Active (30d)', val: activeUsers, bg: '#fff7ed' },
-                    { icon: '🔄', label: 'Repeat Customers', val: customerStats.repeat, bg: '#f0fdf4' },
+                    { icon: '📦', label: 'Total Orders', val: gOrders.length, bg: '#fff5f5', color: '#E24B4A' },
+                    { icon: '💰', label: 'Total Revenue', val: '₹'+totalRev.toLocaleString(), bg: '#f0fdf4', color: '#16a34a' },
+                    { icon: '✅', label: 'Delivered', val: gOrders.filter(o=>o.status==='delivered').length, bg: '#f0fdf4', color: '#16a34a' },
+                    { icon: '❌', label: 'Cancelled', val: gOrders.filter(o=>o.status==='cancelled').length, bg: '#fff5f5', color: '#dc2626' },
+                    { icon: '⏳', label: 'Pending', val: gOrders.filter(o=>o.status==='pending').length, bg: '#fffbeb', color: '#d97706' },
+                    { icon: '👥', label: 'Customers', val: allCustomers.length, bg: '#eff6ff', color: '#3b82f6' },
+                    { icon: '🔥', label: 'Active (30d)', val: activeUsers, bg: '#fff7ed', color: '#f97316' },
+                    { icon: '💵', label: 'Avg Order', val: '₹'+avgOrderVal, bg: '#f0fdf4', color: '#16a34a' },
+                    { icon: '🏪', label: 'Vendors', val: gVendors.length, bg: '#eff6ff', color: '#4f46e5' },
+                    { icon: '🟢', label: 'Open Now', val: gVendors.filter(v=>v.isOpen).length, bg: '#f0fdf4', color: '#16a34a' },
+                    { icon: '🔄', label: 'Repeat Buyers', val: allCustomers.filter(c=>c.deliveredCount>=2).length, bg: '#f0fdf4', color: '#16a34a' },
+                    { icon: '📉', label: 'Cancel Rate', val: cancelRate+'%', bg: '#fff5f5', color: '#dc2626' },
                   ].map(s => (
                     <div key={s.label} style={{ background: s.bg, borderRadius: 12, padding: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#f3f4f6' }}>
-                      <div style={{ fontSize: 22, marginBottom: 6 }}>{s.icon}</div>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: '#1f2937' }}>{s.val}</div>
+                      <div style={{ fontSize: 20, marginBottom: 6 }}>{s.icon}</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.val}</div>
                       <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{s.label}</div>
                     </div>
                   ))}
@@ -3387,7 +3606,7 @@ export default function FounderApp() {
               const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
               const year = new Date().getFullYear()
               const monthlyData = months.map((m, i) => {
-                const mo = orders.filter(o => { const d = o.createdAt?.toDate?.(); return d && d.getMonth() === i && d.getFullYear() === year })
+                const mo = gOrders.filter(o => { const d = o.createdAt?.toDate?.(); return d && d.getMonth() === i && d.getFullYear() === year })
                 return { month: m, orders: mo.length, revenue: mo.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0), delivered: mo.filter(o => o.status === 'delivered').length, cancelled: mo.filter(o => o.status === 'cancelled').length }
               })
               const maxRev = Math.max(...monthlyData.map(m => m.revenue), 1)
@@ -3400,7 +3619,7 @@ export default function FounderApp() {
                     <div style={{ background: '#fff5f5', borderRadius: 12, padding: 14 }}><div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>{year} TOTAL ORDERS</div><div style={{ fontSize: 20, fontWeight: 700, color: '#E24B4A' }}>{totalYearOrders}</div></div>
                   </div>
                   <div style={{ background: '#fff', borderRadius: 12, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', overflow: 'hidden' }}>
-                    <div style={{ padding: '12px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', fontSize: 12, fontWeight: 700 }}>📅 Monthly Revenue — {year}</div>
+                    <div style={{ padding: '12px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', fontSize: 12, fontWeight: 700 }}>📅 Monthly Revenue — {year}{globalLocation !== 'all' ? ` · ${globalLocation}` : ''}</div>
                     {monthlyData.map(m => (
                       <div key={m.month} style={{ padding: '10px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f9fafb' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
@@ -3415,39 +3634,45 @@ export default function FounderApp() {
               )
             })()}
 
-            {analyticsTab === 'items' && (
-              <div style={{ background: '#fff', borderRadius: 12, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', overflow: 'hidden' }}>
-                <div style={{ padding: '12px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', fontSize: 12, fontWeight: 600, color: '#6b7280' }}>TOP 10 MOST ORDERED ITEMS</div>
-                {getMostOrdered().map((item, i) => {
-                  const max = getMostOrdered()[0]?.qty || 1
-                  return (
+            {analyticsTab === 'items' && (() => {
+              const itemCount = {}
+              gOrders.forEach(o => { o.items?.forEach(i => { itemCount[i.name] = (itemCount[i.name]||0) + i.qty }) })
+              const topItems = Object.entries(itemCount).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([name,qty])=>({name,qty}))
+              const maxQty = topItems[0]?.qty || 1
+              return (
+                <div style={{ background: '#fff', borderRadius: 12, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', overflow: 'hidden' }}>
+                  <div style={{ padding: '12px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', fontSize: 12, fontWeight: 600, color: '#6b7280' }}>TOP 10 MOST ORDERED ITEMS{globalLocation !== 'all' ? ` · ${globalLocation}` : ''}</div>
+                  {topItems.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>No data for this location</div>}
+                  {topItems.map((item, i) => (
                     <div key={item.name} style={{ padding: '10px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f9fafb' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ fontSize: 16, fontWeight: 700, color: '#E24B4A', minWidth: 22 }}>#{i + 1}</span><span style={{ fontSize: 13, fontWeight: 500 }}>{item.name}</span></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ fontSize: 16, fontWeight: 700, color: '#E24B4A', minWidth: 22 }}>#{i+1}</span><span style={{ fontSize: 13, fontWeight: 500 }}>{item.name}</span></div>
                         <span style={{ fontSize: 12, fontWeight: 700, color: '#E24B4A' }}>{item.qty} orders</span>
                       </div>
-                      <div style={{ background: '#f3f4f6', borderRadius: 4, height: 6, overflow: 'hidden' }}><div style={{ height: '100%', background: '#E24B4A', width: ((item.qty / max) * 100) + '%', borderRadius: 4 }} /></div>
+                      <div style={{ background: '#f3f4f6', borderRadius: 4, height: 6, overflow: 'hidden' }}><div style={{ height: '100%', background: '#E24B4A', width: ((item.qty/maxQty)*100)+'%', borderRadius: 4 }} /></div>
                     </div>
-                  )
-                })}
-              </div>
-            )}
+                  ))}
+                </div>
+              )
+            })()}
 
             {analyticsTab === 'vendors' && (
               <div style={{ background: '#fff', borderRadius: 12, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', overflow: 'hidden' }}>
-                <div style={{ padding: '12px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', fontSize: 12, fontWeight: 600, color: '#6b7280' }}>VENDORS BY ORDERS (sorted by your display order)</div>
+                <div style={{ padding: '12px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6', fontSize: 12, fontWeight: 600, color: '#6b7280' }}>VENDORS BY ORDERS{globalLocation !== 'all' ? ` · ${globalLocation}` : ' (sorted by your display order)'}</div>
+                {sortedVendors.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>No vendors in this location</div>}
                 {sortedVendors.map((v, idx) => {
-                  const vOrders = orders.filter(o => o.vendorUid === v.id)
+                  const vOrders = gOrders.filter(o => o.vendorUid === v.id)
                   const vRevenue = vOrders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
+                  const vCancelled = vOrders.filter(o => o.status === 'cancelled').length
                   return (
                     <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f9fafb' }}>
                       <div style={{ width: 22, height: 22, borderRadius: '50%', background: idx === 0 ? '#fbbf24' : '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: idx === 0 ? '#92400e' : '#6b7280', flexShrink: 0 }}>#{idx + 1}</div>
                       <div style={{ width: 36, height: 36, borderRadius: 9, overflow: 'hidden', background: '#fee2e2', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {v.photo ? <img src={v.photo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : <span>🏪</span>}
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{v.storeName}</div>
-                        <div style={{ fontSize: 11, color: '#6b7280' }}>{vOrders.length} orders · ₹{vRevenue.toLocaleString()}{v.town ? ` · 📍${v.town}` : ''}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.storeName}</div>
+                        <div style={{ fontSize: 11, color: '#6b7280' }}>{vOrders.length} orders · ₹{vRevenue.toLocaleString()} · ❌{vCancelled}{v.town ? ` · 📍${v.town}` : ''}</div>
                       </div>
                       <div style={{ background: v.isOpen ? '#dcfce7' : '#fee2e2', borderRadius: 20, padding: '3px 8px' }}><span style={{ fontSize: 10, fontWeight: 600, color: v.isOpen ? '#16a34a' : '#dc2626' }}>{v.isOpen ? 'Open' : 'Closed'}</span></div>
                     </div>
@@ -3615,6 +3840,50 @@ export default function FounderApp() {
               <button onClick={() => setShowManagerForm(true)} style={{ width: '100%', background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: '#fff', border: 'none', borderRadius: 12, padding: '13px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 14, boxShadow: '0 4px 16px rgba(79,70,229,0.35)' }}>
                 <span style={{ fontSize: 18 }}>➕</span> Create New City Manager
               </button>
+            )}
+
+            {/* ── VENDOR DELETE REQUESTS FROM MANAGERS ── */}
+            {vendorDeleteRequests.filter(r => r.status === 'pending').length > 0 && (
+              <div style={{ background: '#fff', borderRadius: 14, marginBottom: 14, overflow: 'hidden', borderWidth: 2, borderStyle: 'solid', borderColor: '#fde68a' }}>
+                <div style={{ background: 'linear-gradient(135deg,#92400e,#78350f)', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>🗑️</div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>🔔 Vendor Delete Requests</div>
+                    <div style={{ fontSize: 11, color: '#fde68a', marginTop: 2 }}>
+                      {vendorDeleteRequests.filter(r => r.status === 'pending').length} request{vendorDeleteRequests.filter(r => r.status === 'pending').length > 1 ? 's' : ''} waiting for your approval
+                    </div>
+                  </div>
+                </div>
+                <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {vendorDeleteRequests.filter(r => r.status === 'pending').map(req => (
+                    <div key={req.id} style={{ background: '#fffbeb', borderRadius: 10, padding: 12, borderWidth: 1, borderStyle: 'solid', borderColor: '#fde68a' }}>
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937' }}>🏪 {req.storeName}</div>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>
+                          Requested by: <strong>{req.managerName}</strong> · {req.managerCity}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>
+                          {req.requestedAt?.toDate?.()?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) || '—'}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          onClick={() => handleApproveDelete(req)}
+                          disabled={processingDeleteReq === req.id}
+                          style={{ flex: 1, padding: '9px 0', background: processingDeleteReq === req.id ? '#e5e7eb' : '#dc2626', color: processingDeleteReq === req.id ? '#9ca3af' : '#fff', border: 'none', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: processingDeleteReq === req.id ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
+                          {processingDeleteReq === req.id ? '⏳ Processing...' : '✅ Approve & Delete'}
+                        </button>
+                        <button
+                          onClick={() => handleDenyDelete(req)}
+                          disabled={processingDeleteReq === req.id}
+                          style={{ flex: 1, padding: '9px 0', background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: processingDeleteReq === req.id ? 'not-allowed' : 'pointer', fontFamily: 'Poppins' }}>
+                          ❌ Deny
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Create Manager Form */}

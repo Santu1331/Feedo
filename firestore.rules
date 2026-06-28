@@ -177,5 +177,15 @@ service cloud.firestore {
       allow create: if true;
       allow read, update, delete: if isFounder();
     }
+
+    // ── VENDOR DELETE REQUESTS (manager → founder approval) ───────────────
+    match /vendorDeleteRequests/{reqId} {
+      // Manager can create a request and read their own requests
+      allow create: if isManager();
+      allow read: if isFounder() || isManager();
+      // Only founder can approve/deny (update status)
+      allow update: if isFounder();
+      allow delete: if isFounder();
+    }
   }
 }
