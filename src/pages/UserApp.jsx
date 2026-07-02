@@ -1159,6 +1159,9 @@ export default function UserApp() {
         subtotal: cartTotal, deliveryFee, total: cartTotal + deliveryFee,
         address: fullAddress, paymentMode: 'COD', billNo,
         userLat, userLng, distanceKm: cartVendor.distanceKm || null,
+        // Pass vendor push tokens directly so placeOrder doesn't need a Firestore read
+        vendorFcmToken: cartVendor.fcmToken || null,
+        vendorExpoPushToken: cartVendor.expoPushToken || null,
       })
       const vendorInfo = cartVendor || {}
       setOrderSuccess({

@@ -375,42 +375,62 @@ export const placeOrder = async (orderData) => {
   }).catch(err => console.error('Vendor bell notification failed:', err))
 
   // 🔔 Expo push notification to vendor's phone (non-blocking)
-  getExpoPushToken(orderData.vendorUid, 'vendor')
-    .then(vendorToken => {
-      if (vendorToken) {
-        const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
-        sendExpoPushNotification({
-          expoPushToken: vendorToken,
-          title: '🔔 New Order Received!',
-          body: `₹${orderData.total} · ${itemsSummary.slice(0, 80)}`,
-          data: { orderId: ref.id, type: 'new_order', url: '/vendor' }
-        }).catch(err => console.error('Vendor push notification failed:', err))
-      }
-    })
-    .catch(err => console.error('Get vendor push token failed:', err))
+  // Use token passed directly from UserApp (avoids Firestore permission error)
+  const vendorExpoToken = orderData.vendorExpoPushToken || null
+  if (vendorExpoToken) {
+    const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
+    sendExpoPushNotification({
+      expoPushToken: vendorExpoToken,
+      title: '🔔 New Order Received!',
+      body: `₹${orderData.total} · ${itemsSummary.slice(0, 80)}`,
+      data: { orderId: ref.id, type: 'new_order', url: '/vendor' }
+    }).catch(err => console.error('Vendor expo push failed:', err))
+  } else {
+    // Fallback: try reading from Firestore
+    getExpoPushToken(orderData.vendorUid, 'vendor')
+      .then(token => {
+        if (token) {
+          const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
+          sendExpoPushNotification({
+            expoPushToken: token,
+            title: '🔔 New Order Received!',
+            body: `₹${orderData.total} · ${itemsSummary.slice(0, 80)}`,
+            data: { orderId: ref.id, type: 'new_order', url: '/vendor' }
+          }).catch(() => {})
+        }
+      }).catch(() => {})
+  }
 
-  // 🔔 Web browser push (FCM) — fires even when the vendor's tab is CLOSED
-  // or backgrounded. Plays sound + vibrates the device via the service
-  // worker registered at /firebase-messaging-sw.js.
-  getFcmToken(orderData.vendorUid, 'vendor')
-    .then(fcmToken => {
-      if (fcmToken) {
-        const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
-        sendWebPushNotification({
-          fcmToken,
-          title: `🛎️ New Order — ₹${orderData.total}`,
-          body: `${orderData.userName} · ${itemsSummary.slice(0, 80)}`,
-          data: {
-            orderId: ref.id,
-            type: 'new_order',
-            url: '/vendor',
-            customerName: orderData.userName || '',
-            total: String(orderData.total || ''),
-          },
-        }).catch(err => console.error('Vendor FCM push failed:', err))
-      }
-    })
-    .catch(err => console.error('Get vendor FCM token failed:', err))
+  // 🔔 Web browser push (FCM) — fires even when vendor tab is CLOSED
+  // Use token passed directly from UserApp (avoids Firestore permission error)
+  const vendorFcmToken = orderData.vendorFcmToken || null
+  if (vendorFcmToken) {
+    const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
+    sendWebPushNotification({
+      fcmToken: vendorFcmToken,
+      title: `🛎️ New Order — ₹${orderData.total}`,
+      body: `${orderData.userName} · ${itemsSummary.slice(0, 80)}`,
+      data: {
+        orderId: ref.id, type: 'new_order', url: '/vendor',
+        customerName: orderData.userName || '',
+        total: String(orderData.total || ''),
+      },
+    }).catch(err => console.error('Vendor FCM push failed:', err))
+  } else {
+    // Fallback: try reading from Firestore
+    getFcmToken(orderData.vendorUid, 'vendor')
+      .then(token => {
+        if (token) {
+          const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
+          sendWebPushNotification({
+            fcmToken: token,
+            title: `🛎️ New Order — ₹${orderData.total}`,
+            body: `${orderData.userName} · ${itemsSummary.slice(0, 80)}`,
+            data: { orderId: ref.id, type: 'new_order', url: '/vendor', customerName: orderData.userName || '', total: String(orderData.total || '') },
+          }).catch(() => {})
+        }
+      }).catch(() => {})
+  }
 
   return ref
 }
