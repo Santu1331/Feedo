@@ -398,9 +398,15 @@ export const placeOrder = async (orderData) => {
         const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
         sendWebPushNotification({
           fcmToken,
-          title: '🛎️ New Order Received!',
-          body: `₹${orderData.total} from ${orderData.userName} · ${itemsSummary.slice(0, 80)}`,
-          data: { orderId: ref.id, type: 'new_order', url: '/vendor' },
+          title: `🛎️ New Order — ₹${orderData.total}`,
+          body: `${orderData.userName} · ${itemsSummary.slice(0, 80)}`,
+          data: {
+            orderId: ref.id,
+            type: 'new_order',
+            url: '/vendor',
+            customerName: orderData.userName || '',
+            total: String(orderData.total || ''),
+          },
         }).catch(err => console.error('Vendor FCM push failed:', err))
       }
     })
@@ -457,12 +463,30 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
   await updateDoc(doc(db, 'orders', orderId), updatePayload)
 
   const statusMessages = {
-    accepted:         { title: '✅ Order Accepted!',      body: `${orderData.vendorName} accepted your order 🎉` },
-    preparing:        { title: '👨‍🍳 Being Prepared!',     body: `${orderData.vendorName} is cooking your food 🍳` },
-    ready:            { title: '🎉 Order Ready!',          body: 'Your order is packed and ready for pickup!' },
-    out_for_delivery: { title: '🛵 Out for Delivery!',     body: 'Your order is on the way! Stay ready 🔔' },
-    delivered:        { title: '✅ Order Delivered!',      body: `Enjoy your meal! Rate ${orderData.vendorName} ⭐` },
-    cancelled:        { title: '❌ Order Cancelled',       body: orderData.cancellationReason || 'Your order was cancelled' },
+    accepted:         {
+      title: '✅ Order Accepted!',
+      body:  `${orderData.vendorName} accepted your order and will start preparing soon 🎉`,
+    },
+    preparing:        {
+      title: '👨‍🍳 Chef is Cooking!',
+      body:  `${orderData.vendorName} has started preparing your food. Fresh & hot coming up! 🍳`,
+    },
+    ready:            {
+      title: '🎉 Your Order is Ready!',
+      body:  `Your food is packed and ready. Delivery partner will pick it up shortly 📦`,
+    },
+    out_for_delivery: {
+      title: '🛵 Out for Delivery!',
+      body:  `Your order is on the way! Stay ready — it will arrive soon 🔔`,
+    },
+    delivered:        {
+      title: '🎊 Order Delivered! Enjoy!',
+      body:  `Your food from ${orderData.vendorName} has arrived. Rate your experience & order again! ⭐`,
+    },
+    cancelled:        {
+      title: '❌ Order Cancelled',
+      body:  orderData.cancellationReason || `Your order from ${orderData.vendorName} was cancelled`,
+    },
   }
 
   if (orderData.userUid) {
@@ -497,7 +521,7 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
             fcmToken: userFcm,
             title: msg.title,
             body: msg.body,
-            data: { orderId, type: 'order_status', url: '/home' },
+            data: { orderId, type: 'order_status', url: '/home', status },
           })
         }
       } catch (err) {

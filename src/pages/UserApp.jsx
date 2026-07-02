@@ -1220,32 +1220,30 @@ export default function UserApp() {
     }))
     .filter(v => {
       // ── LOCATION FILTER (Zomato-style) ────────────────────────────────
-      // Priority 1: both user and vendor have GPS → strict 4km radius
+      // Each vendor can set their own delivery radius (1-4km or unlimited)
+      const vendorRadius = v.deliveryRadiusKm > 0 ? v.deliveryRadiusKm : MAX_DELIVERY_KM
+
+      // Priority 1: both user and vendor have GPS → per-vendor radius
       if (userLat && userLng && v.distance !== null) {
-        return v.distance <= MAX_DELIVERY_KM
+        return v.distance <= vendorRadius
       }
 
       // Priority 2: user has GPS but vendor has no GPS coords →
       // fall back to town-name matching so out-of-town vendors don't show
       if (userLat && userLng && v.distance === null) {
-        // If vendor has no town info at all, hide it (don't show globally)
         const vTown = (v.town || v.locationName || '').toLowerCase().trim()
         if (!vTown) return false
-        // Match user's detected location name against vendor's town
         const uLoc = (locationName || '').toLowerCase().trim()
         if (!uLoc) return false
-        // Check if either contains the other (handles "Warananagar" vs "Warananagar, Kolhapur")
         return vTown.includes(uLoc) || uLoc.includes(vTown) ||
           vTown.split(/[\s,]+/).some(w => w.length > 3 && uLoc.includes(w)) ||
           uLoc.split(/[\s,]+/).some(w => w.length > 3 && vTown.includes(w))
       }
 
       // Priority 3: user has no GPS → match by town name only
-      // This prevents vendors from Nanded showing up in Kolhapur
       if (!userLat || !userLng) {
         const vTown = (v.town || v.locationName || '').toLowerCase().trim()
         const uLoc  = (locationName || '').toLowerCase().trim()
-        // If we have neither → show nothing (force user to set location)
         if (!uLoc) return false
         if (!vTown) return false
         return vTown.includes(uLoc) || uLoc.includes(vTown) ||

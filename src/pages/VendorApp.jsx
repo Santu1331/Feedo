@@ -1046,6 +1046,13 @@ export default function VendorApp() {
   const [showSubPayModal, setShowSubPayModal] = useState(false)
   const [vendorLastBill, setVendorLastBill] = useState(null)
   const [showVendorSubBill, setShowVendorSubBill] = useState(false)
+
+  // ── NOTIFICATION PERMISSION STATE ────────────────────────────────────
+  const [notifPermission, setNotifPermission] = useState(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported'
+    return Notification.permission // 'default' | 'granted' | 'denied'
+  })
+  const [requestingNotif, setRequestingNotif] = useState(false)
   // ─────────────────────────────────────────────────────────────────────
 
   const [newOrderAlert, setNewOrderAlert] = useState(null)
@@ -1062,6 +1069,34 @@ export default function VendorApp() {
     return () => { document.removeEventListener('click', unlock); document.removeEventListener('touchstart', unlock) }
   }, [])
 
+  // ── Handle notification action buttons from service worker ────────────
+  // When vendor taps "Accept Order" on the OS notification banner,
+  // the service worker posts a message here to auto-accept the order.
+  useEffect(() => {
+    const handleSWMessage = async (event) => {
+      const { type, action, orderId, notifType } = event.data || {}
+      if (type !== 'feedo-open') return
+
+      if (notifType === 'new_order' && orderId) {
+        if (action === 'accept') {
+          // Auto-accept the order directly from the notification button
+          try {
+            await updateOrderStatus(orderId, 'accepted', {})
+            toast.success('✅ Order accepted from notification!')
+          } catch (err) {
+            toast.error('Could not accept order: ' + err.message)
+          }
+        } else {
+          // Just navigate to the orders tab
+          setTab('orders')
+        }
+      }
+    }
+
+    navigator.serviceWorker?.addEventListener('message', handleSWMessage)
+    return () => navigator.serviceWorker?.removeEventListener('message', handleSWMessage)
+  }, [])
+
   const [deliveryCharge, setDeliveryCharge] = useState('')
   const [distanceBasedDelivery, setDistanceBasedDelivery] = useState(false)
   const [minOrderAmount, setMinOrderAmount] = useState('')
@@ -1070,6 +1105,7 @@ export default function VendorApp() {
   const [upiId, setUpiId] = useState('')
   const [openTime, setOpenTime] = useState('')
   const [closeTime, setCloseTime] = useState('')
+  const [deliveryRadiusKm, setDeliveryRadiusKm] = useState(4) // 1 | 2 | 3 | 4 | 0=unlimited
   const [savingDetails, setSavingDetails] = useState(false)
 
   const [vendorPhotoUploading, setVendorPhotoUploading] = useState(false)
@@ -1141,6 +1177,7 @@ export default function VendorApp() {
     if (userData?.customCategories) setCustomCategories(userData.customCategories)
     if (userData?.deliveryCharge !== undefined) setDeliveryCharge(String(userData.deliveryCharge ?? ''))
     setDistanceBasedDelivery(userData?.distanceBasedDelivery || false)
+    if (userData?.deliveryRadiusKm !== undefined) setDeliveryRadiusKm(userData.deliveryRadiusKm ?? 4)
     if (userData?.minOrderAmount !== undefined) setMinOrderAmount(String(userData.minOrderAmount ?? ''))
     if (userData?.fssai) setFssai(userData.fssai)
     if (userData?.gstNumber !== undefined) setGstNumber(userData.gstNumber || '')
@@ -1255,6 +1292,7 @@ export default function VendorApp() {
       await updateVendorStore(user.uid, {
         deliveryCharge: deliveryCharge === '' ? 0 : Number(deliveryCharge),
         distanceBasedDelivery: distanceBasedDelivery,
+        deliveryRadiusKm: deliveryRadiusKm,
         minOrderAmount: minOrderAmount === '' ? 0 : Number(minOrderAmount),
         fssai: fssai.trim(), gstNumber: gstNumber.trim().toUpperCase(),
         upiId: upiId.trim(), openTime: openTime.trim(), closeTime: closeTime.trim()
@@ -1563,6 +1601,42 @@ export default function VendorApp() {
 
   return (
     <div style={{ maxWidth:430, margin:'0 auto', background:'#fff', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' }}>
+
+      {/* ── NOTIFICATION PERMISSION BANNER ── */}
+      {notifPermission !== 'granted' && notifPermission !== 'unsupported' && (
+        <div style={{ background: notifPermission === 'denied' ? 'linear-gradient(135deg,#991b1b,#7f1d1d)' : 'linear-gradient(135deg,#92400e,#78350f)', padding:'10px 14px', flexShrink:0, display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:20, flexShrink:0 }}>🔔</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:'#fff', marginBottom:1 }}>
+              {notifPermission === 'denied' ? 'Notifications Blocked' : 'Enable Order Notifications'}
+            </div>
+            <div style={{ fontSize:10, color:'rgba(255,255,255,0.75)' }}>
+              {notifPermission === 'denied'
+                ? 'Tap the lock icon in your browser address bar → Notifications → Allow'
+                : 'Get notified instantly when new orders arrive, even when app is closed'}
+            </div>
+          </div>
+          {notifPermission !== 'denied' && (
+            <button
+              onClick={async () => {
+                setRequestingNotif(true)
+                try {
+                  const perm = await Notification.requestPermission()
+                  setNotifPermission(perm)
+                  if (perm === 'granted') {
+                    toast.success('🔔 Notifications enabled! You will now receive order alerts.')
+                  }
+                } catch { }
+                setRequestingNotif(false)
+              }}
+              disabled={requestingNotif}
+              style={{ background:'#fff', color:'#92400e', border:'none', borderRadius:8, padding:'7px 12px', fontSize:11, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', flexShrink:0, whiteSpace:'nowrap' }}
+            >
+              {requestingNotif ? '...' : '🔔 Enable'}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── SUBSCRIPTION PAYMENT MODAL ── */}
       {showSubPayModal && (() => {
@@ -2690,6 +2764,48 @@ export default function VendorApp() {
                 </div>
               </div>
 
+              {/* ── DELIVERY RADIUS SELECTOR ── */}
+              <div style={{ marginBottom:14, background:'#f9fafb', borderRadius:12, padding:14, borderWidth:1.5, borderStyle:'solid', borderColor:'#e0e7ff' }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:4 }}>📡 Delivery Coverage Radius</div>
+                <div style={{ fontSize:11, color:'#6b7280', marginBottom:12, lineHeight:1.6 }}>
+                  Set how far you can deliver from your restaurant. Customers outside this radius won't see your restaurant.
+                </div>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:10 }}>
+                  {[
+                    { val:1, label:'1 km', sub:'Nearby only' },
+                    { val:2, label:'2 km', sub:'Short range' },
+                    { val:3, label:'3 km', sub:'Medium range' },
+                    { val:4, label:'4 km', sub:'Wide range' },
+                    { val:0, label:'No limit', sub:'Show everywhere' },
+                  ].map(opt => (
+                    <button
+                      key={opt.val}
+                      onClick={() => setDeliveryRadiusKm(opt.val)}
+                      style={{
+                        flex:1, minWidth:70, padding:'10px 6px', borderRadius:12, cursor:'pointer',
+                        fontFamily:'Poppins', border:'none', transition:'all 0.2s', textAlign:'center',
+                        background: deliveryRadiusKm === opt.val ? 'linear-gradient(135deg,#4f46e5,#7c3aed)' : '#fff',
+                        boxShadow: deliveryRadiusKm === opt.val ? '0 4px 12px rgba(79,70,229,0.35)' : '0 1px 4px rgba(0,0,0,0.08)',
+                        borderWidth: deliveryRadiusKm === opt.val ? 0 : 1, borderStyle:'solid', borderColor:'#e5e7eb',
+                      }}
+                    >
+                      <div style={{ fontSize:15, fontWeight:800, color: deliveryRadiusKm === opt.val ? '#fff' : '#4f46e5' }}>{opt.label}</div>
+                      <div style={{ fontSize:9, color: deliveryRadiusKm === opt.val ? 'rgba(255,255,255,0.75)' : '#9ca3af', marginTop:2 }}>{opt.sub}</div>
+                    </button>
+                  ))}
+                </div>
+                <div style={{ background: deliveryRadiusKm === 0 ? '#fef3c7' : '#eff6ff', borderRadius:9, padding:'9px 12px', borderWidth:1, borderStyle:'solid', borderColor: deliveryRadiusKm === 0 ? '#fde68a' : '#bfdbfe' }}>
+                  <div style={{ fontSize:11, fontWeight:700, color: deliveryRadiusKm === 0 ? '#92400e' : '#1e40af', marginBottom:2 }}>
+                    {deliveryRadiusKm === 0 ? '⚠️ No radius limit set' : `✅ Delivering within ${deliveryRadiusKm} km from your location`}
+                  </div>
+                  <div style={{ fontSize:10, color: deliveryRadiusKm === 0 ? '#a16207' : '#3b82f6', lineHeight:1.5 }}>
+                    {deliveryRadiusKm === 0
+                      ? 'Your restaurant is visible to all customers in your town regardless of their distance.'
+                      : `Only customers within ${deliveryRadiusKm} km of your restaurant can see and order from you. Make sure your restaurant GPS location is saved.`}
+                  </div>
+                </div>
+              </div>
+
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🛒 Minimum Order Amount (₹)</label>
                 <input type="number" placeholder="e.g. 100 (0 for no minimum)" value={minOrderAmount} onChange={e => setMinOrderAmount(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
@@ -2795,6 +2911,54 @@ export default function VendorApp() {
             </div>
 
             <button onClick={() => logoutUser()} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>Logout</button>
+
+            {/* ── NOTIFICATION STATUS CARD ── */}
+            <div style={{ background:'#f9fafb', borderRadius:12, padding:14, borderWidth:1, borderStyle:'solid', borderColor: notifPermission === 'granted' ? '#bbf7d0' : '#fecaca' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>🔔 Order Notifications</div>
+                <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:20, background: notifPermission === 'granted' ? '#dcfce7' : '#fee2e2', color: notifPermission === 'granted' ? '#065f46' : '#991b1b' }}>
+                  {notifPermission === 'granted' ? '✅ Enabled' : notifPermission === 'denied' ? '🚫 Blocked' : '⚠️ Not set'}
+                </span>
+              </div>
+              <div style={{ fontSize:11, color:'#6b7280', marginBottom:12, lineHeight:1.6 }}>
+                {notifPermission === 'granted'
+                  ? 'You will receive order alerts even when the app is closed or your phone is locked.'
+                  : notifPermission === 'denied'
+                  ? 'Notifications are blocked. Tap the lock icon in your browser → Notifications → Allow.'
+                  : 'Enable notifications to get instant order alerts on your phone.'}
+              </div>
+              {notifPermission !== 'granted' && notifPermission !== 'denied' && (
+                <button
+                  onClick={async () => {
+                    setRequestingNotif(true)
+                    const perm = await Notification.requestPermission()
+                    setNotifPermission(perm)
+                    if (perm === 'granted') toast.success('🔔 Notifications enabled!')
+                    setRequestingNotif(false)
+                  }}
+                  disabled={requestingNotif}
+                  style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', borderRadius:9, padding:'11px 0', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginBottom:8 }}>
+                  {requestingNotif ? '⏳ Requesting...' : '🔔 Enable Notifications'}
+                </button>
+              )}
+              {notifPermission === 'granted' && (
+                <button
+                  onClick={async () => {
+                    try {
+                      new Notification('🧪 FeedoZone Test', {
+                        body: 'Notifications are working! You will receive order alerts.',
+                        icon: '/icons/icon-192.png',
+                        badge: '/icons/icon-192.png',
+                        vibrate: [200, 100, 200],
+                      })
+                      toast.success('Test notification sent!')
+                    } catch { toast.error('Could not send test') }
+                  }}
+                  style={{ width:'100%', background:'#f0fdf4', color:'#16a34a', border:'1px solid #bbf7d0', borderRadius:9, padding:'10px 0', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+                  🧪 Send Test Notification
+                </button>
+              )}
+            </div>
 
             {/* ── SUBSCRIPTION SECTION ── */}
             <div style={{ background: subscriptionStatus === 'due' ? 'linear-gradient(135deg,#fee2e2,#fef2f2)' : subscriptionStatus === 'grace' ? 'linear-gradient(135deg,#fffbeb,#fef3c7)' : 'linear-gradient(135deg,#f0fdf4,#dcfce7)', borderRadius:12, padding:14, borderWidth:1.5, borderStyle:'solid', borderColor: subscriptionStatus === 'due' ? '#fecaca' : subscriptionStatus === 'grace' ? '#fde68a' : '#bbf7d0' }}>
