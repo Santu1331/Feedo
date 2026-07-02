@@ -17,6 +17,52 @@ import toast from 'react-hot-toast'
 //      notifications when the page is focused — this is by design).
 const VAPID_KEY = 'BLJfHrZCd5GYUZ-02OnZXq4N6nkIosaBOMjJzFJGS1OAhgJ_Hi-xeb7zMzuBWPHqGxtuqsC8zYcWiaqBBvISdOQ'
 
+// ── Called directly from a user button tap ──────────────────────────────────
+// Requests permission AND immediately calls getToken so the FCM token is
+// saved to Firestore. Must be called from a button onClick (user gesture).
+export const requestAndRegisterFCM = async (uid, role) => {
+  if (!uid) return { success: false, error: 'No user ID' }
+  if (!('Notification' in window)) return { success: false, error: 'Notifications not supported' }
+  if (!('serviceWorker' in navigator)) return { success: false, error: 'Service Worker not supported' }
+
+  try {
+    // 1. Request permission — this MUST be inside a user gesture (button click)
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') {
+      return { success: false, error: permission === 'denied' ? 'blocked' : 'dismissed' }
+    }
+
+    // 2. Register / get service worker
+    const swReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' })
+
+    // Wait for SW to be active
+    await navigator.serviceWorker.ready
+
+    // 3. Get FCM token
+    const { getMessaging, getToken } = await import('firebase/messaging')
+    const messaging = getMessaging()
+
+    const fcmToken = await getToken(messaging, {
+      vapidKey: VAPID_KEY,
+      serviceWorkerRegistration: swReg,
+    })
+
+    if (!fcmToken) return { success: false, error: 'Token empty — check VAPID key and Firebase config' }
+
+    // 4. Save to Firestore
+    await setDoc(doc(db, 'users', uid), { fcmToken }, { merge: true })
+    if (role === 'vendor') {
+      await setDoc(doc(db, 'vendors', uid), { fcmToken }, { merge: true })
+    }
+
+    console.log('✅ FCM token registered for', role, ':', fcmToken.slice(0, 20) + '...')
+    return { success: true, token: fcmToken }
+  } catch (err) {
+    console.error('FCM registration failed:', err)
+    return { success: false, error: err.message }
+  }
+}
+
 export const useNotifications = (uid, role) => {
   useEffect(() => {
     if (!uid) return
@@ -58,8 +104,12 @@ export const useNotifications = (uid, role) => {
         // gesture — but if we already have permission, this resolves to
         // 'granted' instantly. If the user previously denied we silently
         // skip; they can re-enable from the lock icon → Site settings.
-        const permission = await Notification.requestPermission()
-        if (permission !== 'granted') return
+        const permission = Notification.permission
+        if (permission !== 'granted') {
+          // Do NOT auto-request — only request on explicit user gesture (button tap)
+          // Auto-requesting silently fails on mobile and wastes the one-time prompt
+          return
+        }
 
         const { getMessaging, getToken, onMessage } = await import('firebase/messaging')
         const messaging = getMessaging()
@@ -70,13 +120,13 @@ export const useNotifications = (uid, role) => {
         })
 
         if (fcmToken) {
-          // setDoc with merge:true creates the field if it doesn't exist
-          // — avoids the previous bug where updateDoc was used without
-          // being imported and silently failed.
+          console.log('✅ FCM token obtained for', role, ':', fcmToken.slice(0, 20) + '...')
           await setDoc(doc(db, 'users', uid), { fcmToken }, { merge: true })
           if (role === 'vendor') {
             await setDoc(doc(db, 'vendors', uid), { fcmToken }, { merge: true })
           }
+        } else {
+          console.warn('⚠️ FCM getToken returned null/empty for', role)
         }
 
         // ─── 5. Foreground handler ─────────────────────────────────────

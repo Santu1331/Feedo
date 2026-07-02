@@ -8,6 +8,7 @@ import {
 } from '../firebase/services'
 import { useNotifications } from '../hooks/useNotifications'
 import { listenNotifications, markNotificationRead } from '../firebase/services'
+import { requestAndRegisterFCM } from '../hooks/useNotifications'
 import toast from 'react-hot-toast'
 import { useOrderAlert } from '../hooks/useOrderAlert'
 import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
@@ -1621,12 +1622,16 @@ export default function VendorApp() {
               onClick={async () => {
                 setRequestingNotif(true)
                 try {
-                  const perm = await Notification.requestPermission()
-                  setNotifPermission(perm)
-                  if (perm === 'granted') {
-                    toast.success('🔔 Notifications enabled! You will now receive order alerts.')
+                  const result = await requestAndRegisterFCM(user?.uid, 'vendor')
+                  if (result.success) {
+                    setNotifPermission('granted')
+                    toast.success('🔔 Done! Order alerts enabled — works even when app is closed.')
+                  } else if (result.error === 'blocked') {
+                    setNotifPermission('denied')
+                  } else {
+                    toast.error('Could not enable: ' + result.error)
                   }
-                } catch { }
+                } catch(e) { toast.error('Error: ' + e.message) }
                 setRequestingNotif(false)
               }}
               disabled={requestingNotif}
@@ -2931,14 +2936,23 @@ export default function VendorApp() {
                 <button
                   onClick={async () => {
                     setRequestingNotif(true)
-                    const perm = await Notification.requestPermission()
-                    setNotifPermission(perm)
-                    if (perm === 'granted') toast.success('🔔 Notifications enabled!')
+                    try {
+                      const result = await requestAndRegisterFCM(user?.uid, 'vendor')
+                      if (result.success) {
+                        setNotifPermission('granted')
+                        toast.success('🔔 Notifications enabled! You will now get order alerts even when app is closed.')
+                      } else if (result.error === 'blocked') {
+                        setNotifPermission('denied')
+                        toast.error('Notifications blocked. Go to Settings → Site Notifications → Allow for this site.')
+                      } else {
+                        toast.error('Could not enable notifications: ' + result.error)
+                      }
+                    } catch(e) { toast.error('Error: ' + e.message) }
                     setRequestingNotif(false)
                   }}
                   disabled={requestingNotif}
                   style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', borderRadius:9, padding:'11px 0', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginBottom:8 }}>
-                  {requestingNotif ? '⏳ Requesting...' : '🔔 Enable Notifications'}
+                  {requestingNotif ? '⏳ Registering device...' : '🔔 Enable Notifications'}
                 </button>
               )}
               {notifPermission === 'granted' && (
