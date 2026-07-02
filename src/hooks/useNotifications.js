@@ -18,27 +18,47 @@ import toast from 'react-hot-toast'
 const VAPID_KEY = 'BLJfHrZCd5GYUZ-02OnZXq4N6nkIosaBOMjJzFJGS1OAhgJ_Hi-xeb7zMzuBWPHqGxtuqsC8zYcWiaqBBvISdOQ'
 
 // ── Called directly from a user button tap ──────────────────────────────────
-// Requests permission AND immediately calls getToken so the FCM token is
-// saved to Firestore. Must be called from a button onClick (user gesture).
+// Handles BOTH Expo WebView (mobile app) and Chrome browser (web).
 export const requestAndRegisterFCM = async (uid, role) => {
   if (!uid) return { success: false, error: 'No user ID' }
-  if (!('Notification' in window)) return { success: false, error: 'Notifications not supported' }
+
+  // ── MODE 1: Expo WebView — use Expo Push Token ──────────────────────
+  // The Expo app shell injects window.expoPushToken or window.ReactNativeWebView
+  const isExpoApp = !!(window.ReactNativeWebView || window.expoPushToken || localStorage.getItem('expoPushToken'))
+  if (isExpoApp) {
+    try {
+      let expoToken = window.expoPushToken
+      if (!expoToken) { try { expoToken = localStorage.getItem('expoPushToken') } catch {} }
+      if (expoToken) {
+        await setDoc(doc(db, 'users', uid), { expoPushToken: expoToken }, { merge: true })
+        if (role === 'vendor') {
+          await setDoc(doc(db, 'vendors', uid), { expoPushToken: expoToken }, { merge: true })
+        }
+        // Ask Expo app to request native permission
+        try { window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'REQUEST_NOTIFICATION_PERMISSION' })) } catch {}
+        return { success: true, token: expoToken, mode: 'expo' }
+      }
+      // No token yet — ask Expo app to request it
+      try { window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'REQUEST_PUSH_TOKEN' })) } catch {}
+      return { success: false, error: 'Waiting for app to provide push token. Try again in a few seconds.' }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  }
+
+  // ── MODE 2: Chrome / Firefox browser (PWA or tab) ────────────────────
+  if (!('Notification' in window)) return { success: false, error: 'Notifications not supported in this browser' }
   if (!('serviceWorker' in navigator)) return { success: false, error: 'Service Worker not supported' }
 
   try {
-    // 1. Request permission — this MUST be inside a user gesture (button click)
     const permission = await Notification.requestPermission()
     if (permission !== 'granted') {
       return { success: false, error: permission === 'denied' ? 'blocked' : 'dismissed' }
     }
 
-    // 2. Register / get service worker
     const swReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' })
-
-    // Wait for SW to be active
     await navigator.serviceWorker.ready
 
-    // 3. Get FCM token
     const { getMessaging, getToken } = await import('firebase/messaging')
     const messaging = getMessaging()
 
@@ -49,14 +69,13 @@ export const requestAndRegisterFCM = async (uid, role) => {
 
     if (!fcmToken) return { success: false, error: 'Token empty — check VAPID key and Firebase config' }
 
-    // 4. Save to Firestore
     await setDoc(doc(db, 'users', uid), { fcmToken }, { merge: true })
     if (role === 'vendor') {
       await setDoc(doc(db, 'vendors', uid), { fcmToken }, { merge: true })
     }
 
-    console.log('✅ FCM token registered for', role, ':', fcmToken.slice(0, 20) + '...')
-    return { success: true, token: fcmToken }
+    console.log('✅ FCM token registered for', role)
+    return { success: true, token: fcmToken, mode: 'fcm' }
   } catch (err) {
     console.error('FCM registration failed:', err)
     return { success: false, error: err.message }

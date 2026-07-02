@@ -1050,8 +1050,13 @@ export default function VendorApp() {
 
   // ── NOTIFICATION PERMISSION STATE ────────────────────────────────────
   const [notifPermission, setNotifPermission] = useState(() => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported'
-    return Notification.permission // 'default' | 'granted' | 'denied'
+    if (typeof window === 'undefined') return 'unsupported'
+    // Expo WebView — check if push token already exists
+    if (window.ReactNativeWebView || window.expoPushToken || localStorage.getItem('expoPushToken')) {
+      return 'expo' // treat as supported
+    }
+    if (!('Notification' in window)) return 'unsupported'
+    return Notification.permission
   })
   const [requestingNotif, setRequestingNotif] = useState(false)
   // ─────────────────────────────────────────────────────────────────────
@@ -1604,7 +1609,7 @@ export default function VendorApp() {
     <div style={{ maxWidth:430, margin:'0 auto', background:'#fff', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' }}>
 
       {/* ── NOTIFICATION PERMISSION BANNER ── */}
-      {notifPermission !== 'granted' && notifPermission !== 'unsupported' && (
+      {notifPermission !== 'granted' && notifPermission !== 'unsupported' && notifPermission !== 'expo' && (
         <div style={{ background: notifPermission === 'denied' ? 'linear-gradient(135deg,#991b1b,#7f1d1d)' : 'linear-gradient(135deg,#92400e,#78350f)', padding:'10px 14px', flexShrink:0, display:'flex', alignItems:'center', gap:10 }}>
           <span style={{ fontSize:20, flexShrink:0 }}>🔔</span>
           <div style={{ flex:1 }}>
@@ -1613,8 +1618,8 @@ export default function VendorApp() {
             </div>
             <div style={{ fontSize:10, color:'rgba(255,255,255,0.75)' }}>
               {notifPermission === 'denied'
-                ? 'Tap the lock icon in your browser address bar → Notifications → Allow'
-                : 'Get notified instantly when new orders arrive, even when app is closed'}
+                ? 'Go to phone Settings → Chrome → Notifications → Allow'
+                : 'Get notified when new orders arrive, even when screen is locked'}
             </div>
           </div>
           {notifPermission !== 'denied' && (
@@ -2921,18 +2926,20 @@ export default function VendorApp() {
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14, borderWidth:1, borderStyle:'solid', borderColor: notifPermission === 'granted' ? '#bbf7d0' : '#fecaca' }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                 <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>🔔 Order Notifications</div>
-                <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:20, background: notifPermission === 'granted' ? '#dcfce7' : '#fee2e2', color: notifPermission === 'granted' ? '#065f46' : '#991b1b' }}>
-                  {notifPermission === 'granted' ? '✅ Enabled' : notifPermission === 'denied' ? '🚫 Blocked' : '⚠️ Not set'}
+                <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:20, background: (notifPermission === 'granted' || notifPermission === 'expo') ? '#dcfce7' : '#fee2e2', color: (notifPermission === 'granted' || notifPermission === 'expo') ? '#065f46' : '#991b1b' }}>
+                  {(notifPermission === 'granted' || notifPermission === 'expo') ? '✅ Enabled' : notifPermission === 'denied' ? '🚫 Blocked' : notifPermission === 'unsupported' ? '📵 Not Available' : '⚠️ Not set'}
                 </span>
               </div>
               <div style={{ fontSize:11, color:'#6b7280', marginBottom:12, lineHeight:1.6 }}>
-                {notifPermission === 'granted'
+                {(notifPermission === 'granted' || notifPermission === 'expo')
                   ? 'You will receive order alerts even when the app is closed or your phone is locked.'
                   : notifPermission === 'denied'
-                  ? 'Notifications are blocked. Tap the lock icon in your browser → Notifications → Allow.'
+                  ? 'Notifications are blocked. Go to Settings → Apps → Chrome → Notifications → Allow.'
+                  : notifPermission === 'unsupported'
+                  ? 'This browser does not support notifications. Open the site in Chrome for notifications.'
                   : 'Enable notifications to get instant order alerts on your phone.'}
               </div>
-              {notifPermission !== 'granted' && notifPermission !== 'denied' && (
+              {notifPermission !== 'granted' && notifPermission !== 'denied' && notifPermission !== 'expo' && notifPermission !== 'unsupported' && (
                 <button
                   onClick={async () => {
                     setRequestingNotif(true)
@@ -2955,18 +2962,28 @@ export default function VendorApp() {
                   {requestingNotif ? '⏳ Registering device...' : '🔔 Enable Notifications'}
                 </button>
               )}
-              {notifPermission === 'granted' && (
+              {(notifPermission === 'granted' || notifPermission === 'expo') && (
                 <button
                   onClick={async () => {
                     try {
-                      new Notification('🧪 FeedoZone Test', {
-                        body: 'Notifications are working! You will receive order alerts.',
-                        icon: '/icons/icon-192.png',
-                        badge: '/icons/icon-192.png',
-                        vibrate: [200, 100, 200],
-                      })
-                      toast.success('Test notification sent!')
-                    } catch { toast.error('Could not send test') }
+                      // Use service worker showNotification — works on mobile Chrome and WebView
+                      const swReg = await navigator.serviceWorker?.ready
+                      if (swReg) {
+                        await swReg.showNotification('🧪 FeedoZone Test', {
+                          body: 'Notifications are working! You will receive order alerts.',
+                          icon: 'https://res.cloudinary.com/dqlwojavr/image/upload/v1774093229/icon-192_nggcjv.png',
+                          badge: 'https://res.cloudinary.com/dqlwojavr/image/upload/v1774093229/icon-192_nggcjv.png',
+                          vibrate: [200, 100, 200],
+                          tag: 'feedo-test',
+                        })
+                        toast.success('✅ Test notification sent! Check your notification bar.')
+                      } else if ('Notification' in window) {
+                        new Notification('🧪 FeedoZone Test', { body: 'Notifications working!' })
+                        toast.success('Test sent!')
+                      } else {
+                        toast.error('Cannot send test on this device — but real order notifications will still work.')
+                      }
+                    } catch(e) { toast.error('Test failed: ' + e.message) }
                   }}
                   style={{ width:'100%', background:'#f0fdf4', color:'#16a34a', border:'1px solid #bbf7d0', borderRadius:9, padding:'10px 0', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
                   🧪 Send Test Notification
