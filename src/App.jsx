@@ -9,6 +9,9 @@ import ManagerApp from './pages/ManagerApp'
 import ManagerLoginPage from './pages/ManagerLoginPage'
 import PrivacyPolicy from './pages/privacy-policy'
 import DeleteAccount from './pages/delete-account'
+import FounderProfile from './pages/FounderProfile'
+import WikiFeedozone from './pages/WikiFeedozone'
+import WikiSantosh from './pages/WikiSantosh'
 
 export default function App() {
   const { user, userData, loading } = useAuth()
@@ -21,6 +24,9 @@ export default function App() {
     if (path === '/manager-login') return
     if (path === '/privacy-policy') return
     if (path === '/delete-account') return
+    if (path === '/founder-profile') return
+    if (path === '/wiki') return
+    if (path === '/wiki/santosh-sangnod') return
 
     if (!user) {
       if (path !== '/login') window.location.replace('/login')
@@ -55,6 +61,9 @@ export default function App() {
   if (path === '/delete-account') return <DeleteAccount />
   if (path === '/founder-login') return <FounderLoginPage />
   if (path === '/manager-login') return <ManagerLoginPage />
+  if (path === '/founder-profile') return <FounderProfile />
+  if (path === '/wiki') return <WikiFeedozone />
+  if (path === '/wiki/santosh-sangnod') return <WikiSantosh />
 
   if (!user || path === '/login') return <LoginPage />
 
