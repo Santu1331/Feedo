@@ -38,6 +38,29 @@ const MAX_DELIVERY_KM = 4
 // banner and the Profile menu entry. Updating this one constant updates both.
 const WHATSAPP_COMMUNITY_URL = 'https://chat.whatsapp.com/BfM3K3v2HBCDEJ8VKG6jAH'
 
+// ─── Special Offer: Free Delivery — Ashadi Ekadashi ───────────────────────────
+// One-day, festival-based free-delivery promotion. FREE_DELIVERY_OFFER_DATE
+// is compared against the device's local date (YYYY-MM-DD) — so the offer
+// switches itself on and off automatically, no manual toggling needed.
+// To reuse this for a different festival/date later, just change the date
+// and copy below; nothing else in the file needs to change.
+const FREE_DELIVERY_OFFER_DATE = '2026-07-25' // Ashadi Ekadashi
+const FREE_DELIVERY_OFFER_COPY = {
+  en: { title: 'Free Delivery Today!', sub: '🙏 Ashadi Ekadashi Special · All orders, zero delivery fee', badge: 'ASHADI EKADASHI' },
+  mr: { title: 'आज मोफत डिलिव्हरी!', sub: '🙏 आषाढी एकादशी स्पेशल · सर्व ऑर्डरवर डिलिव्हरी चार्ज माफ', badge: 'आषाढी एकादशी' },
+}
+
+function getLocalDateStr(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function isFreeDeliveryOfferActive() {
+  return getLocalDateStr() === FREE_DELIVERY_OFFER_DATE
+}
+
 const S = {
   shell: { maxWidth:430, margin:'0 auto', background:'#f7f7f7', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' },
   redHdr: { background:'#E24B4A', color:'#fff', padding:'16px', flexShrink:0 },
@@ -105,6 +128,113 @@ function useCancelCountdown(order) {
     return () => clearInterval(id)
   }, [order])
   return secondsLeft
+}
+
+// ─── Free Delivery Offer Banner (Ashadi Ekadashi) ─────────────────────────────
+// Festive gold/saffron banner shown on the home tab only while the offer is
+// active. Dismissible for the day (localStorage key includes the offer date,
+// so it reappears automatically next time a new offer date is set).
+function FreeDeliveryOfferBanner({ lang }) {
+  const copy = FREE_DELIVERY_OFFER_COPY[lang] || FREE_DELIVERY_OFFER_COPY.en
+  const dismissKey = 'feedo_offer_dismissed_' + FREE_DELIVERY_OFFER_DATE
+  const [dismissed, setDismissed] = useState(
+    () => { try { return !!localStorage.getItem(dismissKey) } catch { return false } }
+  )
+  if (dismissed) return null
+
+  const handleDismiss = (e) => {
+    e.stopPropagation()
+    try { localStorage.setItem(dismissKey, '1') } catch {}
+    setDismissed(true)
+  }
+
+  return (
+    <>
+      <style>{`
+        @keyframes offerShimmer {
+          0%   { background-position: -180% center; }
+          100% { background-position:  180% center; }
+        }
+        @keyframes offerFloat {
+          0%, 100% { transform: translateY(0) rotate(0deg); }
+          50%      { transform: translateY(-3px) rotate(-4deg); }
+        }
+        .feedo-offer-card {
+          margin: 12px 16px 4px;
+          border-radius: 18px;
+          overflow: hidden;
+          position: relative;
+          background: linear-gradient(135deg, #FF9933 0%, #E24B4A 55%, #C2410C 100%);
+          box-shadow: 0 10px 28px rgba(226,75,74,0.35), 0 2px 6px rgba(0,0,0,0.08);
+          font-family: Poppins, sans-serif;
+          isolation: isolate;
+        }
+        .feedo-offer-card::before {
+          content: '';
+          position: absolute; inset: 0;
+          background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.28) 50%, transparent 70%);
+          background-size: 200% 100%;
+          animation: offerShimmer 3s ease-in-out infinite;
+          pointer-events: none;
+          z-index: 1;
+        }
+        .feedo-offer-icon { animation: offerFloat 2.6s ease-in-out infinite; }
+      `}</style>
+      <div className="feedo-offer-card">
+        <div style={{ position:'absolute', top:-24, right:-18, width:110, height:110, borderRadius:'50%', background:'rgba(255,255,255,0.10)', pointerEvents:'none' }} />
+        <div style={{ position:'absolute', bottom:-30, left:-14, width:90, height:90, borderRadius:'50%', background:'rgba(255,255,255,0.08)', pointerEvents:'none' }} />
+
+        <button
+          onClick={handleDismiss}
+          aria-label="Dismiss"
+          style={{
+            position:'absolute', top:8, right:8, zIndex:3,
+            background:'rgba(0,0,0,0.22)', border:'none', borderRadius:'50%',
+            width:24, height:24, color:'#fff', cursor:'pointer',
+            fontSize:11, lineHeight:1, display:'flex', alignItems:'center', justifyContent:'center',
+            fontFamily:'Poppins',
+          }}
+        >✕</button>
+
+        <div style={{ position:'relative', zIndex:2, padding:'16px 16px 14px', display:'flex', alignItems:'center', gap:14 }}>
+          <div className="feedo-offer-icon" style={{
+            width:54, height:54, borderRadius:14, flexShrink:0,
+            background:'#fff',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            boxShadow:'0 4px 14px rgba(0,0,0,0.18)',
+            fontSize:28,
+          }}>🚩</div>
+
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
+              <span style={{
+                fontSize:9, fontWeight:800, color:'#fff', letterSpacing:0.6,
+                background:'rgba(255,255,255,0.2)', padding:'2px 7px', borderRadius:20,
+                borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,255,255,0.3)',
+              }}>{copy.badge}</span>
+            </div>
+            <div style={{ fontSize:16, fontWeight:800, color:'#fff', lineHeight:1.2, marginBottom:3 }}>
+              {copy.title}
+            </div>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,0.95)', lineHeight:1.45 }}>
+              {copy.sub}
+            </div>
+          </div>
+
+          <div style={{
+            flexShrink:0, background:'#fff', color:'#C2410C',
+            padding:'8px 12px', borderRadius:24,
+            display:'flex', flexDirection:'column', alignItems:'center',
+            boxShadow:'0 4px 12px rgba(0,0,0,0.18)',
+            fontFamily:'Poppins',
+          }}>
+            <span style={{ fontSize:13, fontWeight:900, lineHeight:1 }}>₹0</span>
+            <span style={{ fontSize:8, fontWeight:700, opacity:0.8, marginTop:1 }}>DELIVERY</span>
+          </div>
+        </div>
+      </div>
+    </>
+  )
 }
 
 // ─── WhatsApp Community Banner ──────────────────────────────────────────────
@@ -436,7 +566,7 @@ function VariantPickerSheet({ item, cart, onAdd, onUpdateQty, onClose }) {
 }
 
 // ─── Map Modal ────────────────────────────────────────────────────────────────
-function MapModal({ userLat, userLng, vendors, onClose }) {
+function MapModal({ userLat, userLng, vendors, onClose, freeDeliveryToday }) {
   const mapRef = useRef(null)
   const mapInstance = useRef(null)
 
@@ -461,21 +591,22 @@ function MapModal({ userLat, userLng, vendors, onClose }) {
         if (!v.location?.lat || !v.location?.lng) return
         const dist = getDistance(userLat, userLng, v.location.lat, v.location.lng)
         if (dist > MAX_DELIVERY_KM) return
-        const charge = calcDeliveryCharge(dist, v.deliveryCharge, v.distanceBasedDelivery)
+        const rawCharge = calcDeliveryCharge(dist, v.deliveryCharge, v.distanceBasedDelivery)
+        const charge = freeDeliveryToday ? 0 : rawCharge
         const color = v.isOpen ? '#16a34a' : '#6b7280'
         const vendorIcon = L.divIcon({ html:`<div style="background:${color};border:2.5px solid #fff;border-radius:10px;padding:5px 8px;font-size:11px;font-weight:700;color:#fff;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.2);font-family:Poppins,sans-serif">${v.isOpen?'🟢':'🔴'} ${v.storeName?.split(' ')[0]||'Vendor'}</div>`, className:'', iconSize:[null,null], iconAnchor:[0,0] })
-        L.marker([v.location.lat, v.location.lng], { icon: vendorIcon }).addTo(map).bindPopup(`<div style="font-family:Poppins,sans-serif;min-width:160px"><b style="font-size:13px">${v.storeName}</b><br/><span style="font-size:11px;color:#6b7280">${v.category}</span><br/><span style="font-size:11px;color:${v.isOpen?'#16a34a':'#dc2626'};font-weight:600">${v.isOpen?'● Open':'● Closed'}</span><br/><span style="font-size:11px">📍 ${dist.toFixed(1)} km · 🚚 ${charge===0?'Free':'₹'+charge} delivery</span></div>`)
+        L.marker([v.location.lat, v.location.lng], { icon: vendorIcon }).addTo(map).bindPopup(`<div style="font-family:Poppins,sans-serif;min-width:160px"><b style="font-size:13px">${v.storeName}</b><br/><span style="font-size:11px;color:#6b7280">${v.category}</span><br/><span style="font-size:11px;color:${v.isOpen?'#16a34a':'#dc2626'};font-weight:600">${v.isOpen?'● Open':'● Closed'}</span><br/><span style="font-size:11px">📍 ${dist.toFixed(1)} km · 🚚 ${charge===0?(freeDeliveryToday && rawCharge>0 ? '🎉 FREE today':'Free'):'₹'+charge}</span></div>`)
       })
     }
     document.head.appendChild(script)
-  }, [userLat, userLng, vendors])
+  }, [userLat, userLng, vendors, freeDeliveryToday])
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1500, display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' }}>
       <div style={{ background:'#fff', padding:'14px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
         <div>
           <div style={{ fontSize:15, fontWeight:700, color:'#1f2937' }}>🗺️ Nearby Restaurants</div>
-          <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>Showing within {MAX_DELIVERY_KM}km radius</div>
+          <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>Showing within {MAX_DELIVERY_KM}km radius{freeDeliveryToday ? ' · 🎉 Free delivery today' : ''}</div>
         </div>
         <button onClick={onClose} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:34, height:34, fontSize:18, cursor:'pointer' }}>✕</button>
       </div>
@@ -489,7 +620,7 @@ function MapModal({ userLat, userLng, vendors, onClose }) {
             <span style={{ fontSize:11, color:'#374151' }}>{l.label}</span>
           </div>
         ))}
-        <div style={{ marginLeft:'auto', fontSize:11, color:'#6b7280' }}>🚚 Charges vary by vendor</div>
+        <div style={{ marginLeft:'auto', fontSize:11, color:'#6b7280' }}>{freeDeliveryToday ? '🎉 Free delivery — Ashadi Ekadashi' : '🚚 Charges vary by vendor'}</div>
       </div>
     </div>
   )
@@ -779,6 +910,11 @@ export default function UserApp() {
   const prevOrderStatusRef = useRef({})
   const seenCancelPopupsRef = useRef(new Set())
 
+  // ── FREE DELIVERY OFFER (Ashadi Ekadashi) ───────────────────────────────
+  // Pure function of today's date — recomputed each render, which is fine
+  // since it's cheap and the offer only ever flips once a day.
+  const freeDeliveryToday = isFreeDeliveryOfferActive()
+
   // Inline bilingual helper kept for backwards compatibility with the
   // many `t('English','मराठी')` calls in this file. For Hindi, falls back to
   // English (or the Marathi text if English is missing). For new strings,
@@ -1061,14 +1197,16 @@ export default function UserApp() {
     const dist = (userLat && userLng && vendor?.location?.lat && vendor?.location?.lng)
       ? getDistance(userLat, userLng, vendor.location.lat, vendor.location.lng)
       : null
-    return { dist, charge: calcDeliveryCharge(dist, vendor?.deliveryCharge, vendor?.distanceBasedDelivery) }
+    const rawCharge = calcDeliveryCharge(dist, vendor?.deliveryCharge, vendor?.distanceBasedDelivery)
+    const charge = freeDeliveryToday ? 0 : rawCharge
+    return { dist, charge, rawCharge }
   }
 
   const addToCart = (item) => {
     if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
     if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
-    const { dist, charge } = getDynamicCharge(selectedVendor)
-    setCartVendor({ ...selectedVendor, deliveryCharge: charge, distanceKm: dist })
+    const { dist, charge, rawCharge } = getDynamicCharge(selectedVendor)
+    setCartVendor({ ...selectedVendor, deliveryCharge: charge, rawDeliveryCharge: rawCharge, distanceKm: dist })
     setCart(prev => {
       const ex = prev.find(c => c.id === item.id)
       if (ex) return prev.map(c => c.id === item.id ? { ...c, qty: c.qty+1 } : c)
@@ -1080,8 +1218,8 @@ export default function UserApp() {
   const addVariantToCart = (item, variant) => {
     if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
     if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
-    const { dist, charge } = getDynamicCharge(selectedVendor)
-    setCartVendor({ ...selectedVendor, deliveryCharge: charge, distanceKm: dist })
+    const { dist, charge, rawCharge } = getDynamicCharge(selectedVendor)
+    setCartVendor({ ...selectedVendor, deliveryCharge: charge, rawDeliveryCharge: rawCharge, distanceKm: dist })
     const cartId = `${item.id}_${variant.label}`
     setCart(prev => {
       const ex = prev.find(c => c.id === cartId)
@@ -1100,8 +1238,8 @@ export default function UserApp() {
   const addComboToCart = (combo) => {
     if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
     if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
-    const { dist, charge } = getDynamicCharge(selectedVendor)
-    setCartVendor({ ...selectedVendor, deliveryCharge: charge, distanceKm: dist })
+    const { dist, charge, rawCharge } = getDynamicCharge(selectedVendor)
+    setCartVendor({ ...selectedVendor, deliveryCharge: charge, rawDeliveryCharge: rawCharge, distanceKm: dist })
     const comboCartId = 'combo_' + combo.id
     setCart(prev => {
       const ex = prev.find(c => c.id === comboCartId)
@@ -1122,6 +1260,7 @@ export default function UserApp() {
   const cartTotal = cart.reduce((s,c) => s + c.price*c.qty, 0)
   const cartCount = cart.reduce((s,c) => s + c.qty, 0)
   const deliveryFee = Number(cartVendor?.deliveryCharge ?? 0)
+  const deliveryFeeWaived = freeDeliveryToday && Number(cartVendor?.rawDeliveryCharge ?? 0) > 0
   const minOrder = Number(cartVendor?.minOrderAmount ?? 0)
   const minOrderShortfall = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
   const meetsMinOrder = minOrderShortfall === 0
@@ -1159,6 +1298,8 @@ export default function UserApp() {
         subtotal: cartTotal, deliveryFee, total: cartTotal + deliveryFee,
         address: fullAddress, paymentMode: 'COD', billNo,
         userLat, userLng, distanceKm: cartVendor.distanceKm || null,
+        // Ashadi Ekadashi free-delivery offer flag, kept for founder-side records
+        freeDeliveryOffer: deliveryFeeWaived,
         // Pass vendor push tokens directly so placeOrder doesn't need a Firestore read
         vendorFcmToken: cartVendor.fcmToken || null,
         vendorExpoPushToken: cartVendor.expoPushToken || null,
@@ -1171,6 +1312,7 @@ export default function UserApp() {
         vendorPhone: vendorInfo.phone || vendorInfo.mobile || vendorInfo.contactPhone || '',
         vendorPhoto: vendorInfo.photo || '', items: cart.map(i => ({ ...i })),
         total: cartTotal + deliveryFee, subtotal: cartTotal, deliveryFee,
+        freeDeliveryOffer: deliveryFeeWaived,
         address: fullAddress, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
         prepTime: vendorInfo.prepTime || 20,
       })
@@ -1446,6 +1588,13 @@ export default function UserApp() {
           </div>
         </div>
 
+        {freeDeliveryToday && (
+          <div style={{ marginTop:10, background:'rgba(255,255,255,0.16)', borderRadius:9, padding:'6px 10px', display:'flex', alignItems:'center', gap:6, borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,255,255,0.25)' }}>
+            <span style={{ fontSize:13 }}>🚩</span>
+            <span style={{ fontSize:11, fontWeight:700, color:'#fff' }}>{t('Free delivery today — Ashadi Ekadashi!','आज मोफत डिलिव्हरी — आषाढी एकादशी!')}</span>
+          </div>
+        )}
+
         {showLocationPicker && (
           <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', flexDirection:'column', justifyContent:'flex-start' }}
             onClick={(e) => { if(e.target===e.currentTarget) setShowLocationPicker(false) }}>
@@ -1520,11 +1669,16 @@ export default function UserApp() {
             <div style={{ background:'linear-gradient(90deg,#fff7ed,#fef3c7)', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#fed7aa', padding:'8px 16px', display:'flex', alignItems:'center', gap:10 }}>
               <span style={{ fontSize:16 }}>🚚</span>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>Delivery charges vary by restaurant</div>
-                <div style={{ fontSize:10, color:'#a16207' }}>Fixed or distance-based · Max {MAX_DELIVERY_KM}km delivery</div>
+                <div style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>{freeDeliveryToday ? '🎉 Free delivery today — Ashadi Ekadashi!' : 'Delivery charges vary by restaurant'}</div>
+                <div style={{ fontSize:10, color:'#a16207' }}>{freeDeliveryToday ? 'On every order, at every open restaurant · Max ' + MAX_DELIVERY_KM + 'km delivery' : 'Fixed or distance-based · Max ' + MAX_DELIVERY_KM + 'km delivery'}</div>
               </div>
               <button onClick={() => setShowMap(true)} style={{ background:'#E24B4A', border:'none', color:'#fff', padding:'5px 10px', borderRadius:8, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>🗺️ Map</button>
             </div>
+
+            {/* ══════════════════════════════════════════
+                ── FREE DELIVERY OFFER (Ashadi Ekadashi) ──
+            ══════════════════════════════════════════ */}
+            {freeDeliveryToday && <FreeDeliveryOfferBanner lang={lang} />}
 
             {/* ══════════════════════════════════════════
                 ── JOIN WHATSAPP COMMUNITY (Home Tab) ──
@@ -1598,7 +1752,8 @@ export default function UserApp() {
             <div style={{ padding:'0 16px' }}>
               {filteredVendors.map((v, idx) => {
                 const vMinOrder = Number(v.minOrderAmount ?? 0)
-                const dynamicCharge = calcDeliveryCharge(v.distance, v.deliveryCharge, v.distanceBasedDelivery)
+                const rawCharge = calcDeliveryCharge(v.distance, v.deliveryCharge, v.distanceBasedDelivery)
+                const dynamicCharge = freeDeliveryToday ? 0 : rawCharge
                 const openIdx = openVendors.findIndex(ov => ov.id === v.id)
                 const rankEmoji = openIdx === 0 ? '🥇' : openIdx === 1 ? '🥈' : openIdx === 2 ? '🥉' : null
                 return (
@@ -1625,7 +1780,10 @@ export default function UserApp() {
                           <span>📍</span>
                           <span>{v.distance < 1 ? `${Math.round(v.distance*1000)}m` : `${v.distance.toFixed(1)}km`}</span>
                           <span style={{ opacity:0.6 }}>·</span>
-                          <span style={{ color:'#fbbf24' }}>{dynamicCharge===0?'Free delivery':'₹'+dynamicCharge+' delivery'}</span>
+                          {freeDeliveryToday && rawCharge > 0
+                            ? <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ color:'rgba(255,255,255,0.5)', textDecoration:'line-through' }}>₹{rawCharge}</span><span style={{ color:'#fbbf24', fontWeight:700 }}>FREE 🎉</span></span>
+                            : <span style={{ color:'#fbbf24' }}>{dynamicCharge===0?'Free delivery':'₹'+dynamicCharge+' delivery'}</span>
+                          }
                         </div>
                       )}
                     </div>
@@ -1637,7 +1795,13 @@ export default function UserApp() {
                       <div style={{ fontSize:12, color:'#9ca3af', marginTop:3 }}>{v.category}</div>
                       <div style={{ display:'flex', flexWrap:'wrap', gap:10, marginTop:8, alignItems:'center' }}>
                         <span style={{ fontSize:12, color:'#9ca3af' }}>🕐 Your delivery is coming shortly</span>
-                        <span style={{ fontSize:12, fontWeight:700, background:dynamicCharge===0?'#dcfce7':'#fef3c7', color:dynamicCharge===0?'#16a34a':'#92400e', borderRadius:6, padding:'2px 8px' }}>{dynamicCharge===0 ? '🎉 Free delivery' : `🚚 ₹${dynamicCharge} delivery`}</span>
+                        {freeDeliveryToday ? (
+                          <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px', display:'flex', alignItems:'center', gap:5 }}>
+                            🚚 {rawCharge > 0 && <span style={{ textDecoration:'line-through', opacity:0.55 }}>₹{rawCharge}</span>} 🎉 Free today
+                          </span>
+                        ) : (
+                          <span style={{ fontSize:12, fontWeight:700, background:dynamicCharge===0?'#dcfce7':'#fef3c7', color:dynamicCharge===0?'#16a34a':'#92400e', borderRadius:6, padding:'2px 8px' }}>{dynamicCharge===0 ? '🎉 Free delivery' : `🚚 ₹${dynamicCharge} delivery`}</span>
+                        )}
                         {v.distanceBasedDelivery && v.distance !== null && <span style={{ fontSize:10, fontWeight:600, background:'#eff6ff', color:'#3b82f6', borderRadius:6, padding:'2px 7px' }}>📍 Distance-based</span>}
                         {vMinOrder > 0 && <span style={{ fontSize:11, fontWeight:700, background:'#dbeafe', color:'#1e40af', borderRadius:6, padding:'2px 7px', display:'inline-flex', alignItems:'center', gap:3 }}>🛒 Min. ₹{vMinOrder}</span>}
                       </div>
@@ -1700,7 +1864,8 @@ export default function UserApp() {
           const vendorDist = (userLat && userLng && selectedVendor.location?.lat && selectedVendor.location?.lng)
             ? getDistance(userLat, userLng, selectedVendor.location.lat, selectedVendor.location.lng)
             : null
-          const dynamicCharge = calcDeliveryCharge(vendorDist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
+          const rawVendorCharge = calcDeliveryCharge(vendorDist, selectedVendor.deliveryCharge, selectedVendor.distanceBasedDelivery)
+          const dynamicCharge = freeDeliveryToday ? 0 : rawVendorCharge
 
           const availableItemsAll = menuItems.filter(i => i.available !== false)
           const menuMaxPrice = availableItemsAll.reduce((max, item) => {
@@ -1745,15 +1910,36 @@ export default function UserApp() {
                   <div style={{ fontSize:16, fontWeight:700 }}>{selectedVendor.storeName}</div>
                   <div style={{ fontSize:11, opacity:0.9 }}>{selectedVendor.category} · ⭐ {selectedVendor.rating||4.5}</div>
                 </div>
+                {freeDeliveryToday && (
+                  <div style={{ position:'absolute', top:12, right:12, background:'linear-gradient(135deg,#FF9933,#E24B4A)', color:'#fff', fontSize:10, fontWeight:800, padding:'5px 11px', borderRadius:20, display:'flex', alignItems:'center', gap:4, boxShadow:'0 3px 10px rgba(0,0,0,0.25)' }}>
+                    🚩 FREE DELIVERY
+                  </div>
+                )}
               </div>
 
               <div style={{ padding:'10px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
                 <span style={{ fontSize:12, color:'#6b7280' }}>🕐 Your delivery is coming shortly</span>
-                <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px' }}>🚚 {dynamicCharge === 0 ? 'Free delivery 🎉' : `₹${dynamicCharge} delivery`}</span>
+                {freeDeliveryToday ? (
+                  <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px', display:'flex', alignItems:'center', gap:5 }}>
+                    🚚 {rawVendorCharge > 0 && <span style={{ textDecoration:'line-through', opacity:0.55 }}>₹{rawVendorCharge}</span>} 🎉 Free today
+                  </span>
+                ) : (
+                  <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px' }}>🚚 {dynamicCharge === 0 ? 'Free delivery 🎉' : `₹${dynamicCharge} delivery`}</span>
+                )}
                 {selectedVendor.distanceBasedDelivery && vendorDist !== null && <span style={{ fontSize:10, fontWeight:600, background:'#eff6ff', color:'#3b82f6', borderRadius:6, padding:'2px 7px' }}>📍 Distance-based</span>}
                 {vendorDist !== null && <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>📍 {vendorDist < 1 ? `${vendorDist*1000|0}m away` : `${vendorDist.toFixed(1)}km away`}</span>}
                 {Number(selectedVendor.minOrderAmount) > 0 && <span style={{ fontSize:11, fontWeight:700, background:'#dbeafe', color:'#1e40af', borderRadius:6, padding:'3px 8px', display:'inline-flex', alignItems:'center', gap:3 }}>🛒 Min. order ₹{selectedVendor.minOrderAmount}</span>}
               </div>
+
+              {freeDeliveryToday && (
+                <div style={{ margin:'10px 16px 0', background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:'#fbbf24' }}>
+                  <div style={{ fontSize:20, flexShrink:0 }}>🚩</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>{t('Ashadi Ekadashi Offer: Free Delivery','आषाढी एकादशी ऑफर: मोफत डिलिव्हरी')}</div>
+                    <div style={{ fontSize:10, color:'#a16207', marginTop:1 }}>{t('Delivery charge is waived on this order today only','आजच्या ऑर्डरवर डिलिव्हरी चार्ज माफ')}</div>
+                  </div>
+                </div>
+              )}
 
               {selectedVendor.packingCharges > 0 && (
                 <div style={{ margin:'10px 16px 0', background:'linear-gradient(135deg,#fffbeb,#fef3c7)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:'#fbbf24', boxShadow:'0 2px 8px rgba(251,191,36,0.2)' }}>
@@ -2044,9 +2230,13 @@ export default function UserApp() {
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:11, color:'#9ca3af', marginBottom:3, fontWeight:500 }}>DELIVERY CHARGE</div>
                     <div style={{ fontSize:13, color:'#1f2937', fontWeight:500 }}>
-                      {selectedVendor.distanceBasedDelivery
-                        ? `Distance-based · You pay ₹${dynamicCharge}${vendorDist !== null ? ` for ${vendorDist.toFixed(1)}km` : ''}`
-                        : dynamicCharge === 0 ? 'Free delivery for all orders! 🎉' : `Fixed ₹${dynamicCharge} for all orders`
+                      {freeDeliveryToday
+                        ? (rawVendorCharge > 0
+                            ? `🎉 Free today (Ashadi Ekadashi) — usually ₹${rawVendorCharge}`
+                            : 'Free delivery for all orders! 🎉')
+                        : selectedVendor.distanceBasedDelivery
+                          ? `Distance-based · You pay ₹${dynamicCharge}${vendorDist !== null ? ` for ${vendorDist.toFixed(1)}km` : ''}`
+                          : dynamicCharge === 0 ? 'Free delivery for all orders! 🎉' : `Fixed ₹${dynamicCharge} for all orders`
                       }
                     </div>
                   </div>
@@ -2150,15 +2340,25 @@ export default function UserApp() {
           <div style={{ padding:16, background:'#fff', minHeight:'100%' }}>
             <div style={{ fontSize:15, fontWeight:600, marginBottom:12 }}>{t('Your Cart','तुमची कार्ट')} {cartVendor && `· ${cartVendor.storeName}`}</div>
             {cartVendor && cartVendor.distanceKm !== null && cartVendor.distanceKm !== undefined && (
-              <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:10, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
-                <span style={{ fontSize:16 }}>🚚</span>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>{cartVendor.distanceBasedDelivery ? 'Distance-based delivery charge' : 'Delivery charge'}</div>
-                  <div style={{ fontSize:11, color:'#a16207' }}>
-                    {cartVendor.distanceBasedDelivery ? `${cartVendor.distanceKm.toFixed(1)}km away · ₹${deliveryFee} delivery charge` : deliveryFee === 0 ? 'Free delivery for all orders 🎉' : `Fixed ₹${deliveryFee} delivery charge`}
+              deliveryFeeWaived ? (
+                <div style={{ background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:'#fbbf24' }}>
+                  <span style={{ fontSize:16 }}>🚩</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>{t('Free delivery — Ashadi Ekadashi offer!','मोफत डिलिव्हरी — आषाढी एकादशी ऑफर!')}</div>
+                    <div style={{ fontSize:11, color:'#a16207' }}>{t(`Usually ₹${cartVendor.rawDeliveryCharge}, ₹0 for you today`,`साधारण ₹${cartVendor.rawDeliveryCharge}, आज तुमच्यासाठी ₹0`)}</div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:10, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
+                  <span style={{ fontSize:16 }}>🚚</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>{cartVendor.distanceBasedDelivery ? 'Distance-based delivery charge' : 'Delivery charge'}</div>
+                    <div style={{ fontSize:11, color:'#a16207' }}>
+                      {cartVendor.distanceBasedDelivery ? `${cartVendor.distanceKm.toFixed(1)}km away · ₹${deliveryFee} delivery charge` : deliveryFee === 0 ? 'Free delivery for all orders 🎉' : `Fixed ₹${deliveryFee} delivery charge`}
+                    </div>
+                  </div>
+                </div>
+              )
             )}
             {cart.length===0 && <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>Cart is empty. Browse vendors!</div>}
             {cart.map(item => (
@@ -2197,7 +2397,10 @@ export default function UserApp() {
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
                     <span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee {cartVendor?.distanceBasedDelivery && cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}</span>
-                    <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
+                    {deliveryFeeWaived
+                      ? <span style={{ fontSize:12, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:'#9ca3af' }}>₹{cartVendor.rawDeliveryCharge}</span><span style={{ color:'#16a34a', fontWeight:700 }}>FREE 🎉</span></span>
+                      : <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
+                    }
                   </div>
                   <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:600 }}>Total</span><span style={{ fontSize:14, fontWeight:600 }}>₹{cartTotal+deliveryFee}</span></div>
                 </div>
@@ -2225,10 +2428,19 @@ export default function UserApp() {
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
                     <span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee {cartVendor?.distanceBasedDelivery && cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}</span>
-                    <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
+                    {deliveryFeeWaived
+                      ? <span style={{ fontSize:12, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:'#9ca3af' }}>₹{cartVendor.rawDeliveryCharge}</span><span style={{ color:'#16a34a', fontWeight:700 }}>FREE 🎉</span></span>
+                      : <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
+                    }
                   </div>
                   <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:700 }}>Total</span><span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{cartTotal+deliveryFee}</span></div>
                 </div>
+                {deliveryFeeWaived && (
+                  <div style={{ background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#92400e', marginBottom:12, display:'flex', alignItems:'center', gap:8, borderWidth:1, borderStyle:'solid', borderColor:'#fbbf24' }}>
+                    <span style={{ fontSize:15 }}>🚩</span>
+                    <span>{t('Ashadi Ekadashi offer applied — delivery is free on this order!','आषाढी एकादशी ऑफर लागू — या ऑर्डरवर डिलिव्हरी मोफत!')}</span>
+                  </div>
+                )}
                 <div style={{ background:'#fef3c7', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#78350f', marginBottom:12 }}>💵 Payment: <strong>Cash on Delivery (COD)</strong></div>
                 <button 
                   onClick={handlePlaceOrder} 
@@ -2276,6 +2488,12 @@ export default function UserApp() {
                       </span>
                     </div>
                     <div style={{ fontSize:12, color:'#6b7280', marginBottom:8 }}>{o.items?.slice(0,2).map(i=>i.qty+'x '+i.name).join(', ')}{o.items?.length>2?` +${o.items.length-2} more`:''}</div>
+                    {o.freeDeliveryOffer && (
+                      <div style={{ display:'inline-flex', alignItems:'center', gap:5, background:'#fff7ed', borderRadius:8, padding:'4px 9px', marginBottom:8, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
+                        <span style={{ fontSize:11 }}>🚩</span>
+                        <span style={{ fontSize:10, fontWeight:700, color:'#92400e' }}>Ashadi Ekadashi — Free Delivery</span>
+                      </div>
+                    )}
                     {o.status === 'cancelled' && o.cancellationReason && (
                       <div style={{ background:'#fff5f5', borderLeft:'3px solid #dc2626', borderRadius:6, padding:'7px 10px', marginBottom:8, display:'flex', gap:7, alignItems:'flex-start' }}>
                         <span style={{ fontSize:12, flexShrink:0 }}>🚫</span>
@@ -2331,6 +2549,16 @@ export default function UserApp() {
               <div style={{ fontSize:12, opacity:0.85, marginTop:3 }}>{user?.email}</div>
               {locationName && <div style={{ fontSize:11, opacity:0.8, marginTop:4 }}>📍 {locationName}</div>}
             </div>
+
+            {freeDeliveryToday && (
+              <div style={{ background:'linear-gradient(135deg,#FF9933,#E24B4A)', borderRadius:14, padding:'14px 16px', marginBottom:16, display:'flex', alignItems:'center', gap:12, color:'#fff' }}>
+                <span style={{ fontSize:24 }}>🚩</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13, fontWeight:800 }}>{t('Ashadi Ekadashi Special','आषाढी एकादशी स्पेशल')}</div>
+                  <div style={{ fontSize:11, opacity:0.92, marginTop:1 }}>{t('Free delivery on every order today','आज प्रत्येक ऑर्डरवर मोफत डिलिव्हरी')}</div>
+                </div>
+              </div>
+            )}
 
             {/* ══════════════════════════════════════
                 ── (App download strip removed) ──
@@ -2410,6 +2638,11 @@ export default function UserApp() {
             <div style={{ fontSize:22, fontWeight:700, marginBottom:6 }}>Order Placed!</div>
             <div style={{ fontSize:13, opacity:0.9 }}>Your food is being prepared</div>
             <div style={{ marginTop:12, background:'rgba(255,255,255,0.2)', borderRadius:20, display:'inline-block', padding:'6px 18px' }}><span style={{ fontSize:12, fontWeight:600 }}>Order #{orderSuccess.orderId}</span></div>
+            {orderSuccess.freeDeliveryOffer && (
+              <div style={{ marginTop:10, background:'rgba(255,255,255,0.2)', borderRadius:20, display:'inline-flex', alignItems:'center', gap:6, padding:'6px 16px', marginLeft:8 }}>
+                <span style={{ fontSize:13 }}>🚩</span><span style={{ fontSize:11, fontWeight:700 }}>Ashadi Ekadashi — Free Delivery</span>
+              </div>
+            )}
           </div>
           <div style={{ padding:20 }}>
             {orderSuccess.vendorPhone && (
@@ -2443,7 +2676,7 @@ export default function UserApp() {
                 { title:'2. Eligibility', body:'You must be 18 years or older, or have parental / guardian consent to use FeedoZone.' },
                 { title:'3. Location Requirement', body:'FeedoZone requires location access to show nearby restaurants and calculate delivery charges. Restaurants beyond 4km are not available for delivery.' },
                 { title:'4. Orders & Payments', body:'All orders placed are subject to restaurant availability and acceptance. Payment is currently Cash on Delivery (COD) only.' },
-                { title:'5. Delivery Charges', body:'Delivery charges are set by each restaurant — either a fixed fee or distance-based (₹10/1km, ₹20/2km, ₹30/3km, ₹40/4km).' },
+                { title:'5. Delivery Charges', body:'Delivery charges are set by each restaurant — either a fixed fee or distance-based (₹10/1km, ₹20/2km, ₹30/3km, ₹40/4km). FeedoZone may run limited-time promotions (e.g. festival-based free-delivery days) that temporarily waive this charge.' },
                 { title:'6. Cancellation Policy', body:'Users may cancel orders within 5 minutes of placing them. Cancellations after 5 minutes are not permitted through the app.' },
                 { title:'7. User Responsibilities', body:'You are responsible for providing accurate delivery details, including address and contact number.' },
                 { title:'8. Prohibited Conduct', body:'Users must not misuse the platform, place fraudulent orders, or abuse vendors or delivery personnel.' },
@@ -2502,7 +2735,7 @@ export default function UserApp() {
       {/* Cart bar */}
       {cart.length > 0 && (tab==='home' || tab==='vendor-menu') && (
         <div onClick={() => setTab('cart')} style={{ background:'#E24B4A', color:'#fff', padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', flexShrink:0 }}>
-          <span style={{ fontSize:13 }}>{cartCount} item{cartCount>1?'s':''} · ₹{cartTotal}</span>
+          <span style={{ fontSize:13 }}>{cartCount} item{cartCount>1?'s':''} · ₹{cartTotal}{deliveryFeeWaived ? ' · 🎉 Free delivery' : ''}</span>
           <strong style={{ fontSize:14 }}>View Cart →</strong>
         </div>
       )}
@@ -2540,7 +2773,7 @@ export default function UserApp() {
       )}
 
       {showMap && userLat && userLng && (
-        <MapModal userLat={userLat} userLng={userLng} vendors={vendors} onClose={() => setShowMap(false)} />
+        <MapModal userLat={userLat} userLng={userLng} vendors={vendors} onClose={() => setShowMap(false)} freeDeliveryToday={freeDeliveryToday} />
       )}
 
       {/* ── PRICE FILTER BOTTOM SHEET ── */}
