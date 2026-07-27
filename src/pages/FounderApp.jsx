@@ -841,6 +841,12 @@ export default function FounderApp() {
   // ── Subscription bill viewer ──────────────────────────────────────────
   const [viewingBill, setViewingBill] = useState(null) // bill object to show in modal
 
+  // ── REAL Subscription Bills (live from Firestore) ─────────────────────
+  const [subscriptionBills, setSubscriptionBills] = useState([])
+  const [cashflowMonth, setCashflowMonth] = useState(() => {
+    const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`
+  })
+
   // ── MANAGER MANAGEMENT ───────────────────────────────────────────────
   const [managers, setManagers] = useState([])
   const [managerForm, setManagerForm] = useState({
@@ -905,6 +911,15 @@ export default function FounderApp() {
       unsubPush = onSnapshot(pq, snap => setPushHistory(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
     } catch (e) {}
 
+    // ── REAL Subscription Bills listener ──────────────────────────────
+    let unsubSubBills
+    try {
+      const sbq = query(collection(db, 'subscriptionBills'), orderBy('createdAt', 'desc'))
+      unsubSubBills = onSnapshot(sbq, snap =>
+        setSubscriptionBills(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      )
+    } catch (e) { console.error('subscriptionBills listener failed:', e) }
+
     return () => {
       u1()
       u2()
@@ -913,6 +928,7 @@ export default function FounderApp() {
       unsubTickets()
       if (unsubBroadcast) unsubBroadcast()
       if (unsubPush) unsubPush()
+      if (unsubSubBills) unsubSubBills()
       unsubDeleteReqs()
     }
   }, [])
@@ -997,7 +1013,14 @@ export default function FounderApp() {
     return d.getDate() === today.getDate() && d.getMonth() === today.getMonth()
   })
   const todayRevenue = todayOrders.filter(o => o.status === 'delivered').reduce((s, o) => s + (o.total || 0), 0)
-  const subRevenue = gVendors.filter(v => v.subscriptionStatus === 'active').reduce((s, v) => s + (v.subscriptionFee || 0), 0)
+  // subRevenue = actual subscription payments THIS calendar month (from subscriptionBills collection)
+  const nowM = new Date()
+  const subRevenue = subscriptionBills
+    .filter(b => {
+      const d = b.createdAt?.toDate ? b.createdAt.toDate() : (b.createdAt ? new Date(b.createdAt) : null)
+      return d && d.getMonth() === nowM.getMonth() && d.getFullYear() === nowM.getFullYear()
+    })
+    .reduce((s, b) => s + (b.fee || 0), 0)
 
   const sortedVendors = [...gVendors].sort((a, b) => {
     const sa = a.sortOrder ?? 9999
@@ -4048,61 +4071,167 @@ export default function FounderApp() {
           const graceVendors = sortedVendors.filter(v => { const d = getVendorSubDaysLeft(v); return d !== null && d <= 2 && d > 0 })
           const currentGlobalFee = sortedVendors.find(v => v.subscriptionFee)?.subscriptionFee || null
 
+          // ── CASHFLOW HELPERS ──
+          const getBillDate = (b) => {
+            if (b.createdAt?.toDate) return b.createdAt.toDate()
+            if (b.activatedAt) return new Date(b.activatedAt)
+            return null
+          }
+          const monthlyMap = {}
+          subscriptionBills.forEach(b => {
+            const d = getBillDate(b); if (!d) return
+            const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+            if (!monthlyMap[key]) monthlyMap[key] = { key, year: d.getFullYear(), month: d.getMonth()+1, total: 0, count: 0 }
+            monthlyMap[key].total += b.fee || 0
+            monthlyMap[key].count += 1
+          })
+          const monthlyList = Object.values(monthlyMap).sort((a, b) => b.key.localeCompare(a.key))
+          const totalEverCollected = subscriptionBills.reduce((s, b) => s + (b.fee || 0), 0)
+          const totalBillsCount = subscriptionBills.length
+          const thisMonthKey = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}` })()
+          const lastMonthKey = (() => { const n = new Date(); n.setMonth(n.getMonth()-1); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}` })()
+          const thisMonthData = monthlyMap[thisMonthKey] || { total: 0, count: 0 }
+          const lastMonthData = monthlyMap[lastMonthKey] || { total: 0, count: 0 }
+          const growthPct = lastMonthData.total > 0 ? Math.round(((thisMonthData.total - lastMonthData.total) / lastMonthData.total) * 100) : null
+          const selectedMonthBills = subscriptionBills.filter(b => { const d = getBillDate(b); if (!d) return false; return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` === cashflowMonth })
+          const selectedMonthTotal = selectedMonthBills.reduce((s, b) => s + (b.fee || 0), 0)
+          const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+          const exportCashflowCSV = () => {
+            const headers = ['Invoice No','Store Name','Owner','Email','Phone','Category','Town','Amount (₹)','Activated Date','Due Date','Activated By']
+            const rows = subscriptionBills.map(b => {
+              const d = getBillDate(b); const due = b.dueDate ? new Date(b.dueDate) : null
+              return [b.invoiceNo||'—',b.storeName||'—',b.ownerName||'—',b.email||'—',b.phone||'—',b.category||'—',b.town||'—',b.fee||0,d?d.toLocaleDateString('en-IN'):'—',due?due.toLocaleDateString('en-IN'):'—',b.activatedBy||'—']
+            })
+            rows.push([],['TOTAL','','','','','','',totalEverCollected,'','',''])
+            const csv = [headers,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n')
+            const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'})
+            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='FeedoZone_CashFlow_All.csv'; a.click(); URL.revokeObjectURL(url)
+            toast.success('✅ Cash flow exported!')
+          }
+
           return (
             <>
-              {/* Header */}
-              <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 14, padding: 16, marginBottom: 16, position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', right: -10, top: -10, fontSize: 60, opacity: 0.06 }}>💳</div>
-                <div style={{ fontSize: 10, color: '#818cf8', fontWeight: 700, letterSpacing: 1.5, marginBottom: 4, textTransform: 'uppercase' }}>Founder Panel</div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: '#fff', marginBottom: 4 }}>💳 Subscription Management</div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14 }}>Set custom fees, activate vendors, track payments</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              {/* ══ CASHFLOW HEADER ══ */}
+              <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 14, padding: 16, marginBottom: 14, position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', right: -10, top: -10, fontSize: 80, opacity: 0.05 }}>�</div>
+                <div style={{ fontSize: 10, color: '#818cf8', fontWeight: 700, letterSpacing: 1.5, marginBottom: 3, textTransform: 'uppercase' }}>Founder Panel · Live Data</div>
+                <div style={{ fontSize: 19, fontWeight: 800, color: '#fff', marginBottom: 3 }}>� Cash Flow & Subscriptions</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14 }}>Real payment history · Monthly profit · All vendor subscriptions</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
                   {[
-                    { val: activeVendors.length, label: 'Active', color: '#4ade80' },
-                    { val: dueVendors.length, label: 'Due / Expired', color: '#f87171' },
-                    { val: graceVendors.length, label: 'Expiring ≤2d', color: '#fbbf24' },
+                    { val: `₹${thisMonthData.total.toLocaleString()}`, label: 'This Month', color: '#4ade80', sub: `${thisMonthData.count} payments` },
+                    { val: `₹${totalEverCollected.toLocaleString()}`, label: 'Total Collected', color: '#fbbf24', sub: `${totalBillsCount} invoices` },
+                    { val: activeVendors.length, label: 'Active Vendors', color: '#60a5fa', sub: `${dueVendors.length} due` },
                   ].map(s => (
-                    <div key={s.label} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.val}</div>
+                    <div key={s.label} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.val}</div>
                       <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2 }}>{s.label}</div>
+                      <div style={{ fontSize: 9, color: '#64748b', marginTop: 1 }}>{s.sub}</div>
                     </div>
                   ))}
                 </div>
+                {growthPct !== null && (
+                  <div style={{ marginTop: 10, background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: '7px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>vs Last Month (₹{lastMonthData.total.toLocaleString()})</span>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: growthPct >= 0 ? '#4ade80' : '#f87171' }}>{growthPct >= 0 ? '▲' : '▼'} {Math.abs(growthPct)}%</span>
+                  </div>
+                )}
               </div>
 
-              {/* ── SET SAME AMOUNT FOR ALL VENDORS ── */}
-              <div style={{ background: '#fff', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937', marginBottom: 4 }}>🌐 Set Same Amount for All Vendors</div>
-                <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 12 }}>
-                  Current global fee: <strong style={{ color: '#1f2937' }}>{currentGlobalFee ? `₹${currentGlobalFee}` : '—'}</strong>
+              {/* ══ MONTHLY BREAKDOWN ══ */}
+              {monthlyList.length > 0 && (
+                <div style={{ background: '#fff', borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937' }}>📊 Monthly Revenue</div>
+                    <button onClick={exportCashflowCSV} style={{ background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: 8, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>📥 Export CSV</button>
+                  </div>
+                  {(() => {
+                    const chartData = [...monthlyList].reverse().slice(-6)
+                    const maxVal = Math.max(...chartData.map(m => m.total), 1)
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 90, marginBottom: 10 }}>
+                        {chartData.map(m => {
+                          const isSel = m.key === cashflowMonth
+                          return (
+                            <div key={m.key} onClick={() => setCashflowMonth(m.key)} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: isSel ? '#E24B4A' : '#6b7280' }}>₹{(m.total/1000).toFixed(1)}k</div>
+                              <div style={{ width: '100%', borderRadius: '4px 4px 0 0', height: Math.max((m.total/maxVal)*60, 4), background: isSel ? 'linear-gradient(180deg,#E24B4A,#ff6b6a)' : 'linear-gradient(180deg,#dbeafe,#bfdbfe)', border: isSel ? '2px solid #E24B4A' : '1px solid #bfdbfe' }} />
+                              <div style={{ fontSize: 8, color: isSel ? '#E24B4A' : '#9ca3af', fontWeight: isSel ? 700 : 400 }}>{MONTH_NAMES[m.month-1]} '{String(m.year).slice(-2)}</div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()}
+                  <div style={{ borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: '#f3f4f6', paddingTop: 10 }}>
+                    {monthlyList.map(m => (
+                      <div key={m.key} onClick={() => setCashflowMonth(m.key)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 10px', borderRadius: 9, marginBottom: 4, cursor: 'pointer', background: m.key === cashflowMonth ? '#fff5f5' : '#f9fafb', borderWidth: 1, borderStyle: 'solid', borderColor: m.key === cashflowMonth ? '#fecaca' : '#f3f4f6' }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: m.key === cashflowMonth ? '#E24B4A' : '#1f2937' }}>{MONTH_NAMES[m.month-1]} {m.year} {m.key === thisMonthKey ? '← This month' : ''}</div>
+                          <div style={{ fontSize: 10, color: '#9ca3af' }}>{m.count} vendor{m.count!==1?'s':''} paid</div>
+                        </div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: m.key === cashflowMonth ? '#E24B4A' : '#16a34a' }}>₹{m.total.toLocaleString()}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              )}
+
+              {/* ══ SELECTED MONTH PAYMENTS ══ */}
+              <div style={{ background: '#fff', borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937' }}>🧾 {MONTH_NAMES[(parseInt(cashflowMonth.split('-')[1])-1)]} {cashflowMonth.split('-')[0]} · Payments</div>
+                    <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 1 }}>{selectedMonthBills.length} invoices · ₹{selectedMonthTotal.toLocaleString()} collected</div>
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: '#16a34a' }}>₹{selectedMonthTotal.toLocaleString()}</div>
+                </div>
+                {selectedMonthBills.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#9ca3af', fontSize: 12 }}>No payments recorded for this month.<br/><span style={{ fontSize: 11 }}>Activate vendors below to record payments.</span></div>
+                ) : selectedMonthBills.map(b => {
+                  const d = getBillDate(b)
+                  return (
+                    <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6' }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 9, background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 16 }}>✅</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.storeName}</div>
+                        <div style={{ fontSize: 10, color: '#9ca3af' }}>{b.invoiceNo} · {d ? d.toLocaleDateString('en-IN', {day:'numeric',month:'short',year:'2-digit'}) : '—'}</div>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#16a34a' }}>₹{(b.fee||0).toLocaleString()}</div>
+                        <button onClick={() => setViewingBill(b)} style={{ fontSize: 9, color: '#E24B4A', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0, fontFamily: 'Poppins' }}>📄 View Bill</button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* ══ SET GLOBAL FEE ══ */}
+              <div style={{ background: '#fff', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937', marginBottom: 4 }}>🌐 Set Same Fee for All Vendors</div>
+                <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 12 }}>Current global fee: <strong style={{ color: '#1f2937' }}>{sortedVendors.find(v => v.subscriptionFee)?.subscriptionFee ? `₹${sortedVendors.find(v => v.subscriptionFee).subscriptionFee}` : '—'}</strong></div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <div style={{ position: 'relative', flex: 1 }}>
                     <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 700, color: '#E24B4A' }}>₹</span>
-                    <input
-                      type="number"
-                      placeholder="e.g. 149"
-                      value={globalSubFee}
-                      onChange={e => setGlobalSubFee(e.target.value)}
-                      style={{ width: '100%', padding: '11px 12px 11px 28px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 9, fontSize: 14, fontFamily: 'Poppins', outline: 'none', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
-                    />
+                    <input type="number" placeholder="e.g. 149" value={globalSubFee} onChange={e => setGlobalSubFee(e.target.value)} style={{ width: '100%', padding: '11px 12px 11px 28px', borderWidth: 1, borderStyle: 'solid', borderColor: '#e5e7eb', borderRadius: 9, fontSize: 14, fontFamily: 'Poppins', outline: 'none', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }} />
                   </div>
-                  <button
-                    onClick={handleSaveGlobalSubFee}
-                    disabled={savingSubFee}
-                    style={{ background: savingSubFee ? '#e5e7eb' : '#E24B4A', color: savingSubFee ? '#9ca3af' : '#fff', border: 'none', borderRadius: 9, padding: '11px 18px', fontSize: 13, fontWeight: 700, cursor: savingSubFee ? 'not-allowed' : 'pointer', fontFamily: 'Poppins', whiteSpace: 'nowrap' }}>
+                  <button onClick={handleSaveGlobalSubFee} disabled={savingSubFee} style={{ background: savingSubFee ? '#e5e7eb' : '#E24B4A', color: savingSubFee ? '#9ca3af' : '#fff', border: 'none', borderRadius: 9, padding: '11px 18px', fontSize: 13, fontWeight: 700, cursor: savingSubFee ? 'not-allowed' : 'pointer', fontFamily: 'Poppins', whiteSpace: 'nowrap' }}>
                     {savingSubFee ? '⏳ Saving...' : '✅ Set for All'}
                   </button>
                 </div>
-                <div style={{ marginTop: 8, fontSize: 11, color: '#9ca3af', lineHeight: 1.6 }}>
-                  This sets the same fee for all {vendors.length} vendors. Each vendor will see this amount in their payment screen.
-                </div>
               </div>
 
-              {/* ── VENDOR LIST WITH INDIVIDUAL CONTROLS ── */}
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937', marginBottom: 10 }}>
-                🏪 All Vendors · Individual Control
-              </div>
+              {/* ══ VENDOR LIST: ACTIVATE & TRACK ══ */}
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937', marginBottom: 8 }}>🏪 All Vendors · Activate & Track</div>
+              {dueVendors.length > 0 && (
+                <div style={{ background: '#fff5f5', borderRadius: 10, padding: '8px 10px', marginBottom: 10, borderWidth: 1, borderStyle: 'solid', borderColor: '#fecaca' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', marginBottom: 4 }}>🔴 {dueVendors.length} Due / Not Active</div>
+                  {dueVendors.map(v => (
+                    <div key={v.id} style={{ fontSize: 10, color: '#991b1b', marginBottom: 2 }}>• {v.storeName} {v.subscriptionDueDate ? `(expired ${v.subscriptionDueDate?.toDate?.()?.toLocaleDateString('en-IN')||''})` : '(never activated)'}</div>
+                  ))}
+                </div>
+              )}
 
               {sortedVendors.map(v => {
                 const daysLeft = getVendorSubDaysLeft(v)
@@ -4110,14 +4239,12 @@ export default function FounderApp() {
                 const isGrace = isActive && daysLeft <= 2
                 const isDue = !isActive
                 const dueDate = v.subscriptionDueDate?.toDate?.()
+                const vendorBills = subscriptionBills.filter(b => b.vendorId === v.id)
+                const vendorTotalPaid = vendorBills.reduce((s,b) => s+(b.fee||0), 0)
+                const latestBill = vendorBills[0]
 
                 return (
-                  <div key={v.id} style={{
-                    background: '#fff', borderRadius: 12, marginBottom: 12, overflow: 'hidden',
-                    borderWidth: 1.5, borderStyle: 'solid',
-                    borderColor: isDue ? '#fecaca' : isGrace ? '#fde68a' : '#bbf7d0',
-                    boxShadow: '0 1px 6px rgba(0,0,0,0.05)'
-                  }}>
+                  <div key={v.id} style={{ background: '#fff', borderRadius: 12, marginBottom: 12, overflow: 'hidden', borderWidth: 1.5, borderStyle: 'solid', borderColor: isDue ? '#fecaca' : isGrace ? '#fde68a' : '#bbf7d0', boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
                     {/* Vendor header row */}
                     <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: '#f3f4f6' }}>
                       <div style={{ width: 40, height: 40, borderRadius: 10, overflow: 'hidden', flexShrink: 0, background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -4125,44 +4252,36 @@ export default function FounderApp() {
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.storeName}</div>
-                        <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 1 }}>{v.email} · {v.category}</div>
+                        <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 1 }}>{v.email} · {v.category}{v.town ? ` · 📍${v.town}` : ''}</div>
                       </div>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, flexShrink: 0,
-                        background: isDue ? '#fee2e2' : isGrace ? '#fef3c7' : '#dcfce7',
-                        color: isDue ? '#991b1b' : isGrace ? '#92400e' : '#065f46'
-                      }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, flexShrink: 0, background: isDue ? '#fee2e2' : isGrace ? '#fef3c7' : '#dcfce7', color: isDue ? '#991b1b' : isGrace ? '#92400e' : '#065f46' }}>
                         {isDue ? '🔴 DUE' : isGrace ? '⚠️ SOON' : '🟢 ACTIVE'}
                       </span>
                     </div>
 
                     <div style={{ padding: '12px 14px' }}>
-                      {/* Status row */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                        <div>
-                          <div style={{ fontSize: 11, color: '#6b7280' }}>
-                            {isActive ? `Expires: ${dueDate?.toLocaleDateString('en-IN') || '—'} · ${daysLeft}d left` : dueDate ? `Expired: ${dueDate.toLocaleDateString('en-IN')}` : 'Never activated'}
-                          </div>
+                        <div style={{ fontSize: 11, color: '#6b7280' }}>
+                          {isActive ? `Expires: ${dueDate?.toLocaleDateString('en-IN') || '—'} · ${daysLeft}d left` : dueDate ? `Expired: ${dueDate.toLocaleDateString('en-IN')}` : 'Never activated'}
                         </div>
                         <div style={{ fontSize: 14, fontWeight: 800, color: '#E24B4A' }}>
                           ₹{v.subscriptionFee || '—'}<span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 400 }}>/mo</span>
                         </div>
                       </div>
 
-                      {/* Custom fee for this vendor */}
-                      <VendorSubFeeRow
-                        vendor={v}
-                        activatingVendor={activatingVendor}
-                        onActivate={handleActivateVendor}
-                        onDeactivate={handleDeactivateVendor}
-                      />
+                      {vendorBills.length > 0 && (
+                        <div style={{ background: '#f0fdf4', borderRadius: 8, padding: '7px 10px', marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: 10, color: '#166534' }}>💰 Total paid: <strong>₹{vendorTotalPaid.toLocaleString()}</strong></span>
+                          <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }}>{vendorBills.length} payment{vendorBills.length!==1?'s':''}</span>
+                        </div>
+                      )}
 
-                      {/* View last bill */}
-                      {v.lastBill && (
-                        <button
-                          onClick={() => setViewingBill(v.lastBill)}
+                      <VendorSubFeeRow vendor={v} activatingVendor={activatingVendor} onActivate={handleActivateVendor} onDeactivate={handleDeactivateVendor} />
+
+                      {(latestBill || v.lastBill) && (
+                        <button onClick={() => setViewingBill(latestBill || v.lastBill)}
                           style={{ width: '100%', marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '9px 0', background: 'linear-gradient(135deg,#eff6ff,#dbeafe)', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}>
-                          <span>📄</span> View / Download Last Bill · {v.lastBill.invoiceNo}
+                          <span>📄</span> View / Download Last Bill · {(latestBill || v.lastBill)?.invoiceNo}
                         </button>
                       )}
                     </div>

@@ -7,6 +7,9 @@ User-agent: *
 Allow: /
 Allow: /privacy-policy
 Allow: /delete-account
+Allow: /founder-profile
+Allow: /wiki
+Allow: /wiki/santosh-sangnod
 Disallow: /home
 Disallow: /vendor
 Disallow: /founder
