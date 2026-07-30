@@ -17,6 +17,8 @@ import { doc, updateDoc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useLanguage } from '../i18n/LanguageContext'
 import LanguageSwitcher from '../i18n/LanguageSwitcher'
+import OfferManagement from '../components/OfferManagement'
+import VendorRevenue from '../components/VendorRevenue'
 
 const STATUS_NEXT  = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
 const STATUS_LABEL = { pending:'Accept Order', accepted:'Start Preparing', preparing:'Mark Ready', ready:'Out for Delivery', out_for_delivery:'Mark Delivered' }
@@ -1956,6 +1958,8 @@ export default function VendorApp() {
           { id:'menu',     label: tt('v.nav.menu') },
           { id:'combos',   label:`${tt('v.nav.combos')}${combos.length>0?` (${combos.length})`:''}` },
           { id:'earnings', label: tt('v.nav.earnings') },
+          { id:'revenue',  label: '💰 Revenue' },
+          { id:'offers',   label: '🏷️ Offers' },
           { id:'settings', label: tt('v.nav.settings') }
         ].map(t2 => (
           <button key={t2.id} onClick={() => setTab(t2.id)} style={{ flexShrink:0, padding:'11px 16px', fontSize:12, fontWeight:500, color: tab===t2.id?'#E24B4A':'#888', borderBottomWidth:2, borderBottomStyle:'solid', borderBottomColor: tab===t2.id?'#E24B4A':'transparent', borderTop:'none', borderLeft:'none', borderRight:'none', background:'transparent', cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>{t2.label}</button>
@@ -2156,7 +2160,7 @@ export default function VendorApp() {
                             onClick={async () => {
                               const before = selectedVendorOrder.status
                               const next = STATUS_NEXT[before]
-                              await handleStatus(selectedVendorOrder.id, before, { userUid: selectedVendorOrder.userUid, vendorName: userData?.storeName||'' })
+                              await handleStatus(selectedVendorOrder.id, before, { userUid: selectedVendorOrder.userUid, vendorName: userData?.storeName||'', vendorUid: user?.uid, vendorId: user?.uid, total: selectedVendorOrder.total })
                               // Only roll the local detail-card status forward if the
                               // Firestore update actually advanced. The orders listener
                               // is the source of truth, but we mirror it here so the
@@ -2283,7 +2287,7 @@ export default function VendorApp() {
                   <div style={{ display:'flex', gap:8, marginTop:10 }} onClick={e => e.stopPropagation()}>
                     {order.status === 'pending' && <button onClick={() => handleReject(order)} style={{ background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>Reject</button>}
                     {CANCELLABLE_STATUSES.includes(order.status) && <button onClick={() => openCancelModal(order)} style={{ background:'#fff5f5', color:'#dc2626', borderWidth:1, borderStyle:'solid', borderColor:'#fca5a5', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>🚫 Cancel</button>}
-                    {STATUS_NEXT[order.status] && <button onClick={() => handleStatus(order.id, order.status, { userUid:order.userUid, vendorName:userData?.storeName||'' })} style={{ flex:1, background:order.status==='pending'?'#E24B4A':'#1a1a1a', color:'#fff', border:'none', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>{STATUS_LABEL[order.status]}</button>}
+                    {STATUS_NEXT[order.status] && <button onClick={() => handleStatus(order.id, order.status, { userUid:order.userUid, vendorName:userData?.storeName||'', vendorUid: user?.uid, vendorId: user?.uid, total: order.total })} style={{ flex:1, background:order.status==='pending'?'#E24B4A':'#1a1a1a', color:'#fff', border:'none', padding:'8px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>{STATUS_LABEL[order.status]}</button>}
                   </div>
                 )}
                 {order.status === 'cancelled' && order.cancellationReason && <div style={{ marginTop:8, background:'#fff5f5', borderRadius:8, padding:'6px 10px', fontSize:11, color:'#991b1b' }}>🚫 {order.cancellationReason}</div>}
@@ -2660,6 +2664,16 @@ export default function VendorApp() {
               {orders.filter(o=>o.status==='delivered').length===0 && <div style={{ fontSize:12, color:'#9ca3af', textAlign:'center', padding:16 }}>No delivered orders yet</div>}
             </div>
           </>
+        )}
+
+        {/* ── REVENUE TAB ── */}
+        {tab === 'revenue' && (
+          <VendorRevenue vendorUid={user?.uid} vendorData={userData} />
+        )}
+
+        {/* ── OFFERS TAB ── */}
+        {tab === 'offers' && (
+          <OfferManagement vendorUid={user?.uid} vendorName={userData?.storeName} />
         )}
 
         {/* ── SETTINGS TAB ── */}

@@ -16,6 +16,7 @@ import LiveOrderTracking from '../components/LiveOrderTracking'
 import toast from 'react-hot-toast'
 import { useLanguage } from '../i18n/LanguageContext'
 import LanguageSwitcher from '../i18n/LanguageSwitcher'
+import OffersSection from '../components/OffersSection'
 
 // ─── Delivery charge: vendor fixed OR distance-based ─────────────────────────
 function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
@@ -847,6 +848,12 @@ export default function UserApp() {
   const [vendorCombos, setVendorCombos] = useState([])
   const [cart, setCart] = useState([])
   const [cartVendor, setCartVendor] = useState(null)
+  // ── OFFER APPLICATION ─────────────────────────────────────────────────
+  const [vendorOffers, setVendorOffers] = useState([])       // live offers for cart vendor
+  const [appliedOffer, setAppliedOffer] = useState(null)     // currently applied offer
+  const [manualCoupon, setManualCoupon] = useState('')       // coupon code input
+  const [couponError, setCouponError] = useState('')         // coupon validation message
+  // ──────────────────────────────────────────────────────────────────────
   const [orders, setOrders] = useState([])
   const [catFilter, setCatFilter] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
@@ -1067,6 +1074,31 @@ export default function UserApp() {
   }, [tab, showCheckout, showVendorInfo, showLocationPicker, orderSuccess])
 
   useEffect(() => { if (tab !== 'vendor-menu') localStorage.setItem('feedo_tab', tab) }, [tab])
+
+  // ── FETCH APPROVED OFFERS FOR CART VENDOR ────────────────────────────────────
+  useEffect(() => {
+    if (!cartVendor?.id) {
+      setVendorOffers([]); setAppliedOffer(null); setManualCoupon(''); setCouponError('')
+      return
+    }
+    const q = query(
+      collection(db, 'offers'),
+      where('vendorId', '==', cartVendor.id),
+      where('status', '==', 'approved')
+    )
+    const unsub = onSnapshot(q,
+      snap => {
+        const now = new Date()
+        const list = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(o => !o.validUntil || new Date(o.validUntil) >= now)
+        setVendorOffers(list)
+      },
+      err => { console.error('VendorOffers error:', err); setVendorOffers([]) }
+    )
+    return unsub
+  }, [cartVendor?.id])
+  // ──────────────────────────────────────────────────────────────────────────────
   useEffect(() => { return getAllVendors(setVendors) }, [])
   useEffect(() => { if (!user) return; return getUserOrders(user.uid, setOrders) }, [user])
 
@@ -1265,6 +1297,72 @@ export default function UserApp() {
   const minOrderShortfall = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
   const meetsMinOrder = minOrderShortfall === 0
 
+  // ── OFFER DISCOUNT CALCULATION ────────────────────────────────────────────────
+  // Finds the best auto-applicable offer for the current cart total.
+  // Rules:
+  //   1. Offer must be approved + not expired
+  //   2. cartTotal must be >= offer.minOrder  (e.g. 5% off requires min ₹200 → only applies if cartTotal >= 200)
+  //   3. If discount type is percentage, cap at offer.maxDiscount if set
+  //   4. Among multiple valid offers, pick the one giving the highest discount
+  const computeDiscount = (offer, subtotal) => {
+    if (!offer) return 0
+    if (offer.minOrder > 0 && subtotal < offer.minOrder) return 0
+    let disc = 0
+    if (offer.discountType === 'percentage') {
+      disc = Math.round((subtotal * offer.discountValue) / 100)
+      if (offer.maxDiscount > 0) disc = Math.min(disc, offer.maxDiscount)
+    } else {
+      disc = offer.discountValue || 0
+    }
+    return Math.max(0, Math.min(disc, subtotal)) // never negative, never > subtotal
+  }
+
+  // Auto-pick best offer (no coupon needed) among those without a coupon code
+  const autoBestOffer = (() => {
+    const now = new Date()
+    const eligible = vendorOffers.filter(o =>
+      !o.couponCode &&                                       // no coupon needed
+      o.status === 'approved' &&
+      (!o.validUntil || new Date(o.validUntil) >= now) &&
+      (!o.minOrder || cartTotal >= o.minOrder)
+    )
+    if (eligible.length === 0) return null
+    return eligible.reduce((best, o) => {
+      return computeDiscount(o, cartTotal) >= computeDiscount(best, cartTotal) ? o : best
+    })
+  })()
+
+  // The discount comes from: applied coupon offer > auto best offer
+  const activeOffer = appliedOffer || autoBestOffer
+  const discountAmount = computeDiscount(activeOffer, cartTotal)
+  const finalTotal = Math.max(0, cartTotal - discountAmount) + deliveryFee
+
+  // Coupon apply handler
+  const handleApplyCoupon = () => {
+    const code = manualCoupon.trim().toUpperCase()
+    if (!code) { setCouponError('Enter a coupon code'); return }
+    const now = new Date()
+    const matched = vendorOffers.find(o =>
+      o.couponCode?.toUpperCase() === code &&
+      o.status === 'approved' &&
+      (!o.validUntil || new Date(o.validUntil) >= now)
+    )
+    if (!matched) { setCouponError('Invalid or expired coupon code'); return }
+    if (matched.minOrder > 0 && cartTotal < matched.minOrder) {
+      setCouponError(`Add ₹${matched.minOrder - cartTotal} more to use this coupon (min ₹${matched.minOrder})`)
+      return
+    }
+    setAppliedOffer(matched)
+    setCouponError('')
+    toast.success(`🏷️ Coupon "${code}" applied!`)
+  }
+
+  const handleRemoveCoupon = () => {
+    setAppliedOffer(null); setManualCoupon(''); setCouponError('')
+    toast('Coupon removed', { icon: '✕' })
+  }
+  // ──────────────────────────────────────────────────────────────────────────────
+
   const handleCancelOrder = async (order) => {
     if (cancellingOrder) return
     setCancellingOrder(true)
@@ -1295,12 +1393,17 @@ export default function UserApp() {
         userUid: user.uid, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
         userEmail: user.email, vendorUid: cartVendor.id, vendorName: cartVendor.storeName,
         items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty, isCombo: i.isCombo||false, isVariant: i.isVariant||false })),
-        subtotal: cartTotal, deliveryFee, total: cartTotal + deliveryFee,
+        subtotal: cartTotal,
+        discountAmount: discountAmount || 0,
+        discountedSubtotal: cartTotal - (discountAmount || 0),
+        offerId: activeOffer?.id || null,
+        offerTitle: activeOffer?.title || null,
+        couponCode: activeOffer?.couponCode || null,
+        deliveryFee,
+        total: finalTotal,
         address: fullAddress, paymentMode: 'COD', billNo,
         userLat, userLng, distanceKm: cartVendor.distanceKm || null,
-        // Ashadi Ekadashi free-delivery offer flag, kept for founder-side records
         freeDeliveryOffer: deliveryFeeWaived,
-        // Pass vendor push tokens directly so placeOrder doesn't need a Firestore read
         vendorFcmToken: cartVendor.fcmToken || null,
         vendorExpoPushToken: cartVendor.expoPushToken || null,
       })
@@ -1311,13 +1414,16 @@ export default function UserApp() {
         vendorName: cartVendor.storeName,
         vendorPhone: vendorInfo.phone || vendorInfo.mobile || vendorInfo.contactPhone || '',
         vendorPhoto: vendorInfo.photo || '', items: cart.map(i => ({ ...i })),
-        total: cartTotal + deliveryFee, subtotal: cartTotal, deliveryFee,
+        total: finalTotal, subtotal: cartTotal, deliveryFee,
+        discountAmount: discountAmount || 0,
+        offerTitle: activeOffer?.title || null,
         freeDeliveryOffer: deliveryFeeWaived,
         address: fullAddress, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
         prepTime: vendorInfo.prepTime || 20,
       })
       setCart([]); setCartVendor(null); setShowCheckout(false)
       setDeliveryNote(''); setDeliveryHostel('')
+      setAppliedOffer(null); setManualCoupon(''); setCouponError('')
     } catch (err) {
       console.error(err)
       toast.error('Failed to place order. Try again.')
@@ -1685,6 +1791,11 @@ export default function UserApp() {
             ══════════════════════════════════════════ */}
             <WhatsAppCommunityBanner />
 
+            {/* ══════════════════════════════════════════
+                ── APPROVED OFFERS STRIP (Home Tab) ──
+            ══════════════════════════════════════════ */}
+            {!searchQuery.trim() && <OffersSection compact={true} />}
+
             {searchQuery.trim() && (
               <div style={{ padding:'10px 16px 0', fontSize:12, color:'#6b7280' }}>
                 {filteredVendors.length===0 ? `No results for "${searchQuery}"` : `${filteredVendors.length} result${filteredVendors.length>1?'s':''} for "${searchQuery}"`}
@@ -1940,6 +2051,11 @@ export default function UserApp() {
                   </div>
                 </div>
               )}
+
+              {/* ── VENDOR-SPECIFIC OFFERS STRIP ── */}
+              <div style={{ marginTop: 10 }}>
+                <OffersSection vendorId={selectedVendor.id} compact={true} />
+              </div>
 
               {selectedVendor.packingCharges > 0 && (
                 <div style={{ margin:'10px 16px 0', background:'linear-gradient(135deg,#fffbeb,#fef3c7)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:'#fbbf24', boxShadow:'0 2px 8px rgba(251,191,36,0.2)' }}>
@@ -2395,6 +2511,12 @@ export default function UserApp() {
                 )}
                 <div style={{ background:'#f9fafb', borderRadius:10, padding:12, margin:'12px 0' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
+                  {discountAmount > 0 && (
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                      <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>🏷️ Discount ({activeOffer?.discountType === 'percentage' ? `${activeOffer.discountValue}%` : `₹${activeOffer?.discountValue}`} off)</span>
+                      <span style={{ fontSize:12, color:'#16a34a', fontWeight:700 }}>−₹{discountAmount}</span>
+                    </div>
+                  )}
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
                     <span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee {cartVendor?.distanceBasedDelivery && cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}</span>
                     {deliveryFeeWaived
@@ -2402,11 +2524,75 @@ export default function UserApp() {
                       : <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
                     }
                   </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:600 }}>Total</span><span style={{ fontSize:14, fontWeight:600 }}>₹{cartTotal+deliveryFee}</span></div>
+                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:600 }}>Total</span><span style={{ fontSize:14, fontWeight:700, color: discountAmount > 0 ? '#16a34a' : '#1f2937' }}>₹{finalTotal}</span></div>
                 </div>
+
+                {/* ── AVAILABLE OFFERS & COUPON ── */}
+                {vendorOffers.length > 0 && (
+                  <div style={{ marginBottom:12 }}>
+                    {/* Auto-applied offer banner */}
+                    {autoBestOffer && !appliedOffer && discountAmount > 0 && (
+                      <div style={{ background:'linear-gradient(135deg,#f0fdf4,#dcfce7)', borderRadius:10, padding:'10px 12px', marginBottom:8, display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:'#86efac' }}>
+                        <span style={{ fontSize:16, flexShrink:0 }}>🏷️</span>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:'#166534' }}>Offer Applied: {autoBestOffer.title}</div>
+                          <div style={{ fontSize:10, color:'#16a34a', marginTop:1 }}>You save ₹{discountAmount}!</div>
+                        </div>
+                        <span style={{ fontSize:11, fontWeight:800, color:'#16a34a', background:'#bbf7d0', padding:'3px 8px', borderRadius:20 }}>−₹{discountAmount}</span>
+                      </div>
+                    )}
+                    {/* Applied coupon banner */}
+                    {appliedOffer && (
+                      <div style={{ background:'linear-gradient(135deg,#f0fdf4,#dcfce7)', borderRadius:10, padding:'10px 12px', marginBottom:8, display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:'#86efac' }}>
+                        <span style={{ fontSize:16, flexShrink:0 }}>✅</span>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:'#166534' }}>{appliedOffer.couponCode} · {appliedOffer.title}</div>
+                          <div style={{ fontSize:10, color:'#16a34a', marginTop:1 }}>You save ₹{discountAmount}!</div>
+                        </div>
+                        <button onClick={handleRemoveCoupon} style={{ fontSize:11, color:'#dc2626', background:'#fee2e2', border:'none', borderRadius:8, padding:'4px 8px', cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>Remove</button>
+                      </div>
+                    )}
+                    {/* Coupon code input — shown only if coupon offers exist and none applied yet */}
+                    {!appliedOffer && vendorOffers.some(o => o.couponCode) && (
+                      <div style={{ display:'flex', gap:8, marginBottom:4 }}>
+                        <input
+                          style={{ flex:1, padding:'9px 12px', border:`1.5px solid ${couponError ? '#fca5a5' : '#e5e7eb'}`, borderRadius:9, fontSize:12, fontFamily:'Poppins', outline:'none' }}
+                          placeholder="Enter coupon code"
+                          value={manualCoupon}
+                          onChange={e => { setManualCoupon(e.target.value.toUpperCase()); setCouponError('') }}
+                          onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()}
+                        />
+                        <button onClick={handleApplyCoupon} style={{ padding:'9px 14px', background:'#E24B4A', color:'#fff', border:'none', borderRadius:9, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>
+                          Apply
+                        </button>
+                      </div>
+                    )}
+                    {couponError && <div style={{ fontSize:11, color:'#dc2626', marginBottom:4, paddingLeft:4 }}>⚠️ {couponError}</div>}
+
+                    {/* List available offers */}
+                    {vendorOffers.filter(o => !o.couponCode || o.couponCode === '').slice(0,2).map(o => {
+                      const eligible = !o.minOrder || cartTotal >= o.minOrder
+                      const disc = computeDiscount(o, cartTotal)
+                      return (
+                        <div key={o.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', borderRadius:9, marginBottom:4, background: eligible ? '#f0fdf4' : '#f9fafb', borderWidth:1, borderStyle:'solid', borderColor: eligible ? '#bbf7d0' : '#e5e7eb', opacity: eligible ? 1 : 0.6 }}>
+                          <span style={{ fontSize:13 }}>🏷️</span>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:11, fontWeight:700, color: eligible ? '#166534' : '#6b7280' }}>{o.title}</div>
+                            <div style={{ fontSize:10, color:'#9ca3af' }}>
+                              {eligible ? `Saves ₹${disc}` : `Add ₹${o.minOrder - cartTotal} more to unlock`}
+                              {o.minOrder > 0 && ` · Min ₹${o.minOrder}`}
+                            </div>
+                          </div>
+                          {eligible && <span style={{ fontSize:10, fontWeight:700, color:'#16a34a', background:'#bbf7d0', padding:'2px 7px', borderRadius:20 }}>−₹{disc}</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
                 <button onClick={() => { if (!meetsMinOrder) { toast.error(`Add ₹${minOrderShortfall} more to meet the ₹${minOrder} minimum order`, { icon: '🛒', duration: 3000 }); return }; setShowCheckout(true) }}
                   style={{ width:'100%', background: meetsMinOrder ? '#E24B4A' : '#9ca3af', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor: meetsMinOrder ? 'pointer' : 'not-allowed', fontFamily:'Poppins', opacity: meetsMinOrder ? 1 : 0.75 }}>
-                  {meetsMinOrder ? `Proceed to Checkout · ₹${cartTotal+deliveryFee}` : `Add ₹${minOrderShortfall} more to checkout`}
+                  {meetsMinOrder ? `Proceed to Checkout · ₹${finalTotal}` : `Add ₹${minOrderShortfall} more to checkout`}
                 </button>
               </>
             )}
@@ -2426,6 +2612,12 @@ export default function UserApp() {
                 <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Order Note (optional)</label><textarea style={{ ...inp, minHeight:60, resize:'none', lineHeight:1.5 }} placeholder="e.g. Less spicy, extra roti..." value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} /></div>
                 <div style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:12 }}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
+                  {discountAmount > 0 && (
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
+                      <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>🏷️ {activeOffer?.title || 'Offer'}</span>
+                      <span style={{ fontSize:12, color:'#16a34a', fontWeight:700 }}>−₹{discountAmount}</span>
+                    </div>
+                  )}
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
                     <span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee {cartVendor?.distanceBasedDelivery && cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}</span>
                     {deliveryFeeWaived
@@ -2433,12 +2625,30 @@ export default function UserApp() {
                       : <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
                     }
                   </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:700 }}>Total</span><span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{cartTotal+deliveryFee}</span></div>
+                  {discountAmount > 0 && (
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5, paddingBottom:5, borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#e5e7eb' }}>
+                      <span style={{ fontSize:11, color:'#16a34a', fontWeight:600 }}>You save</span>
+                      <span style={{ fontSize:11, color:'#16a34a', fontWeight:700 }}>₹{discountAmount}</span>
+                    </div>
+                  )}
+                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth: discountAmount > 0 ? 0 : 1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop: discountAmount > 0 ? 4 : 8 }}>
+                    <span style={{ fontSize:14, fontWeight:700 }}>Total</span>
+                    <span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{finalTotal}</span>
+                  </div>
                 </div>
                 {deliveryFeeWaived && (
                   <div style={{ background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#92400e', marginBottom:12, display:'flex', alignItems:'center', gap:8, borderWidth:1, borderStyle:'solid', borderColor:'#fbbf24' }}>
                     <span style={{ fontSize:15 }}>🚩</span>
                     <span>{t('Ashadi Ekadashi offer applied — delivery is free on this order!','आषाढी एकादशी ऑफर लागू — या ऑर्डरवर डिलिव्हरी मोफत!')}</span>
+                  </div>
+                )}
+                {discountAmount > 0 && (
+                  <div style={{ background:'linear-gradient(135deg,#f0fdf4,#dcfce7)', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#166534', marginBottom:12, display:'flex', alignItems:'center', gap:8, borderWidth:1.5, borderStyle:'solid', borderColor:'#86efac' }}>
+                    <span style={{ fontSize:16 }}>🏷️</span>
+                    <div>
+                      <div style={{ fontWeight:700 }}>{activeOffer?.title} applied!</div>
+                      <div style={{ fontSize:10, marginTop:1, color:'#16a34a' }}>₹{discountAmount} discount has been applied to your order</div>
+                    </div>
                   </div>
                 )}
                 <div style={{ background:'#fef3c7', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#78350f', marginBottom:12 }}>💵 Payment: <strong>Cash on Delivery (COD)</strong></div>
@@ -2460,7 +2670,7 @@ export default function UserApp() {
                     opacity: placingOrder ? 0.8 : 1
                   }}
                 >
-                  {placingOrder ? '⏳ Placing Order...' : `🎉 Place Order · ₹${cartTotal+deliveryFee}`}
+                  {placingOrder ? '⏳ Placing Order...' : `🎉 Place Order · ₹${finalTotal}`}
                 </button>
                 <button onClick={() => setShowCheckout(false)} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:11, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>← Back to Cart</button>
               </div>

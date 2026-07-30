@@ -187,5 +187,45 @@ service cloud.firestore {
       allow update: if isFounder();
       allow delete: if isFounder();
     }
+
+    // ── ORDER SLABS (platform fee tiers) ──────────────────────────────────
+    // All authenticated users can read slabs (needed for fee preview).
+    // Only founder can create/update/delete slabs.
+    match /orderSlabs/{slabId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if isFounder();
+    }
+
+    // ── OFFERS ────────────────────────────────────────────────────────────
+    // Vendors create their own offers; founder approves/rejects/deletes.
+    // All authenticated users can read approved offers (customer app).
+    match /offers/{offerId} {
+      // Any authenticated user can read (OffersSection filters by status client-side)
+      allow read: if request.auth != null;
+
+      // Vendor can create offers for their own store
+      allow create: if request.auth != null && isVendor() &&
+        request.resource.data.vendorId == request.auth.uid;
+
+      // Vendor can update/delete their own offer; founder can update/delete any
+      allow update: if request.auth != null && (
+        (isVendor() && resource.data.vendorId == request.auth.uid) ||
+        isFounder()
+      );
+      allow delete: if request.auth != null && (
+        (isVendor() && resource.data.vendorId == request.auth.uid) ||
+        isFounder()
+      );
+    }
+
+    // ── PLATFORM REVENUE LOG ──────────────────────────────────────────────
+    // Written automatically on order delivery (via services.js).
+    // Only founder can read the revenue log.
+    match /platformRevenue/{revId} {
+      allow read: if isFounder();
+      // Any authenticated user can create (written server-side on delivery)
+      allow create: if request.auth != null;
+      allow update, delete: if isFounder();
+    }
   }
 }

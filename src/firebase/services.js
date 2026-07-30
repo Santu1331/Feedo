@@ -467,6 +467,21 @@ export const getAllOrders = (callback) =>
     err => { console.error('All orders error:', err.code); callback([]) }
   )
 
+// ── SLAB FEE CALCULATION ──────────────────────────────────────────────────────
+// Reads slabs from Firestore and calculates the platform fee for a given total.
+const calculateSlabFee = async (orderTotal) => {
+  try {
+    const snap = await getDocs(collection(db, 'orderSlabs'))
+    const slabs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const enabled = slabs.filter(s => s.enabled !== false).sort((a, b) => a.minOrder - b.minOrder)
+    for (const slab of enabled) {
+      const maxOk = slab.maxOrder === null || slab.maxOrder === undefined || orderTotal <= slab.maxOrder
+      if (orderTotal >= slab.minOrder && maxOk) return slab.platformFee
+    }
+    return 0
+  } catch { return 0 }
+}
+
 export const updateOrderStatus = async (orderId, status, orderData = {}) => {
   // Build the update payload — always update status + timestamp
   const updatePayload = { status, updatedAt: serverTimestamp() }
@@ -478,6 +493,32 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
     if (orderData.cancelledBy)        updatePayload.cancelledBy = orderData.cancelledBy
     if (orderData.rejectionType)      updatePayload.rejectionType = orderData.rejectionType
     updatePayload.cancelledAt = serverTimestamp()
+  }
+
+  // ── AUTO PLATFORM FEE ON DELIVERY ────────────────────────────────────────
+  if (status === 'delivered' && orderData.total) {
+    try {
+      const platformFee = await calculateSlabFee(Number(orderData.total))
+      const restaurantEarnings = Number(orderData.total) - platformFee
+      updatePayload.platformFee = platformFee
+      updatePayload.restaurantEarnings = restaurantEarnings
+      updatePayload.feedozoneEarnings = platformFee
+      updatePayload.deliveredAt = serverTimestamp()
+      // Also write to platformRevenue collection for founder dashboard
+      addDoc(collection(db, 'platformRevenue'), {
+        orderId,
+        vendorId: orderData.vendorUid || orderData.vendorId || '',
+        vendorName: orderData.vendorName || '',
+        orderValue: Number(orderData.total),
+        platformFee,
+        restaurantEarnings,
+        feedozoneEarnings: platformFee,
+        date: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      }).catch(e => console.error('platformRevenue write error:', e))
+    } catch (e) {
+      console.error('Platform fee calc failed:', e)
+    }
   }
 
   await updateDoc(doc(db, 'orders', orderId), updatePayload)

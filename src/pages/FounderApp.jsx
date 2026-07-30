@@ -14,6 +14,9 @@ import { useOrderAlert } from '../hooks/useOrderAlert'
 import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
 import FounderBill from '../components/FounderBill'
 import Pagination from '../components/Pagination'
+import SlabSettings from '../components/SlabSettings'
+import FounderRevenue from '../components/FounderRevenue'
+import OfferApproval from '../components/OfferApproval'
 
 const PUSH_URL = '/api/send-push'
 
@@ -2062,6 +2065,9 @@ export default function FounderApp() {
               { id: 'broadcast',  icon: '📣', label: 'Broadcast',   count: users.length },
               { id: 'support',    icon: '💬', label: 'Support',     count: gTickets.filter(t => t.status === 'open').length, alert: true },
               { id: 'analytics',  icon: '📈', label: 'Analytics' },
+              { id: 'revenue',    icon: '💎', label: 'Revenue',     count: undefined },
+              { id: 'slabs',      icon: '📊', label: 'Slab Settings' },
+              { id: 'offers',     icon: '🏷️', label: 'Offers', count: vendors.length > 0 ? undefined : undefined },
             ].map(item => {
               const active = tab === item.id
               return (
@@ -2157,7 +2163,7 @@ export default function FounderApp() {
             <div>
               <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Founder Dashboard</div>
               <div style={{ fontSize: 18, fontWeight: 800, color: '#1f2937', marginTop: 2, textTransform: 'capitalize' }}>
-                {tab === 'addvendor' ? 'Add Vendor' : tab === 'userdb' ? 'User Database' : tab}
+                {tab === 'addvendor' ? 'Add Vendor' : tab === 'userdb' ? 'User Database' : tab === 'slabs' ? 'Slab Settings' : tab === 'revenue' ? 'Platform Revenue' : tab === 'offers' ? 'Offer Approval' : tab}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -4291,6 +4297,21 @@ export default function FounderApp() {
             </>
           )
         })()}
+
+        {/* ════════════════ TAB: REVENUE DASHBOARD ════════════════ */}
+        {tab === 'revenue' && (
+          <FounderRevenue vendors={vendors} orders={orders} subscriptionBills={subscriptionBills} />
+        )}
+
+        {/* ════════════════ TAB: SLAB SETTINGS ════════════════ */}
+        {tab === 'slabs' && (
+          <SlabSettings />
+        )}
+
+        {/* ════════════════ TAB: OFFER APPROVAL ════════════════ */}
+        {tab === 'offers' && (
+          <OfferApproval />
+        )}
 
       </div>
       </div>
