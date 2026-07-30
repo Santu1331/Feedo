@@ -63,11 +63,57 @@ function isFreeDeliveryOfferActive() {
 }
 
 const S = {
-  shell: { maxWidth:430, margin:'0 auto', background:'#f7f7f7', minHeight:'100vh', display:'flex', flexDirection:'column', fontFamily:'Poppins,sans-serif' },
-  redHdr: { background:'#E24B4A', color:'#fff', padding:'16px', flexShrink:0 },
-  pageContent: { flex:1, overflowY:'auto', paddingBottom:60 },
-  bottomNav: { display:'flex', borderTop:'1px solid #e5e7eb', background:'#fff', flexShrink:0, position:'sticky', bottom:0, zIndex:100 },
-  bnItem: () => ({ flex:1, padding:'10px 0', display:'flex', flexDirection:'column', alignItems:'center', gap:3, cursor:'pointer', border:'none', background:'transparent', fontFamily:'Poppins,sans-serif' }),
+  shell: {
+    maxWidth: 430, margin: '0 auto', background: '#F8F8F8',
+    minHeight: '100vh', display: 'flex', flexDirection: 'column',
+    fontFamily: "'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  },
+  redHdr: {
+    background: '#FFFFFF', color: '#1A1A1A', padding: '0', flexShrink: 0,
+    boxShadow: '0 1px 0 rgba(0,0,0,0.06)',
+  },
+  pageContent: { flex: 1, overflowY: 'auto', paddingBottom: 72 },
+  bottomNav: {
+    display: 'flex', background: '#FFFFFF', flexShrink: 0,
+    position: 'sticky', bottom: 0, zIndex: 100,
+    borderTop: '1px solid #F0F0F0',
+    boxShadow: '0 -4px 20px rgba(0,0,0,0.06)',
+    paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+  },
+  bnItem: (active) => ({
+    flex: 1, paddingTop: 10, paddingBottom: 10,
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+    cursor: 'pointer', border: 'none', background: 'transparent',
+    fontFamily: "'Poppins', sans-serif",
+    transition: 'transform 0.15s ease',
+    transform: active ? 'translateY(-1px)' : 'translateY(0)',
+  }),
+}
+
+// ── DESIGN TOKENS ──────────────────────────────────────────────────────────────
+const DS = {
+  primary: '#E24B4A',
+  primaryLight: '#FFF1F0',
+  primaryDark: '#C73232',
+  bg: '#F8F8F8',
+  card: '#FFFFFF',
+  border: '#F0F0F0',
+  borderMed: '#E8E8E8',
+  textPrimary: '#1A1A1A',
+  textSecondary: '#6B7280',
+  textMuted: '#9CA3AF',
+  success: '#10B981',
+  successLight: '#ECFDF5',
+  warning: '#F59E0B',
+  warningLight: '#FFFBEB',
+  info: '#3B82F6',
+  infoLight: '#EFF6FF',
+  shadow: '0 2px 16px rgba(0,0,0,0.08)',
+  shadowMd: '0 4px 24px rgba(0,0,0,0.10)',
+  shadowLg: '0 8px 40px rgba(0,0,0,0.12)',
+  radius: 16,
+  radiusSm: 10,
+  radiusXl: 24,
 }
 
 const CATEGORIES = [
@@ -1636,6 +1682,16 @@ export default function UserApp() {
 
   return (
     <div style={S.shell}>
+      <style>{`
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { display: none; }
+        * { scrollbar-width: none; }
+        @keyframes spin { to { transform: rotate(360deg) } }
+        @keyframes fadeInUp { from { opacity:0; transform:translateY(16px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes livePulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        input, textarea, select, button { font-family: 'Poppins', sans-serif; }
+      `}</style>
 
       {variantPickerItem && (
         <VariantPickerSheet item={variantPickerItem} cart={cart} onAdd={(item, variant) => addVariantToCart(item, variant)} onUpdateQty={(cartId, delta) => updateQty(cartId, delta)} onClose={() => setVariantPickerItem(null)} />
@@ -1664,38 +1720,44 @@ export default function UserApp() {
 
       {/* ── HEADER ── */}
       <div style={S.redHdr}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+        <div style={{ padding: '14px 16px 12px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          {/* Logo + Location */}
           <div>
-            <div style={{ fontSize:24, fontWeight:700, letterSpacing:-0.5 }}>{t('Feedo','फिडो')}</div>
-            <div onClick={() => setShowLocationPicker(true)} style={{ marginTop:6, cursor:'pointer', display:'flex', alignItems:'center', gap:8, maxWidth:220 }}>
-              <div style={{ position:'relative', width:22, height:26, flexShrink:0 }}>
-                <div style={{ width:18, height:18, borderRadius:'50% 50% 50% 0', background:'#fff', transform:'rotate(-45deg)', position:'absolute', top:0, left:2, boxShadow:'0 2px 6px rgba(0,0,0,0.2)' }} />
-                <div style={{ width:8, height:8, borderRadius:'50%', background:'#E24B4A', position:'absolute', top:5, left:7 }} />
-                <div style={{ width:2, height:10, background:'rgba(255,255,255,0.8)', position:'absolute', bottom:0, left:10, borderRadius:2 }} />
+            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+              <div style={{ width:28, height:28, borderRadius:8, background:'linear-gradient(135deg,#E24B4A,#FF6B6A)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(226,75,74,0.35)' }}>
+                <span style={{ fontSize:14 }}>🍽️</span>
               </div>
-              <div style={{ display:'flex', flexDirection:'column' }}>
-                <span style={{ fontSize:10, opacity:0.75, lineHeight:1, letterSpacing:0.3 }}>DELIVERING TO</span>
+              <span style={{ fontSize:20, fontWeight:800, color:DS.primary, letterSpacing:-0.5 }}>feedo</span>
+              <span style={{ fontSize:9, fontWeight:700, color:DS.textMuted, background:DS.border, borderRadius:20, padding:'2px 7px', marginLeft:2, letterSpacing:0.5 }}>FOOD</span>
+            </div>
+            <div onClick={() => setShowLocationPicker(true)} style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:6, maxWidth:210 }}>
+              <div style={{ width:16, height:16, background:DS.primary, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <span style={{ fontSize:9, color:'#fff' }}>📍</span>
+              </div>
+              <div>
+                <div style={{ fontSize:9, fontWeight:700, color:DS.textMuted, letterSpacing:0.8, textTransform:'uppercase' }}>Delivering to</div>
                 <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                  <span style={{ fontSize:13, fontWeight:700, lineHeight:1.4, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:160 }}>
-                    {locationLoading ? 'Detecting...' : locationName || 'Detecting location...'}
+                  <span style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:160, lineHeight:1.3 }}>
+                    {locationLoading ? 'Detecting...' : locationName || 'Set Location'}
                   </span>
-                  <span style={{ fontSize:10, opacity:0.8 }}>▾</span>
+                  <span style={{ fontSize:11, color:DS.textMuted }}>▾</span>
                 </div>
               </div>
             </div>
           </div>
+          {/* Right actions */}
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <button onClick={() => setShowMap(true)} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', padding:'5px 10px', borderRadius:8, fontSize:14, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:4 }}>🗺️</button>
-            <div onClick={() => setShowNotifs(!showNotifs)} style={{ position:'relative', cursor:'pointer' }}>
-              <span style={{ fontSize:20 }}>🔔</span>
-              {unreadCount > 0 && <div style={{ position:'absolute', top:-4, right:-4, background:'#fbbf24', color:'#000', borderRadius:'50%', width:16, height:16, fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{unreadCount}</div>}
+            <button onClick={() => setShowMap(true)} style={{ width:38, height:38, background:DS.primaryLight, border:'none', borderRadius:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>🗺️</button>
+            <div onClick={() => setShowNotifs(!showNotifs)} style={{ position:'relative', cursor:'pointer', width:38, height:38, background:DS.primaryLight, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <span style={{ fontSize:16 }}>🔔</span>
+              {unreadCount > 0 && <div style={{ position:'absolute', top:6, right:6, background:DS.primary, color:'#fff', borderRadius:'50%', width:14, height:14, fontSize:8, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #fff' }}>{unreadCount}</div>}
             </div>
             <LanguageSwitcher variant="pill" />
           </div>
         </div>
 
         {freeDeliveryToday && (
-          <div style={{ marginTop:10, background:'rgba(255,255,255,0.16)', borderRadius:9, padding:'6px 10px', display:'flex', alignItems:'center', gap:6, borderWidth:1, borderStyle:'solid', borderColor:'rgba(255,255,255,0.25)' }}>
+          <div style={{ margin:'0 16px 10px', background:'linear-gradient(135deg,#FF9933,#E24B4A)', borderRadius:10, padding:'7px 12px', display:'flex', alignItems:'center', gap:7 }}>
             <span style={{ fontSize:13 }}>🚩</span>
             <span style={{ fontSize:11, fontWeight:700, color:'#fff' }}>{t('Free delivery today — Ashadi Ekadashi!','आज मोफत डिलिव्हरी — आषाढी एकादशी!')}</span>
           </div>
@@ -1704,32 +1766,32 @@ export default function UserApp() {
         {showLocationPicker && (
           <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', flexDirection:'column', justifyContent:'flex-start' }}
             onClick={(e) => { if(e.target===e.currentTarget) setShowLocationPicker(false) }}>
-            <div style={{ background:'#fff', borderRadius:'0 0 20px 20px', padding:20, maxWidth:430, width:'100%', margin:'0 auto', maxHeight:'80vh', overflowY:'auto' }}>
+            <div style={{ background:'#fff', borderRadius:'0 0 24px 24px', padding:20, maxWidth:430, width:'100%', margin:'0 auto', maxHeight:'80vh', overflowY:'auto', boxShadow:DS.shadowLg }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-                <div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>Select Location</div>
-                <button onClick={() => setShowLocationPicker(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:'#6b7280' }}>✕</button>
+                <div style={{ fontSize:16, fontWeight:700, color:DS.textPrimary }}>📍 Delivery Location</div>
+                <button onClick={() => setShowLocationPicker(false)} style={{ background:'#F3F4F6', border:'none', fontSize:16, cursor:'pointer', borderRadius:'50%', width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', color:DS.textSecondary }}>✕</button>
               </div>
-              <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderWidth:1.5, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, marginBottom:14, background:'#f9fafb' }}>
-                <span style={{ fontSize:16 }}>🔍</span>
-                <input autoFocus style={{ border:'none', outline:'none', fontSize:14, flex:1, fontFamily:'Poppins', background:'transparent', color:'#1f2937' }} placeholder="Search area, colony, city..." value={locationSearch} onChange={e => handleLocationSearch(e.target.value)} />
-                {searchingLocation && <span style={{ fontSize:12, color:'#9ca3af' }}>...</span>}
+              <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', border:`1.5px solid ${DS.borderMed}`, borderRadius:14, marginBottom:14, background:'#FAFAFA' }}>
+                <span style={{ fontSize:15, color:DS.textMuted }}>🔍</span>
+                <input autoFocus style={{ border:'none', outline:'none', fontSize:14, flex:1, fontFamily:'Poppins', background:'transparent', color:DS.textPrimary }} placeholder="Search area, colony, city..." value={locationSearch} onChange={e => handleLocationSearch(e.target.value)} />
+                {searchingLocation && <span style={{ fontSize:12, color:DS.textMuted }}>...</span>}
               </div>
-              <button onClick={handleGetLocation} disabled={locationLoading} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background:'#fff5f5', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca', borderRadius:12, cursor:'pointer', marginBottom:14, fontFamily:'Poppins' }}>
-                <div style={{ width:36, height:36, borderRadius:10, background:'#E24B4A', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>📍</div>
+              <button onClick={handleGetLocation} disabled={locationLoading} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 14px', background:DS.primaryLight, border:`1px solid #FECACA`, borderRadius:14, cursor:'pointer', marginBottom:14, fontFamily:'Poppins' }}>
+                <div style={{ width:38, height:38, borderRadius:10, background:DS.primary, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>📍</div>
                 <div style={{ textAlign:'left' }}>
-                  <div style={{ fontSize:13, fontWeight:600, color:'#E24B4A' }}>{locationLoading ? 'Detecting...' : 'Use Current Location'}</div>
-                  <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>Using GPS</div>
+                  <div style={{ fontSize:13, fontWeight:700, color:DS.primary }}>{locationLoading ? 'Detecting...' : 'Use Current Location'}</div>
+                  <div style={{ fontSize:11, color:DS.textMuted, marginTop:1 }}>Using GPS</div>
                 </div>
               </button>
               {locationSuggestions.length > 0 && (
                 <div>
-                  <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>Search Results</div>
+                  <div style={{ fontSize:11, color:DS.textMuted, marginBottom:8, textTransform:'uppercase', letterSpacing:0.5, fontWeight:600 }}>Search Results</div>
                   {locationSuggestions.map((s, i) => (
-                    <button key={i} onClick={() => handleSelectLocation(s)} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'11px 14px', background:'#fff', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', borderRadius:10, cursor:'pointer', marginBottom:8, fontFamily:'Poppins', textAlign:'left' }}>
-                      <span style={{ fontSize:16, flexShrink:0 }}>📍</span>
+                    <button key={i} onClick={() => handleSelectLocation(s)} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background:'#fff', border:`1px solid ${DS.border}`, borderRadius:12, cursor:'pointer', marginBottom:8, fontFamily:'Poppins', textAlign:'left' }}>
+                      <span style={{ fontSize:16, flexShrink:0, color:DS.primary }}>📍</span>
                       <div>
-                        <div style={{ fontSize:13, fontWeight:500, color:'#1f2937' }}>{s.name.split(',')[0]}</div>
-                        <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{s.name.split(',').slice(1,3).join(',')}</div>
+                        <div style={{ fontSize:13, fontWeight:600, color:DS.textPrimary }}>{s.name.split(',')[0]}</div>
+                        <div style={{ fontSize:11, color:DS.textMuted, marginTop:1 }}>{s.name.split(',').slice(1,3).join(',')}</div>
                       </div>
                     </button>
                   ))}
@@ -1737,10 +1799,10 @@ export default function UserApp() {
               )}
               {!locationSearch && (
                 <div>
-                  <div style={{ fontSize:11, color:'#9ca3af', marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>Popular in Warananagar</div>
+                  <div style={{ fontSize:11, color:DS.textMuted, marginBottom:8, textTransform:'uppercase', letterSpacing:0.5, fontWeight:600 }}>Popular</div>
                   {['Warananagar', 'Kolhapur', 'Sangli', 'Ichalkaranji', 'Miraj'].map(area => (
-                    <button key={area} onClick={() => handleLocationSearch(area)} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'10px 14px', background:'#fafafa', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', borderRadius:10, cursor:'pointer', marginBottom:6, fontFamily:'Poppins' }}>
-                      <span style={{ fontSize:14 }}>🏘️</span><span style={{ fontSize:13, color:'#374151' }}>{area}</span>
+                    <button key={area} onClick={() => handleLocationSearch(area)} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'11px 14px', background:'#FAFAFA', border:`1px solid ${DS.border}`, borderRadius:12, cursor:'pointer', marginBottom:6, fontFamily:'Poppins' }}>
+                      <span style={{ fontSize:14, color:DS.textMuted }}>🏘️</span><span style={{ fontSize:13, color:DS.textPrimary }}>{area}</span>
                     </button>
                   ))}
                 </div>
@@ -1750,18 +1812,18 @@ export default function UserApp() {
         )}
 
         {(tab==='home' || tab==='vendor-menu') && (
-          <div style={{ background:'#fff', borderRadius:10, display:'flex', alignItems:'center', gap:8, padding:'10px 14px', marginTop:12 }}>
-            <span style={{ fontSize:16 }}>🔍</span>
-            <input style={{ border:'none', outline:'none', fontSize:14, flex:1, fontFamily:'Poppins', color:'#1f2937' }} placeholder={t('Search restaurants or food...','रेस्टॉरंट शोधा...')} value={searchQuery} onChange={e => { setSearchQuery(e.target.value); if (tab==='vendor-menu') setTab('home') }} />
-            {searchQuery && <button onClick={() => setSearchQuery('')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color:'#9ca3af', padding:0 }}>✕</button>}
+          <div style={{ margin:'0 16px 14px', background:'#FAFAFA', borderRadius:14, display:'flex', alignItems:'center', gap:10, padding:'12px 14px', border:`1.5px solid ${DS.border}` }}>
+            <span style={{ fontSize:16, color:DS.textMuted }}>🔍</span>
+            <input style={{ border:'none', outline:'none', fontSize:14, flex:1, fontFamily:'Poppins', color:DS.textPrimary, background:'transparent' }} placeholder="Search restaurants or food..." value={searchQuery} onChange={e => { setSearchQuery(e.target.value); if (tab==='vendor-menu') setTab('home') }} />
+            {searchQuery && <button onClick={() => setSearchQuery('')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, color:DS.textMuted, padding:0 }}>✕</button>}
           </div>
         )}
 
         {tab==='vendor-menu' && selectedVendor && (
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:10 }}>
-            <button onClick={() => { setTab('home'); setSearchQuery('') }} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', padding:'5px 10px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins' }}>← Back</button>
-            <span style={{ fontSize:14, fontWeight:600 }}>{selectedVendor.storeName}</span>
-            <span style={{ fontSize:11, background:selectedVendor.isOpen?'#16a34a':'#dc2626', color:'#fff', padding:'2px 8px', borderRadius:10 }}>{selectedVendor.isOpen ? 'Open' : 'Closed'}</span>
+          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 16px 12px' }}>
+            <button onClick={() => { setTab('home'); setSearchQuery('') }} style={{ background:DS.primaryLight, border:'none', color:DS.primary, padding:'7px 12px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:4 }}>← Back</button>
+            <span style={{ fontSize:14, fontWeight:700, color:DS.textPrimary }}>{selectedVendor.storeName}</span>
+            <span style={{ fontSize:10, fontWeight:700, background:selectedVendor.isOpen?DS.successLight:DS.border, color:selectedVendor.isOpen?DS.success:DS.textMuted, padding:'3px 9px', borderRadius:20 }}>{selectedVendor.isOpen ? '● Open' : '● Closed'}</span>
           </div>
         )}
       </div>
@@ -1771,49 +1833,54 @@ export default function UserApp() {
 
         {/* ── HOME ── */}
         {tab==='home' && (
-          <div style={{ background:'#fff', minHeight:'100%' }}>
-            <div style={{ background:'linear-gradient(90deg,#fff7ed,#fef3c7)', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#fed7aa', padding:'8px 16px', display:'flex', alignItems:'center', gap:10 }}>
-              <span style={{ fontSize:16 }}>🚚</span>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>{freeDeliveryToday ? '🎉 Free delivery today — Ashadi Ekadashi!' : 'Delivery charges vary by restaurant'}</div>
-                <div style={{ fontSize:10, color:'#a16207' }}>{freeDeliveryToday ? 'On every order, at every open restaurant · Max ' + MAX_DELIVERY_KM + 'km delivery' : 'Fixed or distance-based · Max ' + MAX_DELIVERY_KM + 'km delivery'}</div>
+          <div style={{ background:DS.bg, minHeight:'100%' }}>
+            {/* Delivery info strip */}
+            <div style={{ background:'#FFFFFF', padding:'10px 16px', display:'flex', alignItems:'center', gap:10, borderBottom:`1px solid ${DS.border}` }}>
+              <div style={{ width:32, height:32, borderRadius:10, background: freeDeliveryToday ? 'linear-gradient(135deg,#FF9933,#E24B4A)' : DS.primaryLight, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <span style={{ fontSize:15 }}>🚚</span>
               </div>
-              <button onClick={() => setShowMap(true)} style={{ background:'#E24B4A', border:'none', color:'#fff', padding:'5px 10px', borderRadius:8, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>🗺️ Map</button>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:12, fontWeight:700, color: freeDeliveryToday ? DS.primary : DS.textPrimary }}>
+                  {freeDeliveryToday ? '🎉 Free delivery today — Ashadi Ekadashi!' : 'Delivery within 4km'}
+                </div>
+                <div style={{ fontSize:10, color:DS.textMuted }}>
+                  {freeDeliveryToday ? `On every order · Max ${MAX_DELIVERY_KM}km` : `Fixed or distance-based · Max ${MAX_DELIVERY_KM}km`}
+                </div>
+              </div>
+              <button onClick={() => setShowMap(true)} style={{ background:DS.primaryLight, border:'none', color:DS.primary, padding:'6px 12px', borderRadius:20, fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>🗺️ Map</button>
             </div>
 
-            {/* ══════════════════════════════════════════
-                ── FREE DELIVERY OFFER (Ashadi Ekadashi) ──
-            ══════════════════════════════════════════ */}
             {freeDeliveryToday && <FreeDeliveryOfferBanner lang={lang} />}
-
-            {/* ══════════════════════════════════════════
-                ── JOIN WHATSAPP COMMUNITY (Home Tab) ──
-            ══════════════════════════════════════════ */}
             <WhatsAppCommunityBanner />
-
-            {/* ══════════════════════════════════════════
-                ── APPROVED OFFERS STRIP (Home Tab) ──
-            ══════════════════════════════════════════ */}
             {!searchQuery.trim() && <OffersSection compact={true} />}
 
             {searchQuery.trim() && (
-              <div style={{ padding:'10px 16px 0', fontSize:12, color:'#6b7280' }}>
+              <div style={{ padding:'12px 16px 4px', fontSize:12, color:DS.textSecondary, fontWeight:500 }}>
                 {filteredVendors.length===0 ? `No results for "${searchQuery}"` : `${filteredVendors.length} result${filteredVendors.length>1?'s':''} for "${searchQuery}"`}
               </div>
             )}
 
+            {/* Categories */}
             {!searchQuery.trim() && (
-              <div style={{ background:'#fff', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
-                <div style={{ overflowX:'auto', padding:'16px 16px 12px' }}>
-                  <div style={{ display:'flex', gap:18, width:'max-content' }}>
+              <div style={{ background:'#FFFFFF', borderBottom:`1px solid ${DS.border}` }}>
+                <div style={{ overflowX:'auto', padding:'16px 16px 14px', scrollbarWidth:'none' }}>
+                  <div style={{ display:'flex', gap:14, width:'max-content' }}>
                     {CATEGORIES.map(c => {
                       const active = catFilter === c.id
-                      const bgMap = { All:'#fff0f0', Thali:'#fef3c7', Biryani:'#fef9c3', Pizza:'#fff1f2', Chinese:'#f0f9ff', Snacks:'#fff7ed', Juice:'#f0fdf4', Sweets:'#fdf4ff', Roti:'#fefce8', Rice:'#f0fdf4' }
                       return (
-                        <div key={c.id} onClick={() => setCatFilter(c.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:7, cursor:'pointer', flexShrink:0 }}>
-                          <div style={{ width:64, height:64, borderRadius:'50%', background:active?'#E24B4A':(bgMap[c.id]||'#fff5f5'), display:'flex', alignItems:'center', justifyContent:'center', fontSize:28, boxShadow:active?'0 6px 18px rgba(226,75,74,0.45)':'0 2px 10px rgba(0,0,0,0.07)', borderWidth:2.5, borderStyle:'solid', borderColor:active?'#E24B4A':'transparent', transform:active?'scale(1.08)':'scale(1)', transition:'all 0.2s' }}>{c.emoji}</div>
-                          <span style={{ fontSize:11, fontWeight:active?700:500, color:active?'#E24B4A':'#374151', whiteSpace:'nowrap' }}>{c.label}</span>
-                          {active && <div style={{ width:18, height:3, background:'#E24B4A', borderRadius:2 }} />}
+                        <div key={c.id} onClick={() => setCatFilter(c.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, cursor:'pointer', flexShrink:0 }}>
+                          <div style={{
+                            width:56, height:56, borderRadius:18,
+                            background: active ? DS.primary : '#F5F5F5',
+                            display:'flex', alignItems:'center', justifyContent:'center',
+                            fontSize:24,
+                            boxShadow: active ? `0 6px 16px rgba(226,75,74,0.35)` : '0 1px 4px rgba(0,0,0,0.06)',
+                            border: `2px solid ${active ? DS.primary : 'transparent'}`,
+                            transform: active ? 'scale(1.08)' : 'scale(1)',
+                            transition: 'all 0.2s ease',
+                          }}>{c.emoji}</div>
+                          <span style={{ fontSize:10, fontWeight: active ? 700 : 500, color: active ? DS.primary : DS.textSecondary, whiteSpace:'nowrap' }}>{c.label}</span>
+                          {active && <div style={{ width:16, height:2.5, background:DS.primary, borderRadius:2 }} />}
                         </div>
                       )
                     })}
@@ -1822,36 +1889,41 @@ export default function UserApp() {
               </div>
             )}
 
-            <div style={{ padding:'12px 16px 6px', fontSize:15, fontWeight:600, color:'#1f2937', display:'flex', alignItems:'center', gap:6 }}>
-              {searchQuery.trim() ? '🔍 Search Results' : t('Restaurants Near You','तुमच्या जवळची रेस्टॉरंट')}
-              <span style={{ fontSize:11, color:'#16a34a', fontWeight:400 }}>· within {MAX_DELIVERY_KM}km</span>
+            {/* Section header */}
+            <div style={{ padding:'16px 16px 10px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <div>
+                <div style={{ fontSize:16, fontWeight:800, color:DS.textPrimary }}>
+                  {searchQuery.trim() ? '🔍 Search Results' : 'Restaurants Near You'}
+                </div>
+                <div style={{ fontSize:11, color:DS.textMuted, marginTop:2 }}>Within {MAX_DELIVERY_KM}km</div>
+              </div>
               {closedVendors.length > 0 && !showClosedVendors && (
-                <span style={{ fontSize:10, color:'#6b7280', background:'#f3f4f6', borderRadius:20, padding:'2px 8px', marginLeft:'auto' }}>
-                  {closedVendors.length} closed
-                </span>
+                <button onClick={() => setShowClosedVendors(true)} style={{ background:DS.border, border:'none', color:DS.textSecondary, borderRadius:20, padding:'4px 10px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
+                  +{closedVendors.length} closed
+                </button>
               )}
             </div>
 
             {openVendors.length === 0 && !searchQuery && (
-              <div style={{ textAlign:'center', padding:'40px 24px', color:'#9ca3af' }}>
-                <div style={{ fontSize:40, marginBottom:10 }}>🗺️</div>
+              <div style={{ textAlign:'center', padding:'40px 24px', color:DS.textMuted }}>
+                <div style={{ fontSize:52, marginBottom:12 }}>🗺️</div>
                 {!locationName ? (
                   <>
-                    <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:6 }}>Set your location first</div>
-                    <div style={{ fontSize:12, lineHeight:1.6, marginBottom:14 }}>Tap the location pin at the top to find restaurants near you.</div>
-                    <button onClick={() => setShowLocationPicker(true)} style={{ background:'#E24B4A', color:'#fff', border:'none', padding:'10px 20px', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
+                    <div style={{ fontSize:15, fontWeight:700, color:DS.textPrimary, marginBottom:6 }}>Set your location first</div>
+                    <div style={{ fontSize:13, lineHeight:1.6, marginBottom:16, color:DS.textSecondary }}>Tap the location pin at the top to find restaurants near you.</div>
+                    <button onClick={() => setShowLocationPicker(true)} style={{ background:DS.primary, color:'#fff', border:'none', padding:'12px 24px', borderRadius:14, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', boxShadow:`0 4px 16px rgba(226,75,74,0.35)` }}>
                       📍 Set My Location
                     </button>
                   </>
                 ) : (
                   <>
-                    <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:6 }}>No restaurants in {locationName} yet</div>
-                    <div style={{ fontSize:12, lineHeight:1.6, marginBottom:14 }}>FeedoZone hasn't launched in your area yet. Try a nearby city!</div>
-                    <button onClick={() => setShowLocationPicker(true)} style={{ background:'#f3f4f6', color:'#374151', border:'none', padding:'10px 20px', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
+                    <div style={{ fontSize:15, fontWeight:700, color:DS.textPrimary, marginBottom:6 }}>No restaurants in {locationName} yet</div>
+                    <div style={{ fontSize:13, lineHeight:1.6, marginBottom:16, color:DS.textSecondary }}>FeedoZone is coming to your area soon!</div>
+                    <button onClick={() => setShowLocationPicker(true)} style={{ background:'#F3F4F6', color:DS.textPrimary, border:'none', padding:'11px 20px', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
                       📍 Change Location
                     </button>
                     {closedVendors.length > 0 && (
-                      <button onClick={() => setShowClosedVendors(true)} style={{ background:'transparent', color:'#E24B4A', border:'1px solid #fecaca', padding:'10px 20px', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginLeft:8 }}>
+                      <button onClick={() => setShowClosedVendors(true)} style={{ background:'transparent', color:DS.primary, border:`1.5px solid #FECACA`, padding:'11px 20px', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginLeft:8 }}>
                         👀 See {closedVendors.length} closed
                       </button>
                     )}
@@ -1860,7 +1932,8 @@ export default function UserApp() {
               </div>
             )}
 
-            <div style={{ padding:'0 16px' }}>
+            {/* Vendor Cards */}
+            <div style={{ padding:'0 16px 8px' }}>
               {filteredVendors.map((v, idx) => {
                 const vMinOrder = Number(v.minOrderAmount ?? 0)
                 const rawCharge = calcDeliveryCharge(v.distance, v.deliveryCharge, v.distanceBasedDelivery)
@@ -1869,60 +1942,68 @@ export default function UserApp() {
                 const rankEmoji = openIdx === 0 ? '🥇' : openIdx === 1 ? '🥈' : openIdx === 2 ? '🥉' : null
                 return (
                   <div key={v.id} onClick={() => openVendor(v)}
-                    style={{ background:'#fff', borderRadius:16, overflow:'hidden', marginBottom:16, cursor:v.isOpen?'pointer':'not-allowed', boxShadow:'0 2px 12px rgba(0,0,0,0.08)', borderWidth:1, borderStyle:'solid', borderColor:v.isOpen?'#f3f4f6':'#fecaca', opacity:v.isOpen?1:0.6 }}>
-                    <div style={{ height:140, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#fee2e2,#fecaca)' }}>
-                      {v.photo ? <img src={v.photo} alt={v.storeName} style={{ width:'100%', height:'100%', objectFit:'cover', filter:v.isOpen?'none':'grayscale(70%)' }} /> : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:4 }}><span style={{ fontSize:40 }}>🍽️</span></div>}
+                    style={{ background:'#FFFFFF', borderRadius:20, overflow:'hidden', marginBottom:16, cursor: v.isOpen ? 'pointer' : 'default', boxShadow:DS.shadow, border:`1px solid ${DS.border}`, transition:'transform 0.15s ease, box-shadow 0.15s ease' }}>
+                    {/* Image */}
+                    <div style={{ height:150, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#FEE2E2,#FECACA)' }}>
+                      {v.photo
+                        ? <img src={v.photo} alt={v.storeName} style={{ width:'100%', height:'100%', objectFit:'cover', filter: v.isOpen ? 'none' : 'grayscale(60%) brightness(0.85)' }} />
+                        : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:4 }}><span style={{ fontSize:44 }}>🍽️</span></div>
+                      }
+                      {/* Gradient overlay */}
+                      <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 55%)' }} />
+
+                      {/* Closed overlay */}
                       {!v.isOpen && (
-                        <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                          <div style={{ background:'rgba(0,0,0,0.8)', borderRadius:20, padding:'8px 20px', display:'flex', alignItems:'center', gap:8 }}>
-                            <span style={{ fontSize:16 }}>🔒</span>
+                        <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.42)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          <div style={{ background:'rgba(0,0,0,0.72)', borderRadius:12, padding:'8px 18px', display:'flex', alignItems:'center', gap:8, backdropFilter:'blur(4px)' }}>
+                            <span style={{ fontSize:14 }}>🔒</span>
                             <div>
-                              <div style={{ fontSize:12, fontWeight:700, color:'#fff' }}>Store Closed</div>
-                              {v.openTime && <div style={{ fontSize:10, color:'rgba(255,255,255,0.7)', marginTop:1 }}>Opens at {v.openTime}</div>}
+                              <div style={{ fontSize:12, fontWeight:700, color:'#fff' }}>Closed</div>
+                              {v.openTime && <div style={{ fontSize:10, color:'rgba(255,255,255,0.7)', marginTop:1 }}>Opens {v.openTime}</div>}
                             </div>
                           </div>
                         </div>
                       )}
-                      <div style={{ position:'absolute', top:10, left:10, background:'#E24B4A', color:'#fff', fontSize:10, padding:'3px 10px', borderRadius:20, fontWeight:600 }}>{v.category||'Food'}</div>
-                      <div style={{ position:'absolute', top:10, right:10, background:v.isOpen?'#16a34a':'#6b7280', color:'#fff', fontSize:10, padding:'3px 8px', borderRadius:20, fontWeight:600 }}>{v.isOpen?'● Open':'● Closed'}</div>
-                      {rankEmoji && <div style={{ position:'absolute', top:10, left:'50%', transform:'translateX(-50%)', background:'rgba(0,0,0,0.72)', color:'#fff', fontSize:11, padding:'3px 10px', borderRadius:20, fontWeight:700, display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>{rankEmoji}</div>}
-                      {v.distance !== null && (
-                        <div style={{ position:'absolute', bottom:10, left:10, background:'rgba(0,0,0,0.7)', color:'#fff', fontSize:10, padding:'4px 10px', borderRadius:20, fontWeight:600, display:'flex', alignItems:'center', gap:5 }}>
-                          <span>📍</span>
-                          <span>{v.distance < 1 ? `${Math.round(v.distance*1000)}m` : `${v.distance.toFixed(1)}km`}</span>
-                          <span style={{ opacity:0.6 }}>·</span>
-                          {freeDeliveryToday && rawCharge > 0
-                            ? <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ color:'rgba(255,255,255,0.5)', textDecoration:'line-through' }}>₹{rawCharge}</span><span style={{ color:'#fbbf24', fontWeight:700 }}>FREE 🎉</span></span>
-                            : <span style={{ color:'#fbbf24' }}>{dynamicCharge===0?'Free delivery':'₹'+dynamicCharge+' delivery'}</span>
-                          }
+
+                      {/* Top badges */}
+                      <div style={{ position:'absolute', top:10, left:10, display:'flex', gap:6 }}>
+                        <span style={{ background:'rgba(255,255,255,0.92)', backdropFilter:'blur(4px)', color:DS.textSecondary, fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:20 }}>{v.category||'Food'}</span>
+                        {rankEmoji && <span style={{ background:'rgba(0,0,0,0.65)', backdropFilter:'blur(4px)', color:'#fff', fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:20 }}>{rankEmoji}</span>}
+                      </div>
+                      <div style={{ position:'absolute', top:10, right:10 }}>
+                        <span style={{ background: v.isOpen ? DS.success : DS.textMuted, color:'#fff', fontSize:10, fontWeight:700, padding:'4px 9px', borderRadius:20 }}>{v.isOpen ? '● Open' : '● Closed'}</span>
+                      </div>
+
+                      {/* Bottom info */}
+                      <div style={{ position:'absolute', bottom:10, left:12, right:12, display:'flex', alignItems:'flex-end', justifyContent:'space-between' }}>
+                        <div style={{ color:'#fff' }}>
+                          <div style={{ fontSize:16, fontWeight:800, lineHeight:1.2, textShadow:'0 1px 4px rgba(0,0,0,0.4)' }}>{v.storeName}</div>
+                          <div style={{ fontSize:11, opacity:0.9, marginTop:2 }}>{v.category}</div>
                         </div>
-                      )}
+                        <div style={{ background:'rgba(255,255,255,0.92)', backdropFilter:'blur(4px)', borderRadius:10, padding:'4px 8px', display:'flex', alignItems:'center', gap:3 }}>
+                          <span style={{ fontSize:11, fontWeight:800, color:'#1A1A1A' }}>⭐ {v.rating||4.5}</span>
+                        </div>
+                      </div>
                     </div>
+
+                    {/* Info row */}
                     <div style={{ padding:'12px 14px' }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                        <div style={{ fontSize:15, fontWeight:700, color:v.isOpen?'#1f2937':'#6b7280' }}>{v.storeName}</div>
-                        <div style={{ background:'#f0fdf4', color:'#16a34a', fontSize:12, fontWeight:700, padding:'2px 8px', borderRadius:8 }}>⭐ {v.rating||4.5}</div>
-                      </div>
-                      <div style={{ fontSize:12, color:'#9ca3af', marginTop:3 }}>{v.category}</div>
-                      <div style={{ display:'flex', flexWrap:'wrap', gap:10, marginTop:8, alignItems:'center' }}>
-                        <span style={{ fontSize:12, color:'#9ca3af' }}>🕐 Your delivery is coming shortly</span>
-                        {freeDeliveryToday ? (
-                          <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px', display:'flex', alignItems:'center', gap:5 }}>
-                            🚚 {rawCharge > 0 && <span style={{ textDecoration:'line-through', opacity:0.55 }}>₹{rawCharge}</span>} 🎉 Free today
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' }}>
+                        <span style={{ fontSize:11, color:DS.textSecondary, display:'flex', alignItems:'center', gap:4 }}>
+                          <span>🕐</span> 20-30 min
+                        </span>
+                        {v.distance !== null && (
+                          <span style={{ fontSize:11, color:DS.textSecondary, display:'flex', alignItems:'center', gap:4 }}>
+                            <span>📍</span> {v.distance < 1 ? `${Math.round(v.distance*1000)}m` : `${v.distance.toFixed(1)}km`}
                           </span>
-                        ) : (
-                          <span style={{ fontSize:12, fontWeight:700, background:dynamicCharge===0?'#dcfce7':'#fef3c7', color:dynamicCharge===0?'#16a34a':'#92400e', borderRadius:6, padding:'2px 8px' }}>{dynamicCharge===0 ? '🎉 Free delivery' : `🚚 ₹${dynamicCharge} delivery`}</span>
                         )}
-                        {v.distanceBasedDelivery && v.distance !== null && <span style={{ fontSize:10, fontWeight:600, background:'#eff6ff', color:'#3b82f6', borderRadius:6, padding:'2px 7px' }}>📍 Distance-based</span>}
-                        {vMinOrder > 0 && <span style={{ fontSize:11, fontWeight:700, background:'#dbeafe', color:'#1e40af', borderRadius:6, padding:'2px 7px', display:'inline-flex', alignItems:'center', gap:3 }}>🛒 Min. ₹{vMinOrder}</span>}
+                        <span style={{ fontSize:11, fontWeight:700, background: dynamicCharge===0 ? DS.successLight : DS.warningLight, color: dynamicCharge===0 ? DS.success : DS.warning, borderRadius:8, padding:'2px 8px' }}>
+                          {freeDeliveryToday && rawCharge > 0 ? '🎉 Free today' : dynamicCharge===0 ? '🎉 Free delivery' : `🚚 ₹${dynamicCharge}`}
+                        </span>
+                        {vMinOrder > 0 && (
+                          <span style={{ fontSize:11, fontWeight:600, background:DS.infoLight, color:DS.info, borderRadius:8, padding:'2px 8px' }}>Min ₹{vMinOrder}</span>
+                        )}
                       </div>
-                      {!v.isOpen && (
-                        <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:6, background:'#fee2e2', borderRadius:8, padding:'6px 10px' }}>
-                          <span style={{ fontSize:12 }}>🔒</span>
-                          <span style={{ fontSize:11, color:'#dc2626', fontWeight:600 }}>Currently closed{v.openTime?` · Opens at ${v.openTime}`:''}</span>
-                        </div>
-                      )}
-                      {v.address && <div style={{ fontSize:11, color:'#9ca3af', marginTop:5 }}>📍 {v.address}</div>}
                     </div>
                   </div>
                 )
@@ -1930,45 +2011,29 @@ export default function UserApp() {
 
               {closedVendors.length > 0 && openVendors.length > 0 && (
                 <div style={{ marginBottom:16 }}>
-                  <button
-                    onClick={() => setShowClosedVendors(s => !s)}
-                    style={{
-                      width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:10,
-                      padding:'13px 0', borderRadius:14, border:'none', cursor:'pointer', fontFamily:'Poppins',
-                      background: showClosedVendors ? '#fee2e2' : '#f3f4f6',
-                      transition:'all 0.2s'
-                    }}
-                  >
-                    <span style={{ fontSize:15 }}>{showClosedVendors ? '🙈' : '👀'}</span>
-                    <span style={{ fontSize:13, fontWeight:600, color: showClosedVendors ? '#dc2626' : '#374151' }}>
-                      {showClosedVendors
-                        ? `Hide closed restaurants`
-                        : `See ${closedVendors.length} closed restaurant${closedVendors.length > 1 ? 's' : ''}`
-                      }
+                  <button onClick={() => setShowClosedVendors(s => !s)} style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:10, padding:'13px 0', borderRadius:16, border:'none', cursor:'pointer', fontFamily:'Poppins', background: showClosedVendors ? DS.primaryLight : '#F5F5F5', transition:'all 0.2s' }}>
+                    <span style={{ fontSize:14 }}>{showClosedVendors ? '🙈' : '👀'}</span>
+                    <span style={{ fontSize:13, fontWeight:600, color: showClosedVendors ? DS.primary : DS.textSecondary }}>
+                      {showClosedVendors ? 'Hide closed restaurants' : `See ${closedVendors.length} closed restaurant${closedVendors.length>1?'s':''}`}
                     </span>
-                    {!showClosedVendors && (
-                      <span style={{ fontSize:11, background:'#e5e7eb', color:'#6b7280', borderRadius:20, padding:'2px 8px', fontWeight:600 }}>{closedVendors.length}</span>
-                    )}
+                    {!showClosedVendors && <span style={{ fontSize:11, background:DS.border, color:DS.textSecondary, borderRadius:20, padding:'2px 8px', fontWeight:600 }}>{closedVendors.length}</span>}
                   </button>
                 </div>
               )}
 
               {!searchQuery.trim() && openVendors.length > 0 && (
-                <div style={{ marginTop:4, marginBottom:24 }}>
-                  <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
-                  <div style={{ background:'linear-gradient(135deg,#f9fafb,#f3f4f6)', borderRadius:16, padding:'18px 20px', borderWidth:1.5, borderStyle:'dashed', borderColor:'#e5e7eb', display:'flex', alignItems:'center', gap:16 }}>
-                    <div style={{ width:52, height:52, borderRadius:14, background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:26, boxShadow:'0 2px 8px rgba(0,0,0,0.08)', flexShrink:0 }}>🍽️</div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}><div style={{ width:7, height:7, borderRadius:'50%', background:'#f59e0b', animation:'pulse 1.5s infinite' }} /><span style={{ fontSize:10, fontWeight:700, color:'#d97706', letterSpacing:0.5, textTransform:'uppercase' }}>Coming Soon</span></div>
-                      <div style={{ fontSize:14, fontWeight:700, color:'#1f2937', lineHeight:1.4 }}>More restaurants joining FeedoZone!</div>
-                      <div style={{ fontSize:11, color:'#9ca3af', marginTop:3 }}>New restaurants will be available here soon 🚀</div>
-                    </div>
+                <div style={{ marginTop:4, marginBottom:24, background:'#FFFFFF', borderRadius:18, padding:'18px 20px', border:`1.5px dashed ${DS.borderMed}`, display:'flex', alignItems:'center', gap:16 }}>
+                  <div style={{ width:48, height:48, borderRadius:14, background:DS.primaryLight, display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0 }}>🍽️</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, lineHeight:1.4 }}>More restaurants joining FeedoZone!</div>
+                    <div style={{ fontSize:11, color:DS.textMuted, marginTop:3 }}>New restaurants available soon 🚀</div>
                   </div>
                 </div>
               )}
             </div>
           </div>
         )}
+                    {/* card body rendered above */}
 
         {/* ── VENDOR MENU ── */}
         {tab==='vendor-menu' && selectedVendor && (() => {
@@ -2013,33 +2078,36 @@ export default function UserApp() {
           const filterActiveCount = (priceChip !== 'all' ? 1 : 0) + (priceSort !== 'default' ? 1 : 0) + (effectiveSliderMax < sliderCeiling ? 1 : 0)
 
           return (
-            <div style={{ background:'#fff', minHeight:'100%' }}>
-              <div style={{ height:160, position:'relative', background:'linear-gradient(135deg,#fee2e2,#fecaca)' }}>
-                {selectedVendor.photo ? <img src={selectedVendor.photo} alt={selectedVendor.storeName} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}><span style={{ fontSize:48 }}>🍽️</span></div>}
-                <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top, rgba(0,0,0,0.55), transparent)' }} />
-                <div style={{ position:'absolute', bottom:12, left:14, color:'#fff' }}>
-                  <div style={{ fontSize:16, fontWeight:700 }}>{selectedVendor.storeName}</div>
-                  <div style={{ fontSize:11, opacity:0.9 }}>{selectedVendor.category} · ⭐ {selectedVendor.rating||4.5}</div>
-                </div>
+              <div style={{ background:'#fff', minHeight:'100%' }}>
+              <div style={{ height:200, position:'relative', background:'linear-gradient(135deg,#FEE2E2,#FECACA)' }}>
+                {selectedVendor.photo ? <img src={selectedVendor.photo} alt={selectedVendor.storeName} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}><span style={{ fontSize:56 }}>🍽️</span></div>}
+                <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top, rgba(0,0,0,0.65) 0%, transparent 55%)' }} />
                 {freeDeliveryToday && (
-                  <div style={{ position:'absolute', top:12, right:12, background:'linear-gradient(135deg,#FF9933,#E24B4A)', color:'#fff', fontSize:10, fontWeight:800, padding:'5px 11px', borderRadius:20, display:'flex', alignItems:'center', gap:4, boxShadow:'0 3px 10px rgba(0,0,0,0.25)' }}>
+                  <div style={{ position:'absolute', top:12, right:12, background:'linear-gradient(135deg,#FF9933,#E24B4A)', color:'#fff', fontSize:10, fontWeight:800, padding:'5px 12px', borderRadius:20, display:'flex', alignItems:'center', gap:4, boxShadow:'0 3px 10px rgba(0,0,0,0.25)' }}>
                     🚩 FREE DELIVERY
                   </div>
                 )}
+                <div style={{ position:'absolute', bottom:14, left:16, right:16, color:'#fff' }}>
+                  <div style={{ fontSize:20, fontWeight:800, lineHeight:1.2 }}>{selectedVendor.storeName}</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:6, flexWrap:'wrap' }}>
+                    <span style={{ fontSize:12, opacity:0.95 }}>{selectedVendor.category}</span>
+                    <span style={{ background:'rgba(255,255,255,0.2)', backdropFilter:'blur(4px)', color:'#fff', fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20 }}>⭐ {selectedVendor.rating||4.5}</span>
+                    <span style={{ background: selectedVendor.isOpen ? 'rgba(16,185,129,0.85)' : 'rgba(107,114,128,0.85)', backdropFilter:'blur(4px)', color:'#fff', fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:20 }}>{selectedVendor.isOpen ? '● Open' : '● Closed'}</span>
+                  </div>
+                </div>
               </div>
 
-              <div style={{ padding:'10px 16px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
-                <span style={{ fontSize:12, color:'#6b7280' }}>🕐 Your delivery is coming shortly</span>
+              <div style={{ padding:'12px 16px', borderBottom:`1px solid ${DS.border}`, display:'flex', gap:12, flexWrap:'wrap', alignItems:'center', background:'#FFFFFF' }}>
+                <span style={{ fontSize:12, color:DS.textSecondary, display:'flex', alignItems:'center', gap:4 }}>🕐 20–30 min</span>
                 {freeDeliveryToday ? (
-                  <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px', display:'flex', alignItems:'center', gap:5 }}>
+                  <span style={{ fontSize:12, fontWeight:700, background:DS.warningLight, color:DS.warning, borderRadius:8, padding:'3px 9px', display:'flex', alignItems:'center', gap:5 }}>
                     🚚 {rawVendorCharge > 0 && <span style={{ textDecoration:'line-through', opacity:0.55 }}>₹{rawVendorCharge}</span>} 🎉 Free today
                   </span>
                 ) : (
-                  <span style={{ fontSize:12, fontWeight:700, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'2px 8px' }}>🚚 {dynamicCharge === 0 ? 'Free delivery 🎉' : `₹${dynamicCharge} delivery`}</span>
+                  <span style={{ fontSize:12, fontWeight:700, background: dynamicCharge===0 ? DS.successLight : DS.warningLight, color: dynamicCharge===0 ? DS.success : DS.warning, borderRadius:8, padding:'3px 9px' }}>🚚 {dynamicCharge===0?'Free delivery':'₹'+dynamicCharge}</span>
                 )}
-                {selectedVendor.distanceBasedDelivery && vendorDist !== null && <span style={{ fontSize:10, fontWeight:600, background:'#eff6ff', color:'#3b82f6', borderRadius:6, padding:'2px 7px' }}>📍 Distance-based</span>}
-                {vendorDist !== null && <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>📍 {vendorDist < 1 ? `${vendorDist*1000|0}m away` : `${vendorDist.toFixed(1)}km away`}</span>}
-                {Number(selectedVendor.minOrderAmount) > 0 && <span style={{ fontSize:11, fontWeight:700, background:'#dbeafe', color:'#1e40af', borderRadius:6, padding:'3px 8px', display:'inline-flex', alignItems:'center', gap:3 }}>🛒 Min. order ₹{selectedVendor.minOrderAmount}</span>}
+                {vendorDist !== null && <span style={{ fontSize:12, color:DS.success, fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>📍 {vendorDist < 1 ? `${vendorDist*1000|0}m` : `${vendorDist.toFixed(1)}km`}</span>}
+                {Number(selectedVendor.minOrderAmount) > 0 && <span style={{ fontSize:11, fontWeight:700, background:DS.infoLight, color:DS.info, borderRadius:8, padding:'3px 9px' }}>🛒 Min ₹{selectedVendor.minOrderAmount}</span>}
               </div>
 
               {freeDeliveryToday && (
@@ -2453,226 +2521,188 @@ export default function UserApp() {
 
         {/* ── CART ── */}
         {tab==='cart' && (
-          <div style={{ padding:16, background:'#fff', minHeight:'100%' }}>
-            <div style={{ fontSize:15, fontWeight:600, marginBottom:12 }}>{t('Your Cart','तुमची कार्ट')} {cartVendor && `· ${cartVendor.storeName}`}</div>
+          <div style={{ padding:'16px 16px 24px', background:DS.bg, minHeight:'100%' }}>
+            <div style={{ fontSize:18, fontWeight:800, color:DS.textPrimary, marginBottom:4 }}>Your Cart</div>
+            {cartVendor && <div style={{ fontSize:12, color:DS.textSecondary, marginBottom:14 }}>from <strong style={{ color:DS.primary }}>{cartVendor.storeName}</strong></div>}
+
             {cartVendor && cartVendor.distanceKm !== null && cartVendor.distanceKm !== undefined && (
               deliveryFeeWaived ? (
-                <div style={{ background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:'#fbbf24' }}>
-                  <span style={{ fontSize:16 }}>🚩</span>
+                <div style={{ background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:14, padding:'12px 14px', marginBottom:14, display:'flex', alignItems:'center', gap:10, border:`1.5px solid #FDE68A` }}>
+                  <span style={{ fontSize:18 }}>🚩</span>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>{t('Free delivery — Ashadi Ekadashi offer!','मोफत डिलिव्हरी — आषाढी एकादशी ऑफर!')}</div>
-                    <div style={{ fontSize:11, color:'#a16207' }}>{t(`Usually ₹${cartVendor.rawDeliveryCharge}, ₹0 for you today`,`साधारण ₹${cartVendor.rawDeliveryCharge}, आज तुमच्यासाठी ₹0`)}</div>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>Free delivery — Ashadi Ekadashi offer!</div>
+                    <div style={{ fontSize:11, color:'#a16207' }}>Usually ₹{cartVendor.rawDeliveryCharge}, ₹0 for you today</div>
                   </div>
                 </div>
               ) : (
-                <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:10, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
-                  <span style={{ fontSize:16 }}>🚚</span>
+                <div style={{ background:DS.warningLight, borderRadius:14, padding:'12px 14px', marginBottom:14, display:'flex', alignItems:'center', gap:10, border:`1px solid #FDE68A` }}>
+                  <span style={{ fontSize:18 }}>🚚</span>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>{cartVendor.distanceBasedDelivery ? 'Distance-based delivery charge' : 'Delivery charge'}</div>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>{cartVendor.distanceBasedDelivery ? 'Distance-based delivery' : 'Delivery charge'}</div>
                     <div style={{ fontSize:11, color:'#a16207' }}>
-                      {cartVendor.distanceBasedDelivery ? `${cartVendor.distanceKm.toFixed(1)}km away · ₹${deliveryFee} delivery charge` : deliveryFee === 0 ? 'Free delivery for all orders 🎉' : `Fixed ₹${deliveryFee} delivery charge`}
+                      {cartVendor.distanceBasedDelivery ? `${cartVendor.distanceKm.toFixed(1)}km · ₹${deliveryFee}` : deliveryFee===0 ? 'Free delivery 🎉' : `₹${deliveryFee} delivery`}
                     </div>
                   </div>
                 </div>
               )
             )}
-            {cart.length===0 && <div style={{ textAlign:'center', color:'#9ca3af', padding:40, fontSize:13 }}>Cart is empty. Browse vendors!</div>}
-            {cart.map(item => (
-              <div key={item.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, fontWeight:500 }}>{item.name}</div>
-                  <div style={{ fontSize:12, color:'#6b7280' }}>₹{item.price} each{item.isVariant ? ' · variant' : ''}</div>
-                  {item.isCombo && item.comboItems && <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>{item.comboItems.map(ci => `${ci.qty > 1 ? ci.qty+'× ' : ''}${ci.name}`).join(' · ')}</div>}
-                </div>
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <button onClick={() => updateQty(item.id,-1)} style={{ width:28, height:28, borderRadius:'50%', borderWidth:1, borderStyle:'solid', borderColor:item.isVariant?'#7c3aed':'#E24B4A', background:'transparent', color:item.isVariant?'#7c3aed':'#E24B4A', cursor:'pointer', fontSize:16 }}>-</button>
-                  <span style={{ fontSize:13, fontWeight:600, minWidth:16, textAlign:'center' }}>{item.qty}</span>
-                  <button onClick={() => updateQty(item.id,1)} style={{ width:28, height:28, borderRadius:'50%', border:'none', background:item.isVariant?'#7c3aed':'#E24B4A', color:'#fff', cursor:'pointer', fontSize:16 }}>+</button>
-                </div>
-                <div style={{ fontSize:13, fontWeight:600, minWidth:48, textAlign:'right' }}>₹{item.price*item.qty}</div>
+
+            {cart.length===0 && (
+              <div style={{ textAlign:'center', color:DS.textMuted, padding:'48px 24px' }}>
+                <div style={{ fontSize:52, marginBottom:12 }}>🛒</div>
+                <div style={{ fontSize:15, fontWeight:700, color:DS.textPrimary, marginBottom:6 }}>Your cart is empty</div>
+                <div style={{ fontSize:13, color:DS.textSecondary }}>Browse restaurants and add items!</div>
               </div>
-            ))}
+            )}
+
+            {/* Cart items */}
+            <div style={{ background:'#FFFFFF', borderRadius:16, overflow:'hidden', marginBottom:14, boxShadow:DS.shadow }}>
+              {cart.map((item, i) => (
+                <div key={item.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', borderBottom: i < cart.length-1 ? `1px solid ${DS.border}` : 'none' }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:14, fontWeight:600, color:DS.textPrimary }}>{item.name}</div>
+                    <div style={{ fontSize:12, color:DS.textMuted, marginTop:2 }}>₹{item.price} each{item.isVariant?' · variant':''}</div>
+                    {item.isCombo && item.comboItems && <div style={{ fontSize:10, color:DS.textMuted, marginTop:3 }}>{item.comboItems.map(ci=>`${ci.qty>1?ci.qty+'× ':''}${ci.name}`).join(' · ')}</div>}
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, marginLeft:12 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, background: item.isVariant ? '#FAF5FF' : DS.primaryLight, borderRadius:24, padding:'5px 10px', border:`1.5px solid ${item.isVariant ? '#7C3AED' : DS.primary}` }}>
+                      <button onClick={() => updateQty(item.id,-1)} style={{ background:'none', border:'none', cursor:'pointer', color: item.isVariant ? '#7C3AED' : DS.primary, fontSize:18, fontWeight:700, padding:0, lineHeight:1, width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
+                      <span style={{ fontSize:13, fontWeight:700, minWidth:16, textAlign:'center', color: item.isVariant ? '#7C3AED' : DS.primary }}>{item.qty}</span>
+                      <button onClick={() => updateQty(item.id,1)} style={{ background:'none', border:'none', cursor:'pointer', color: item.isVariant ? '#7C3AED' : DS.primary, fontSize:18, fontWeight:700, padding:0, lineHeight:1, width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
+                    </div>
+                    <div style={{ fontSize:14, fontWeight:700, minWidth:52, textAlign:'right', color:DS.textPrimary }}>₹{item.price*item.qty}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
             {cart.length > 0 && !showCheckout && (
               <>
                 {minOrder > 0 && (
-                  <div style={{ margin:'14px 0 10px', background: meetsMinOrder ? '#f0fdf4' : '#eff6ff', borderRadius:12, padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor: meetsMinOrder ? '#86efac' : '#bfdbfe' }}>
+                  <div style={{ marginBottom:14, background: meetsMinOrder ? DS.successLight : DS.infoLight, borderRadius:14, padding:'12px 14px', border:`1px solid ${meetsMinOrder ? '#86EFAC' : '#BFDBFE'}` }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <span style={{ fontSize:14 }}>{meetsMinOrder ? '✅' : '🛒'}</span>
-                        <span style={{ fontSize:12, fontWeight:700, color: meetsMinOrder ? '#16a34a' : '#1e40af' }}>{meetsMinOrder ? 'Minimum order met!' : `Add ₹${minOrderShortfall} more to checkout`}</span>
+                        <span style={{ fontSize:15 }}>{meetsMinOrder ? '✅' : '🛒'}</span>
+                        <span style={{ fontSize:12, fontWeight:700, color: meetsMinOrder ? DS.success : DS.info }}>{meetsMinOrder ? 'Minimum order met!' : `Add ₹${minOrderShortfall} more to checkout`}</span>
                       </div>
-                      <span style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>₹{cartTotal} / ₹{minOrder}</span>
+                      <span style={{ fontSize:11, color:DS.textMuted, fontWeight:600 }}>₹{cartTotal} / ₹{minOrder}</span>
                     </div>
-                    <div style={{ height:6, background: meetsMinOrder ? '#bbf7d0' : '#dbeafe', borderRadius:99, overflow:'hidden' }}>
-                      <div style={{ height:'100%', width:`${Math.min(100, Math.round(cartTotal / minOrder * 100))}%`, background: meetsMinOrder ? '#16a34a' : '#3b82f6', borderRadius:99, transition:'width 0.4s ease' }} />
+                    <div style={{ height:5, background: meetsMinOrder ? '#BBF7D0' : '#DBEAFE', borderRadius:99, overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${Math.min(100, Math.round(cartTotal/minOrder*100))}%`, background: meetsMinOrder ? DS.success : DS.info, borderRadius:99, transition:'width 0.4s ease' }} />
                     </div>
-                    {!meetsMinOrder && <div style={{ fontSize:11, color:'#6b7280', marginTop:6 }}>This restaurant requires a minimum order of <strong>₹{minOrder}</strong></div>}
                   </div>
                 )}
-                <div style={{ background:'#f9fafb', borderRadius:10, padding:12, margin:'12px 0' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
+                <div style={{ background:'#FFFFFF', borderRadius:16, padding:'14px 16px', marginBottom:14, boxShadow:DS.shadow }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:12 }}>Order Summary</div>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:DS.textSecondary }}>Subtotal</span><span style={{ fontSize:13, fontWeight:600, color:DS.textPrimary }}>₹{cartTotal}</span></div>
                   {discountAmount > 0 && (
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>🏷️ Discount ({activeOffer?.discountType === 'percentage' ? `${activeOffer.discountValue}%` : `₹${activeOffer?.discountValue}`} off)</span>
-                      <span style={{ fontSize:12, color:'#16a34a', fontWeight:700 }}>−₹{discountAmount}</span>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+                      <span style={{ fontSize:13, color:DS.success, fontWeight:600 }}>🏷️ Discount ({activeOffer?.discountType==='percentage'?`${activeOffer.discountValue}%`:`₹${activeOffer?.discountValue}`} off)</span>
+                      <span style={{ fontSize:13, color:DS.success, fontWeight:700 }}>−₹{discountAmount}</span>
                     </div>
                   )}
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                    <span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee {cartVendor?.distanceBasedDelivery && cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}</span>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
+                    <span style={{ fontSize:13, color:DS.textSecondary }}>Delivery fee</span>
                     {deliveryFeeWaived
-                      ? <span style={{ fontSize:12, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:'#9ca3af' }}>₹{cartVendor.rawDeliveryCharge}</span><span style={{ color:'#16a34a', fontWeight:700 }}>FREE 🎉</span></span>
-                      : <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
+                      ? <span style={{ fontSize:13, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:DS.textMuted }}>₹{cartVendor.rawDeliveryCharge}</span><span style={{ color:DS.success, fontWeight:700 }}>FREE 🎉</span></span>
+                      : <span style={{ fontSize:13, fontWeight:600, color: deliveryFee===0 ? DS.success : DS.textPrimary }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
                     }
                   </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth:1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop:8 }}><span style={{ fontSize:14, fontWeight:600 }}>Total</span><span style={{ fontSize:14, fontWeight:700, color: discountAmount > 0 ? '#16a34a' : '#1f2937' }}>₹{finalTotal}</span></div>
+                  <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10, borderTop:`1.5px solid ${DS.border}` }}>
+                    <span style={{ fontSize:15, fontWeight:700, color:DS.textPrimary }}>Total</span>
+                    <span style={{ fontSize:15, fontWeight:800, color: discountAmount>0 ? DS.success : DS.primary }}>₹{finalTotal}</span>
+                  </div>
+                  {discountAmount > 0 && <div style={{ marginTop:8, background:DS.successLight, borderRadius:9, padding:'6px 10px', textAlign:'center' }}><span style={{ fontSize:11, color:DS.success, fontWeight:700 }}>🎉 You save ₹{discountAmount} on this order!</span></div>}
                 </div>
-
-                {/* ── AVAILABLE OFFERS & COUPON ── */}
                 {vendorOffers.length > 0 && (
-                  <div style={{ marginBottom:12 }}>
-                    {/* Auto-applied offer banner */}
+                  <div style={{ background:'#FFFFFF', borderRadius:16, padding:'14px 16px', marginBottom:14, boxShadow:DS.shadow }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:10 }}>🏷️ Offers & Coupons</div>
                     {autoBestOffer && !appliedOffer && discountAmount > 0 && (
-                      <div style={{ background:'linear-gradient(135deg,#f0fdf4,#dcfce7)', borderRadius:10, padding:'10px 12px', marginBottom:8, display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:'#86efac' }}>
+                      <div style={{ background:DS.successLight, borderRadius:12, padding:'10px 12px', marginBottom:8, display:'flex', alignItems:'center', gap:10, border:`1.5px solid #86EFAC` }}>
                         <span style={{ fontSize:16, flexShrink:0 }}>🏷️</span>
-                        <div style={{ flex:1 }}>
-                          <div style={{ fontSize:12, fontWeight:700, color:'#166534' }}>Offer Applied: {autoBestOffer.title}</div>
-                          <div style={{ fontSize:10, color:'#16a34a', marginTop:1 }}>You save ₹{discountAmount}!</div>
-                        </div>
-                        <span style={{ fontSize:11, fontWeight:800, color:'#16a34a', background:'#bbf7d0', padding:'3px 8px', borderRadius:20 }}>−₹{discountAmount}</span>
+                        <div style={{ flex:1 }}><div style={{ fontSize:12, fontWeight:700, color:'#166534' }}>Applied: {autoBestOffer.title}</div><div style={{ fontSize:10, color:DS.success, marginTop:1 }}>You save ₹{discountAmount}!</div></div>
+                        <span style={{ fontSize:11, fontWeight:800, color:DS.success, background:'#BBF7D0', padding:'3px 8px', borderRadius:20 }}>−₹{discountAmount}</span>
                       </div>
                     )}
-                    {/* Applied coupon banner */}
                     {appliedOffer && (
-                      <div style={{ background:'linear-gradient(135deg,#f0fdf4,#dcfce7)', borderRadius:10, padding:'10px 12px', marginBottom:8, display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:'#86efac' }}>
+                      <div style={{ background:DS.successLight, borderRadius:12, padding:'10px 12px', marginBottom:8, display:'flex', alignItems:'center', gap:10, border:`1.5px solid #86EFAC` }}>
                         <span style={{ fontSize:16, flexShrink:0 }}>✅</span>
-                        <div style={{ flex:1 }}>
-                          <div style={{ fontSize:12, fontWeight:700, color:'#166534' }}>{appliedOffer.couponCode} · {appliedOffer.title}</div>
-                          <div style={{ fontSize:10, color:'#16a34a', marginTop:1 }}>You save ₹{discountAmount}!</div>
-                        </div>
-                        <button onClick={handleRemoveCoupon} style={{ fontSize:11, color:'#dc2626', background:'#fee2e2', border:'none', borderRadius:8, padding:'4px 8px', cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>Remove</button>
+                        <div style={{ flex:1 }}><div style={{ fontSize:12, fontWeight:700, color:'#166534' }}>{appliedOffer.couponCode} · {appliedOffer.title}</div><div style={{ fontSize:10, color:DS.success, marginTop:1 }}>Saving ₹{discountAmount}!</div></div>
+                        <button onClick={handleRemoveCoupon} style={{ fontSize:11, color:'#DC2626', background:'#FEE2E2', border:'none', borderRadius:8, padding:'4px 8px', cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>Remove</button>
                       </div>
                     )}
-                    {/* Coupon code input — shown only if coupon offers exist and none applied yet */}
                     {!appliedOffer && vendorOffers.some(o => o.couponCode) && (
-                      <div style={{ display:'flex', gap:8, marginBottom:4 }}>
-                        <input
-                          style={{ flex:1, padding:'9px 12px', border:`1.5px solid ${couponError ? '#fca5a5' : '#e5e7eb'}`, borderRadius:9, fontSize:12, fontFamily:'Poppins', outline:'none' }}
-                          placeholder="Enter coupon code"
-                          value={manualCoupon}
-                          onChange={e => { setManualCoupon(e.target.value.toUpperCase()); setCouponError('') }}
-                          onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()}
-                        />
-                        <button onClick={handleApplyCoupon} style={{ padding:'9px 14px', background:'#E24B4A', color:'#fff', border:'none', borderRadius:9, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>
-                          Apply
-                        </button>
+                      <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+                        <input style={{ flex:1, padding:'11px 14px', border:`1.5px solid ${couponError ? '#FCA5A5' : DS.borderMed}`, borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', color:DS.textPrimary, background:'#FAFAFA' }} placeholder="Enter coupon code" value={manualCoupon} onChange={e => { setManualCoupon(e.target.value.toUpperCase()); setCouponError('') }} onKeyDown={e => e.key==='Enter' && handleApplyCoupon()} />
+                        <button onClick={handleApplyCoupon} style={{ padding:'11px 18px', background:DS.primary, color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>Apply</button>
                       </div>
                     )}
-                    {couponError && <div style={{ fontSize:11, color:'#dc2626', marginBottom:4, paddingLeft:4 }}>⚠️ {couponError}</div>}
-
-                    {/* List available offers */}
-                    {vendorOffers.filter(o => !o.couponCode || o.couponCode === '').slice(0,2).map(o => {
+                    {couponError && <div style={{ fontSize:11, color:'#DC2626', marginBottom:6 }}>⚠️ {couponError}</div>}
+                    {vendorOffers.filter(o => !o.couponCode || o.couponCode==='').slice(0,2).map(o => {
                       const eligible = !o.minOrder || cartTotal >= o.minOrder
                       const disc = computeDiscount(o, cartTotal)
                       return (
-                        <div key={o.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', borderRadius:9, marginBottom:4, background: eligible ? '#f0fdf4' : '#f9fafb', borderWidth:1, borderStyle:'solid', borderColor: eligible ? '#bbf7d0' : '#e5e7eb', opacity: eligible ? 1 : 0.6 }}>
+                        <div key={o.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', borderRadius:12, marginBottom:4, background: eligible ? DS.successLight : '#FAFAFA', border:`1px solid ${eligible ? '#BBF7D0' : DS.border}`, opacity: eligible ? 1 : 0.65 }}>
                           <span style={{ fontSize:13 }}>🏷️</span>
-                          <div style={{ flex:1 }}>
-                            <div style={{ fontSize:11, fontWeight:700, color: eligible ? '#166534' : '#6b7280' }}>{o.title}</div>
-                            <div style={{ fontSize:10, color:'#9ca3af' }}>
-                              {eligible ? `Saves ₹${disc}` : `Add ₹${o.minOrder - cartTotal} more to unlock`}
-                              {o.minOrder > 0 && ` · Min ₹${o.minOrder}`}
-                            </div>
-                          </div>
-                          {eligible && <span style={{ fontSize:10, fontWeight:700, color:'#16a34a', background:'#bbf7d0', padding:'2px 7px', borderRadius:20 }}>−₹{disc}</span>}
+                          <div style={{ flex:1 }}><div style={{ fontSize:11, fontWeight:700, color: eligible ? '#166534' : DS.textSecondary }}>{o.title}</div><div style={{ fontSize:10, color:DS.textMuted }}>{eligible ? `Saves ₹${disc}` : `Add ₹${o.minOrder-cartTotal} more`}{o.minOrder>0&&` · Min ₹${o.minOrder}`}</div></div>
+                          {eligible && <span style={{ fontSize:10, fontWeight:700, color:DS.success, background:'#BBF7D0', padding:'2px 7px', borderRadius:20 }}>−₹{disc}</span>}
                         </div>
                       )
                     })}
                   </div>
                 )}
-
-                <button onClick={() => { if (!meetsMinOrder) { toast.error(`Add ₹${minOrderShortfall} more to meet the ₹${minOrder} minimum order`, { icon: '🛒', duration: 3000 }); return }; setShowCheckout(true) }}
-                  style={{ width:'100%', background: meetsMinOrder ? '#E24B4A' : '#9ca3af', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor: meetsMinOrder ? 'pointer' : 'not-allowed', fontFamily:'Poppins', opacity: meetsMinOrder ? 1 : 0.75 }}>
+                <button onClick={() => { if (!meetsMinOrder) { toast.error(`Add ₹${minOrderShortfall} more to meet the ₹${minOrder} minimum order`, { icon: '🛒', duration: 3000 }); return }; setShowCheckout(true) }} style={{ width:'100%', background: meetsMinOrder ? DS.primary : '#9CA3AF', color:'#fff', border:'none', padding:'16px 0', borderRadius:16, fontSize:15, fontWeight:700, cursor: meetsMinOrder ? 'pointer' : 'not-allowed', fontFamily:'Poppins', boxShadow: meetsMinOrder ? `0 4px 18px rgba(226,75,74,0.4)` : 'none' }}>
                   {meetsMinOrder ? `Proceed to Checkout · ₹${finalTotal}` : `Add ₹${minOrderShortfall} more to checkout`}
                 </button>
               </>
             )}
             {cart.length > 0 && showCheckout && (
-              <div style={{ marginTop:12 }}>
-                <div style={{ fontSize:15, fontWeight:600, marginBottom:14, color:'#1f2937' }}>🚚 Delivery Details</div>
-                <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Your Name *</label><input style={inp} placeholder="Full name" value={deliveryName} onChange={e => setDeliveryName(e.target.value)} /></div>
-                <div style={{ marginBottom:10 }}>
-                  <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Phone Number *</label>
-                  <div style={{ position:'relative', marginTop:6 }}>
-                    <span style={{ position:'absolute', left:13, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'#6b7280', pointerEvents:'none' }}>+91</span>
-                    <input style={{ ...inp, marginTop:0, paddingLeft:44 }} placeholder="Mobile number" value={deliveryPhone} onChange={e => setDeliveryPhone(e.target.value.replace(/\D/g,'').slice(0,10))} />
+              <div>
+                <div style={{ fontSize:16, fontWeight:800, color:DS.textPrimary, marginBottom:16 }}>🚚 Delivery Details</div>
+                <div style={{ background:'#FFFFFF', borderRadius:16, padding:'16px', marginBottom:14, boxShadow:DS.shadow, display:'flex', flexDirection:'column', gap:12 }}>
+                  {[
+                    { label:'Your Name *', placeholder:'Full name', value:deliveryName, onChange: e=>setDeliveryName(e.target.value), type:'text' },
+                    { label:'Hostel / Building', placeholder:"e.g. Hostel B...", value:deliveryHostel, onChange: e=>setDeliveryHostel(e.target.value), type:'text' },
+                    { label:'Room / Address *', placeholder:'e.g. Room 204...', value:deliveryAddress, onChange: e=>setDeliveryAddress(e.target.value), type:'text' },
+                  ].map(f => (
+                    <div key={f.label}>
+                      <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>{f.label}</label>
+                      <input type={f.type} style={{ width:'100%', marginTop:6, padding:'12px 14px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', color:DS.textPrimary, background:'#FAFAFA' }} placeholder={f.placeholder} value={f.value} onChange={f.onChange} />
+                    </div>
+                  ))}
+                  <div>
+                    <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Phone Number *</label>
+                    <div style={{ position:'relative', marginTop:6 }}>
+                      <span style={{ position:'absolute', left:14, top:'50%', transform:'translateY(-50%)', fontSize:13, color:DS.textSecondary, pointerEvents:'none', fontWeight:600 }}>+91</span>
+                      <input style={{ width:'100%', padding:'12px 14px 12px 50px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', color:DS.textPrimary, background:'#FAFAFA' }} placeholder="Mobile number" value={deliveryPhone} onChange={e => setDeliveryPhone(e.target.value.replace(/\D/g,'').slice(0,10))} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Order Note</label>
+                    <textarea style={{ width:'100%', marginTop:6, padding:'12px 14px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', resize:'none', minHeight:56, lineHeight:1.5, color:DS.textPrimary, background:'#FAFAFA' }} placeholder="Less spicy, extra roti..." value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} />
                   </div>
                 </div>
-                <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Hostel / Building</label><input style={inp} placeholder="e.g. Hostel B, Men's Hostel..." value={deliveryHostel} onChange={e => setDeliveryHostel(e.target.value)} /></div>
-                <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Room / Address *</label><input style={inp} placeholder="e.g. Room 204..." value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} /></div>
-                <div style={{ marginBottom:10 }}><label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>Order Note (optional)</label><textarea style={{ ...inp, minHeight:60, resize:'none', lineHeight:1.5 }} placeholder="e.g. Less spicy, extra roti..." value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} /></div>
-                <div style={{ background:'#f9fafb', borderRadius:10, padding:12, marginBottom:12 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}><span style={{ fontSize:12, color:'#6b7280' }}>Subtotal</span><span style={{ fontSize:12 }}>₹{cartTotal}</span></div>
-                  {discountAmount > 0 && (
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
-                      <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>🏷️ {activeOffer?.title || 'Offer'}</span>
-                      <span style={{ fontSize:12, color:'#16a34a', fontWeight:700 }}>−₹{discountAmount}</span>
-                    </div>
-                  )}
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
-                    <span style={{ fontSize:12, color:'#6b7280' }}>Delivery fee {cartVendor?.distanceBasedDelivery && cartVendor?.distanceKm ? `(${cartVendor.distanceKm.toFixed(1)}km)` : ''}</span>
-                    {deliveryFeeWaived
-                      ? <span style={{ fontSize:12, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:'#9ca3af' }}>₹{cartVendor.rawDeliveryCharge}</span><span style={{ color:'#16a34a', fontWeight:700 }}>FREE 🎉</span></span>
-                      : <span style={{ fontSize:12 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
-                    }
+                <div style={{ background:'#FFFFFF', borderRadius:16, padding:'14px 16px', marginBottom:14, boxShadow:DS.shadow }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:12 }}>Bill Summary</div>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:DS.textSecondary }}>Subtotal</span><span style={{ fontSize:13, fontWeight:600 }}>₹{cartTotal}</span></div>
+                  {discountAmount > 0 && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:DS.success, fontWeight:600 }}>🏷️ {activeOffer?.title||'Offer'}</span><span style={{ fontSize:13, color:DS.success, fontWeight:700 }}>−₹{discountAmount}</span></div>}
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
+                    <span style={{ fontSize:13, color:DS.textSecondary }}>Delivery fee</span>
+                    {deliveryFeeWaived ? <span style={{ fontSize:13, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:DS.textMuted }}>₹{cartVendor.rawDeliveryCharge}</span><span style={{ color:DS.success, fontWeight:700 }}>FREE 🎉</span></span> : <span style={{ fontSize:13, fontWeight:600 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>}
                   </div>
-                  {discountAmount > 0 && (
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5, paddingBottom:5, borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#e5e7eb' }}>
-                      <span style={{ fontSize:11, color:'#16a34a', fontWeight:600 }}>You save</span>
-                      <span style={{ fontSize:11, color:'#16a34a', fontWeight:700 }}>₹{discountAmount}</span>
-                    </div>
-                  )}
-                  <div style={{ display:'flex', justifyContent:'space-between', borderTopWidth: discountAmount > 0 ? 0 : 1, borderTopStyle:'solid', borderTopColor:'#e5e7eb', paddingTop: discountAmount > 0 ? 4 : 8 }}>
-                    <span style={{ fontSize:14, fontWeight:700 }}>Total</span>
-                    <span style={{ fontSize:14, fontWeight:700, color:'#E24B4A' }}>₹{finalTotal}</span>
+                  <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10, borderTop:`1.5px solid ${DS.border}` }}>
+                    <span style={{ fontSize:15, fontWeight:700, color:DS.textPrimary }}>Total</span>
+                    <span style={{ fontSize:16, fontWeight:800, color:DS.primary }}>₹{finalTotal}</span>
                   </div>
                 </div>
-                {deliveryFeeWaived && (
-                  <div style={{ background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#92400e', marginBottom:12, display:'flex', alignItems:'center', gap:8, borderWidth:1, borderStyle:'solid', borderColor:'#fbbf24' }}>
-                    <span style={{ fontSize:15 }}>🚩</span>
-                    <span>{t('Ashadi Ekadashi offer applied — delivery is free on this order!','आषाढी एकादशी ऑफर लागू — या ऑर्डरवर डिलिव्हरी मोफत!')}</span>
-                  </div>
-                )}
-                {discountAmount > 0 && (
-                  <div style={{ background:'linear-gradient(135deg,#f0fdf4,#dcfce7)', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#166534', marginBottom:12, display:'flex', alignItems:'center', gap:8, borderWidth:1.5, borderStyle:'solid', borderColor:'#86efac' }}>
-                    <span style={{ fontSize:16 }}>🏷️</span>
-                    <div>
-                      <div style={{ fontWeight:700 }}>{activeOffer?.title} applied!</div>
-                      <div style={{ fontSize:10, marginTop:1, color:'#16a34a' }}>₹{discountAmount} discount has been applied to your order</div>
-                    </div>
-                  </div>
-                )}
-                <div style={{ background:'#fef3c7', borderRadius:9, padding:'10px 12px', fontSize:12, color:'#78350f', marginBottom:12 }}>💵 Payment: <strong>Cash on Delivery (COD)</strong></div>
-                <button 
-                  onClick={handlePlaceOrder} 
-                  disabled={placingOrder}
-                  style={{ 
-                    width:'100%', 
-                    background: placingOrder ? '#fca5a5' : '#E24B4A', 
-                    color:'#fff', 
-                    border:'none', 
-                    padding:14, 
-                    borderRadius:10, 
-                    fontSize:14, 
-                    fontWeight:600, 
-                    cursor: placingOrder ? 'not-allowed' : 'pointer', 
-                    fontFamily:'Poppins', 
-                    marginBottom:8,
-                    opacity: placingOrder ? 0.8 : 1
-                  }}
-                >
+                {deliveryFeeWaived && <div style={{ background:DS.warningLight, borderRadius:12, padding:'10px 12px', fontSize:12, color:'#92400e', marginBottom:12, display:'flex', alignItems:'center', gap:8, border:`1px solid #FDE68A` }}><span style={{ fontSize:15 }}>🚩</span><span>{t('Ashadi Ekadashi — delivery is free!','आषाढी एकादशी — डिलिव्हरी मोफत!')}</span></div>}
+                {discountAmount > 0 && <div style={{ background:DS.successLight, borderRadius:12, padding:'10px 12px', fontSize:12, color:'#166534', marginBottom:12, display:'flex', alignItems:'center', gap:8, border:`1.5px solid #86EFAC` }}><span style={{ fontSize:16 }}>🏷️</span><div><div style={{ fontWeight:700 }}>{activeOffer?.title} applied!</div><div style={{ fontSize:10, marginTop:1, color:DS.success }}>₹{discountAmount} discount on your order</div></div></div>}
+                <div style={{ background:DS.warningLight, borderRadius:12, padding:'10px 14px', fontSize:12, color:'#78350f', marginBottom:14, display:'flex', alignItems:'center', gap:8, border:`1px solid #FDE68A` }}>
+                  <span style={{ fontSize:15 }}>�</span><span>Payment: <strong>Cash on Delivery (COD)</strong></span>
+                </div>
+                <button onClick={handlePlaceOrder} disabled={placingOrder} style={{ width:'100%', background: placingOrder ? '#FCA5A5' : DS.primary, color:'#fff', border:'none', padding:'16px 0', borderRadius:16, fontSize:15, fontWeight:700, cursor: placingOrder ? 'not-allowed' : 'pointer', fontFamily:'Poppins', marginBottom:10, boxShadow: placingOrder ? 'none' : `0 4px 18px rgba(226,75,74,0.4)` }}>
                   {placingOrder ? '⏳ Placing Order...' : `🎉 Place Order · ₹${finalTotal}`}
                 </button>
-                <button onClick={() => setShowCheckout(false)} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:11, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>← Back to Cart</button>
+                <button onClick={() => setShowCheckout(false)} style={{ width:'100%', background:'transparent', color:DS.primary, border:`1.5px solid #FECACA`, padding:'13px 0', borderRadius:14, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>← Back to Cart</button>
               </div>
             )}
           </div>
@@ -2680,59 +2710,60 @@ export default function UserApp() {
 
         {/* ── ORDERS LIST ── */}
         {tab==='orders' && !selectedOrder && (
-          <div style={{ background:'#f7f7f7', minHeight:'100%' }}>
-            <div style={{ padding:'16px 16px 8px', fontSize:15, fontWeight:700, color:'#1f2937' }}>{t('My Orders','माझे ऑर्डर')}</div>
-            {orders.length===0 && <div style={{ textAlign:'center', padding:'60px 20px', color:'#9ca3af' }}><div style={{ fontSize:48, marginBottom:12 }}>🛍️</div><div style={{ fontSize:14, fontWeight:600 }}>No orders yet!</div><div style={{ fontSize:12, marginTop:4 }}>Order something delicious 🍽️</div></div>}
+          <div style={{ background:DS.bg, minHeight:'100%' }}>
+            <div style={{ padding:'16px 16px 10px', fontSize:18, fontWeight:800, color:DS.textPrimary }}>My Orders</div>
+            {orders.length===0 && (
+              <div style={{ textAlign:'center', padding:'60px 20px', color:DS.textMuted }}>
+                <div style={{ fontSize:52, marginBottom:12 }}>🛍️</div>
+                <div style={{ fontSize:15, fontWeight:700, color:DS.textPrimary, marginBottom:6 }}>No orders yet!</div>
+                <div style={{ fontSize:13 }}>Order something delicious 🍽️</div>
+              </div>
+            )}
             <div style={{ padding:'0 16px 80px' }}>
               {orders.map(o => {
                 const isActive = !['delivered','cancelled'].includes(o.status)
+                const statusStyle = {
+                  delivered:        { bg:'#D1FAE5', color:'#065F46', label:'Delivered' },
+                  cancelled:        { bg:'#FEE2E2', color:'#991B1B', label:'Cancelled' },
+                  out_for_delivery: { bg:'#DBEAFE', color:'#1E40AF', label:'🛵 Out for Delivery' },
+                  preparing:        { bg:'#FEF3C7', color:'#92400E', label:'Preparing' },
+                  accepted:         { bg:'#ECFDF5', color:'#065F46', label:'Accepted' },
+                  pending:          { bg:'#FFF7ED', color:'#C2410C', label:'Pending' },
+                }[o.status] || { bg:DS.border, color:DS.textSecondary, label:o.status }
                 return (
-                  <div key={o.id} onClick={() => setSelectedOrder(o)} style={{ background:'#fff', borderRadius:14, padding:14, marginBottom:10, cursor:'pointer', boxShadow:'0 2px 8px rgba(0,0,0,0.06)', borderWidth:1, borderStyle:'solid', borderColor:isActive?'#fecaca':'#f3f4f6' }}>
+                  <div key={o.id} onClick={() => setSelectedOrder(o)} style={{ background:'#FFFFFF', borderRadius:18, padding:'14px 16px', marginBottom:12, cursor:'pointer', boxShadow:DS.shadow, border:`1px solid ${isActive ? '#FECACA' : DS.border}` }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                       <div>
-                        <div style={{ fontSize:14, fontWeight:700, color:'#1f2937' }}>{o.vendorName}</div>
-                        <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>{o.createdAt?.toDate?.()?.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})||''}</div>
+                        <div style={{ fontSize:14, fontWeight:700, color:DS.textPrimary }}>{o.vendorName}</div>
+                        <div style={{ fontSize:11, color:DS.textMuted, marginTop:2 }}>{o.createdAt?.toDate?.()?.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})||''}</div>
                       </div>
-                      <span style={{ fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:20, background:o.status==='delivered'?'#d1fae5':o.status==='cancelled'?'#fee2e2':o.status==='out_for_delivery'?'#dbeafe':o.status==='preparing'?'#fef3c7':'#fff7ed', color:o.status==='delivered'?'#065f46':o.status==='cancelled'?'#991b1b':o.status==='out_for_delivery'?'#1e40af':o.status==='preparing'?'#92400e':'#c2410c' }}>
-                        {o.status==='out_for_delivery'?'🛵 Out for Delivery':o.status?.replace('_',' ').replace(/\w/g,c=>c.toUpperCase())}
-                      </span>
+                      <span style={{ fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:20, background:statusStyle.bg, color:statusStyle.color }}>{statusStyle.label}</span>
                     </div>
-                    <div style={{ fontSize:12, color:'#6b7280', marginBottom:8 }}>{o.items?.slice(0,2).map(i=>i.qty+'x '+i.name).join(', ')}{o.items?.length>2?` +${o.items.length-2} more`:''}</div>
-                    {o.freeDeliveryOffer && (
-                      <div style={{ display:'inline-flex', alignItems:'center', gap:5, background:'#fff7ed', borderRadius:8, padding:'4px 9px', marginBottom:8, borderWidth:1, borderStyle:'solid', borderColor:'#fde68a' }}>
-                        <span style={{ fontSize:11 }}>🚩</span>
-                        <span style={{ fontSize:10, fontWeight:700, color:'#92400e' }}>Ashadi Ekadashi — Free Delivery</span>
-                      </div>
-                    )}
+                    <div style={{ fontSize:12, color:DS.textSecondary, marginBottom:8 }}>{o.items?.slice(0,2).map(i=>i.qty+'x '+i.name).join(', ')}{o.items?.length>2?` +${o.items.length-2} more`:''}</div>
                     {o.status === 'cancelled' && o.cancellationReason && (
-                      <div style={{ background:'#fff5f5', borderLeft:'3px solid #dc2626', borderRadius:6, padding:'7px 10px', marginBottom:8, display:'flex', gap:7, alignItems:'flex-start' }}>
+                      <div style={{ background:'#FFF5F5', borderLeft:`3px solid #DC2626`, borderRadius:8, padding:'8px 10px', marginBottom:8, display:'flex', gap:7 }}>
                         <span style={{ fontSize:12, flexShrink:0 }}>🚫</span>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:9, fontWeight:700, color:'#dc2626', letterSpacing:0.5, marginBottom:2 }}>
-                            {o.cancelledBy === 'vendor' ? 'CANCELLED BY RESTAURANT' : o.cancelledBy === 'user' ? 'YOU CANCELLED' : 'CANCELLED'}
-                          </div>
-                          <div style={{ fontSize:11, color:'#7f1d1d', lineHeight:1.45, fontWeight:500 }}>{o.cancellationReason}</div>
+                        <div>
+                          <div style={{ fontSize:9, fontWeight:700, color:'#DC2626', letterSpacing:0.5 }}>{o.cancelledBy==='vendor'?'CANCELLED BY RESTAURANT':o.cancelledBy==='user'?'YOU CANCELLED':'CANCELLED'}</div>
+                          <div style={{ fontSize:11, color:'#7F1D1D', lineHeight:1.45 }}>{o.cancellationReason}</div>
                         </div>
                       </div>
                     )}
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <span style={{ fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹{o.total}</span>
-                      {isActive
-                        ? <span style={{ fontSize:11, color:'#E24B4A', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
-                            {o.status === 'out_for_delivery' && <span style={{ width:6, height:6, borderRadius:'50%', background:'#E24B4A', display:'inline-block', animation:'livePulse 1s infinite' }} />}
-                            {o.status === 'out_for_delivery' ? 'Live Track →' : 'Track Order →'}
-                          </span>
-                        : <span style={{ fontSize:11, color:'#9ca3af' }}>Tap for details →</span>
-                      }
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                      <span style={{ fontSize:15, fontWeight:800, color:DS.primary }}>₹{o.total}</span>
+                      <span style={{ fontSize:11, color: isActive ? DS.primary : DS.textMuted, fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+                        {o.status==='out_for_delivery' && <span style={{ width:6, height:6, borderRadius:'50%', background:DS.primary, display:'inline-block', animation:'livePulse 1s infinite' }} />}
+                        {isActive ? (o.status==='out_for_delivery' ? 'Live Track →' : 'Track Order →') : 'Tap for details →'}
+                      </span>
                     </div>
                     <style>{`@keyframes livePulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
-                    <div style={{ display:'flex', gap:8, marginTop:8 }}>
-                      <div onClick={e => { e.stopPropagation(); setBillOrder(o); setShowBill(true) }} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:5, background:'#f9fafb', borderRadius:8, padding:'6px 0', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', cursor:'pointer' }}>
-                        <span style={{ fontSize:13 }}>🧾</span><span style={{ fontSize:11, fontWeight:600, color:'#374151' }}>View Bill</span>
+                    <div style={{ display:'flex', gap:8 }}>
+                      <div onClick={e => { e.stopPropagation(); setBillOrder(o); setShowBill(true) }} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:5, background:'#FAFAFA', borderRadius:10, padding:'8px 0', border:`1px solid ${DS.border}`, cursor:'pointer' }}>
+                        <span style={{ fontSize:13 }}>🧾</span><span style={{ fontSize:11, fontWeight:600, color:DS.textSecondary }}>View Bill</span>
                       </div>
-                      {o.status === 'delivered' && (
-                        <div onClick={e => { e.stopPropagation(); const v=vendors.find(x=>x.id===o.vendorUid); if(v){setReviewVendor(v);setReviewRating(5);setShowReview(true)} }} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:5, background:'linear-gradient(90deg,#fff7ed,#fef3c7)', borderRadius:8, padding:'6px 0', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', cursor:'pointer' }}>
-                          <span style={{ fontSize:13 }}>⭐</span><span style={{ fontSize:11, fontWeight:600, color:'#92400e' }}>Rate Now</span>
+                      {o.status==='delivered' && (
+                        <div onClick={e => { e.stopPropagation(); const v=vendors.find(x=>x.id===o.vendorUid); if(v){setReviewVendor(v);setReviewRating(5);setShowReview(true)} }} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:5, background:DS.warningLight, borderRadius:10, padding:'8px 0', border:`1px solid #FDE68A`, cursor:'pointer' }}>
+                          <span style={{ fontSize:13 }}>⭐</span><span style={{ fontSize:11, fontWeight:600, color:DS.warning }}>Rate Now</span>
                         </div>
                       )}
                       <CancelOrderButton order={o} />
@@ -2750,74 +2781,100 @@ export default function UserApp() {
 
         {/* ── PROFILE ── */}
         {tab==='profile' && (
-          <div style={{ padding:16, background:'#fff', minHeight:'100%' }}>
-            <div style={{ background:'linear-gradient(135deg,#E24B4A,#ff6b6a)', borderRadius:16, padding:'24px 20px', marginBottom:16, textAlign:'center', color:'#fff' }}>
-              <div style={{ width:64, height:64, borderRadius:'50%', background:'rgba(255,255,255,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:26, fontWeight:700, margin:'0 auto 10px', borderWidth:3, borderStyle:'solid', borderColor:'rgba(255,255,255,0.4)' }}>
-                {userData?.name ? userData.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) : '👤'}
-              </div>
-              <div style={{ fontSize:18, fontWeight:700 }}>{userData?.name||'FeedoZone User'}</div>
-              <div style={{ fontSize:12, opacity:0.85, marginTop:3 }}>{user?.email}</div>
-              {locationName && <div style={{ fontSize:11, opacity:0.8, marginTop:4 }}>📍 {locationName}</div>}
-            </div>
-
-            {freeDeliveryToday && (
-              <div style={{ background:'linear-gradient(135deg,#FF9933,#E24B4A)', borderRadius:14, padding:'14px 16px', marginBottom:16, display:'flex', alignItems:'center', gap:12, color:'#fff' }}>
-                <span style={{ fontSize:24 }}>🚩</span>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, fontWeight:800 }}>{t('Ashadi Ekadashi Special','आषाढी एकादशी स्पेशल')}</div>
-                  <div style={{ fontSize:11, opacity:0.92, marginTop:1 }}>{t('Free delivery on every order today','आज प्रत्येक ऑर्डरवर मोफत डिलिव्हरी')}</div>
+          <div style={{ background:DS.bg, minHeight:'100%', paddingBottom:80 }}>
+            {/* Hero card */}
+            <div style={{ background:'linear-gradient(135deg,#E24B4A 0%,#C73232 100%)', padding:'32px 20px 28px', position:'relative', overflow:'hidden' }}>
+              <div style={{ position:'absolute', top:-40, right:-30, width:160, height:160, borderRadius:'50%', background:'rgba(255,255,255,0.07)' }} />
+              <div style={{ position:'absolute', bottom:-50, left:-20, width:120, height:120, borderRadius:'50%', background:'rgba(255,255,255,0.05)' }} />
+              <div style={{ position:'relative', zIndex:1, display:'flex', alignItems:'center', gap:16 }}>
+                <div style={{ width:64, height:64, borderRadius:20, background:'rgba(255,255,255,0.22)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, fontWeight:800, color:'#fff', border:'2.5px solid rgba(255,255,255,0.35)', flexShrink:0 }}>
+                  {userData?.name ? userData.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) : '👤'}
+                </div>
+                <div>
+                  <div style={{ fontSize:18, fontWeight:800, color:'#fff', lineHeight:1.2 }}>{userData?.name||'FeedoZone User'}</div>
+                  <div style={{ fontSize:12, color:'rgba(255,255,255,0.8)', marginTop:3 }}>{user?.email}</div>
+                  {locationName && <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', marginTop:4, display:'flex', alignItems:'center', gap:4 }}><span>📍</span>{locationName}</div>}
                 </div>
               </div>
-            )}
-
-            {/* ══════════════════════════════════════
-                ── (App download strip removed) ──
-            ══════════════════════════════════════ */}
-
-            <div style={{ background:'#fafafa', borderRadius:12, padding:'4px 16px', marginBottom:16 }}>
-              {[{icon:'👤',label:'Full Name',value:userData?.name},{icon:'📧',label:'Email',value:userData?.email||user?.email},{icon:'📱',label:'Mobile',value:userData?.mobile?`+91 ${userData.mobile}`:null},{icon:'🏠',label:'Address',value:userData?.address},{icon:'📍',label:'Delivery Location',value:locationName},{icon:'📅',label:'Member Since',value:userData?.createdAt?new Date(userData.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'}):null}].map(row=>(
-                <div key={row.label} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6' }}>
-                  <div style={{ width:34, height:34, borderRadius:9, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, flexShrink:0 }}>{row.icon}</div>
-                  <div style={{ flex:1 }}><div style={{ fontSize:10, color:'#9ca3af', marginBottom:1 }}>{row.label}</div><div style={{ fontSize:13, color:row.value?'#1f2937':'#d1d5db', fontWeight:row.value?500:400 }}>{row.value||'Not added'}</div></div>
-                </div>
-              ))}
-            </div>
-            <div style={{ background:'#fff5f5', borderRadius:12, padding:'12px 14px', marginBottom:10, borderWidth:1, borderStyle:'solid', borderColor:'#fecaca' }}>
-              <div style={{ fontSize:12, fontWeight:700, color:'#991b1b', marginBottom:8 }}>📍 Delivery Location</div>
-              <div style={{ fontSize:12, color:'#374151', marginBottom:10 }}>{locationName || 'Detecting...'}</div>
-              <div style={{ display:'flex', gap:8 }}>
-                <button onClick={() => setShowLocationPicker(true)} style={{ flex:1, background:'#E24B4A', color:'#fff', border:'none', padding:'9px 0', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>📍 Change Location</button>
-                <button onClick={() => setShowMap(true)} style={{ flex:1, background:'#fff', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#fecaca', padding:'9px 0', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>🗺️ View Map</button>
-              </div>
-            </div>
-            <div style={{ background:'#f9fafb', borderRadius:10, padding:'12px 14px', marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <span style={{ fontSize:13, color:'#374151' }}>🌐 {tt('lang.label')}</span>
-              <LanguageSwitcher variant="ghost" />
-            </div>
-            <button onClick={() => { localStorage.removeItem('feedo_location'); logoutUser() }} style={{ width:'100%', background:'transparent', color:'#E24B4A', borderWidth:1, borderStyle:'solid', borderColor:'#E24B4A', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:500, marginBottom:16 }}>Logout</button>
-            <div style={{ marginBottom:4, fontSize:11, color:'#9ca3af', fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>Help & Legal</div>
-            <div style={{ background:'#fafafa', borderRadius:12, overflow:'hidden', borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', marginBottom:80 }}>
-              {[
-                {icon:'💬',label:'Contact Support',sub:'Chat with our support team',badge: supportUnreadCount > 0 ? supportUnreadCount : null, action: handleOpenSupportChat},
-                {icon:'🟢',label:'Join WhatsApp Community',sub:'Free-delivery coupons & hot offers', action:()=>{ try { window.open(WHATSAPP_COMMUNITY_URL, '_blank', 'noopener,noreferrer') } catch {} }},
-                {icon:'📜',label:'Terms & Conditions',sub:'Our terms of service',action:()=>setShowTerms(true)},
-                {icon:'🔒',label:'Privacy Policy',sub:'How we handle your data',action:()=>setShowPrivacy(true)}
-              ].map((item,i,arr)=>(
-                <button key={item.label} onClick={item.action} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', background:'transparent', border:'none', borderBottomWidth:i<arr.length-1?1:0, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}>
-                  <div style={{ width:36, height:36, borderRadius:10, background:'#fff5f5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0, position:'relative' }}>
-                    {item.icon}
-                    {item.badge && <div style={{ position:'absolute', top:-4, right:-4, background:'#E24B4A', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{item.badge}</div>}
+              {freeDeliveryToday && (
+                <div style={{ position:'relative', zIndex:1, marginTop:16, background:'rgba(255,255,255,0.15)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10, backdropFilter:'blur(4px)' }}>
+                  <span style={{ fontSize:18 }}>🚩</span>
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:800, color:'#fff' }}>Ashadi Ekadashi Special</div>
+                    <div style={{ fontSize:10, color:'rgba(255,255,255,0.85)' }}>Free delivery on every order today</div>
                   </div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13, fontWeight:600, color:'#1f2937', display:'flex', alignItems:'center', gap:6 }}>
-                      {item.label}
-                      {item.badge && <span style={{ fontSize:9, background:'#fee2e2', color:'#dc2626', padding:'1px 6px', borderRadius:10, fontWeight:700 }}>NEW REPLY</span>}
+                </div>
+              )}
+            </div>
+
+            {/* Info section */}
+            <div style={{ padding:'16px 16px 0' }}>
+              <div style={{ background:'#FFFFFF', borderRadius:18, overflow:'hidden', boxShadow:DS.shadow, marginBottom:14 }}>
+                {[
+                  {icon:'👤', label:'Full Name', value:userData?.name},
+                  {icon:'📧', label:'Email', value:userData?.email||user?.email},
+                  {icon:'📱', label:'Mobile', value:userData?.mobile ? `+91 ${userData.mobile}` : null},
+                  {icon:'🏠', label:'Address', value:userData?.address},
+                  {icon:'📅', label:'Member Since', value:userData?.createdAt ? new Date(userData.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'}) : null},
+                ].map((row, i, arr) => (
+                  <div key={row.label} style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px', borderBottom: i<arr.length-1 ? `1px solid ${DS.border}` : 'none' }}>
+                    <div style={{ width:36, height:36, borderRadius:11, background:DS.primaryLight, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>{row.icon}</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:10, color:DS.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.4, marginBottom:1 }}>{row.label}</div>
+                      <div style={{ fontSize:13, color: row.value ? DS.textPrimary : DS.textMuted, fontWeight: row.value ? 600 : 400 }}>{row.value||'Not added'}</div>
                     </div>
-                    <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{item.sub}</div>
                   </div>
-                  <span style={{ fontSize:14, color:'#d1d5db' }}>›</span>
-                </button>
-              ))}
+                ))}
+              </div>
+
+              {/* Location card */}
+              <div style={{ background:'#FFFFFF', borderRadius:18, padding:'14px 16px', marginBottom:14, boxShadow:DS.shadow }}>
+                <div style={{ fontSize:12, fontWeight:700, color:DS.textPrimary, marginBottom:4 }}>📍 Delivery Location</div>
+                <div style={{ fontSize:13, color:DS.textSecondary, marginBottom:12 }}>{locationName || 'Not detected yet'}</div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <button onClick={() => setShowLocationPicker(true)} style={{ flex:1, background:DS.primary, color:'#fff', border:'none', padding:'10px 0', borderRadius:12, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>📍 Change</button>
+                  <button onClick={() => setShowMap(true)} style={{ flex:1, background:DS.primaryLight, color:DS.primary, border:`1px solid #FECACA`, padding:'10px 0', borderRadius:12, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>🗺️ View Map</button>
+                </div>
+              </div>
+
+              {/* Language */}
+              <div style={{ background:'#FFFFFF', borderRadius:18, padding:'14px 16px', marginBottom:14, boxShadow:DS.shadow, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <div style={{ width:36, height:36, borderRadius:11, background:DS.primaryLight, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>🌐</div>
+                  <span style={{ fontSize:13, fontWeight:600, color:DS.textPrimary }}>{tt('lang.label')}</span>
+                </div>
+                <LanguageSwitcher variant="ghost" />
+              </div>
+
+              {/* Help & Legal */}
+              <div style={{ background:'#FFFFFF', borderRadius:18, overflow:'hidden', boxShadow:DS.shadow, marginBottom:14 }}>
+                {[
+                  {icon:'💬', label:'Contact Support', sub:'Chat with our team', badge: supportUnreadCount > 0 ? supportUnreadCount : null, action: handleOpenSupportChat},
+                  {icon:'🟢', label:'Join WhatsApp Community', sub:'Exclusive coupons & offers', action:()=>{ try { window.open(WHATSAPP_COMMUNITY_URL, '_blank', 'noopener,noreferrer') } catch {} }},
+                  {icon:'📜', label:'Terms & Conditions', sub:'Our terms of service', action:()=>setShowTerms(true)},
+                  {icon:'🔒', label:'Privacy Policy', sub:'How we handle your data', action:()=>setShowPrivacy(true)},
+                ].map((item,i,arr) => (
+                  <button key={item.label} onClick={item.action} style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', background:'transparent', border:'none', borderBottom: i<arr.length-1 ? `1px solid ${DS.border}` : 'none', cursor:'pointer', fontFamily:'Poppins', textAlign:'left' }}>
+                    <div style={{ width:36, height:36, borderRadius:11, background:DS.primaryLight, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0, position:'relative' }}>
+                      {item.icon}
+                      {item.badge && <div style={{ position:'absolute', top:-4, right:-4, background:DS.primary, color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{item.badge}</div>}
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:DS.textPrimary, display:'flex', alignItems:'center', gap:6 }}>
+                        {item.label}
+                        {item.badge && <span style={{ fontSize:9, background:'#FEE2E2', color:'#DC2626', padding:'1px 6px', borderRadius:10, fontWeight:700 }}>NEW REPLY</span>}
+                      </div>
+                      <div style={{ fontSize:11, color:DS.textMuted, marginTop:1 }}>{item.sub}</div>
+                    </div>
+                    <span style={{ fontSize:16, color:DS.textMuted }}>›</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Logout */}
+              <button onClick={() => { localStorage.removeItem('feedo_location'); logoutUser() }} style={{ width:'100%', background:'#FFFFFF', color:'#DC2626', border:`1.5px solid #FECACA`, padding:'14px 0', borderRadius:16, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', boxShadow:DS.shadow }}>
+                👋 Logout
+              </button>
             </div>
           </div>
         )}
@@ -2825,17 +2882,21 @@ export default function UserApp() {
 
       {/* ── REVIEW MODAL ── */}
       {showReview && reviewVendor && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:998, display:'flex', flexDirection:'column', justifyContent:'flex-end' }} onClick={e=>{if(e.target===e.currentTarget)setShowReview(false)}}>
-          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', padding:20, maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
-            <div style={{ display:'flex', justifyContent:'center', marginBottom:16 }}><div style={{ width:40, height:4, borderRadius:2, background:'#e5e7eb' }} /></div>
-            <div style={{ fontSize:16, fontWeight:700, color:'#1f2937', marginBottom:4 }}>Rate your experience</div>
-            <div style={{ fontSize:12, color:'#9ca3af', marginBottom:16 }}>{reviewVendor.storeName}</div>
-            <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:18 }}>
-              {[1,2,3,4,5].map(s=><button key={s} onClick={()=>setReviewRating(s)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:36, color:s<=reviewRating?'#f59e0b':'#e5e7eb', transition:'all 0.15s', transform:s<=reviewRating?'scale(1.15)':'scale(1)' }}>★</button>)}
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:998, display:'flex', flexDirection:'column', justifyContent:'flex-end', fontFamily:'Poppins,sans-serif' }} onClick={e=>{if(e.target===e.currentTarget)setShowReview(false)}}>
+          <div style={{ background:'#fff', borderRadius:'24px 24px 0 0', padding:'8px 20px 32px', maxWidth:430, width:'100%', margin:'0 auto', boxShadow:DS.shadowLg }}>
+            <div style={{ display:'flex', justifyContent:'center', marginBottom:16, paddingTop:8 }}><div style={{ width:40, height:4, borderRadius:2, background:DS.border }} /></div>
+            <div style={{ fontSize:17, fontWeight:800, color:DS.textPrimary, marginBottom:4 }}>Rate your experience</div>
+            <div style={{ fontSize:13, color:DS.textSecondary, marginBottom:20 }}>{reviewVendor.storeName}</div>
+            <div style={{ display:'flex', gap:12, justifyContent:'center', marginBottom:16 }}>
+              {[1,2,3,4,5].map(s=>(
+                <button key={s} onClick={()=>setReviewRating(s)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:38, color:s<=reviewRating ? '#F59E0B' : DS.border, transition:'all 0.15s', transform:s<=reviewRating ? 'scale(1.15)' : 'scale(1)' }}>★</button>
+              ))}
             </div>
-            <div style={{ textAlign:'center', fontSize:13, fontWeight:600, color:'#E24B4A', marginBottom:14 }}>{['','😞 Poor','😐 Fair','🙂 Good','😊 Great','🤩 Excellent!'][reviewRating]}</div>
-            <textarea placeholder="Share your experience..." value={reviewText} onChange={e=>setReviewText(e.target.value)} rows={3} style={{ width:'100%', padding:'12px 14px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', resize:'none', boxSizing:'border-box', marginBottom:14, lineHeight:1.5 }} />
-            <button onClick={handleSubmitReview} disabled={submittingReview} style={{ width:'100%', background:submittingReview?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:12, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>{submittingReview?'Submitting...':'⭐ Submit Review'}</button>
+            <div style={{ textAlign:'center', fontSize:14, fontWeight:700, color:DS.primary, marginBottom:16 }}>
+              {['','😞 Poor','😐 Fair','🙂 Good','😊 Great','🤩 Excellent!'][reviewRating]}
+            </div>
+            <textarea placeholder="Share your experience..." value={reviewText} onChange={e=>setReviewText(e.target.value)} rows={3} style={{ width:'100%', padding:'13px 14px', border:`1.5px solid ${DS.borderMed}`, borderRadius:14, fontSize:13, fontFamily:'Poppins', outline:'none', resize:'none', boxSizing:'border-box', marginBottom:16, lineHeight:1.5, color:DS.textPrimary, background:'#FAFAFA' }} />
+            <button onClick={handleSubmitReview} disabled={submittingReview} style={{ width:'100%', background:submittingReview ? '#FCA5A5' : DS.primary, color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', boxShadow:`0 4px 18px rgba(226,75,74,0.4)` }}>{submittingReview ? 'Submitting...' : '⭐ Submit Review'}</button>
           </div>
         </div>
       )}
@@ -2843,31 +2904,48 @@ export default function UserApp() {
       {/* ── ORDER SUCCESS ── */}
       {orderSuccess && (
         <div style={{ position:'fixed', inset:0, background:'#fff', zIndex:999, overflowY:'auto', fontFamily:'Poppins,sans-serif', maxWidth:430, margin:'0 auto' }}>
-          <div style={{ background:'linear-gradient(135deg, #16a34a, #15803d)', padding:'48px 24px 32px', textAlign:'center', color:'#fff' }}>
-            <div style={{ width:80, height:80, borderRadius:'50%', background:'rgba(255,255,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:40, margin:'0 auto 16px', border:'3px solid rgba(255,255,255,0.4)' }}>✅</div>
-            <div style={{ fontSize:22, fontWeight:700, marginBottom:6 }}>Order Placed!</div>
-            <div style={{ fontSize:13, opacity:0.9 }}>Your food is being prepared</div>
-            <div style={{ marginTop:12, background:'rgba(255,255,255,0.2)', borderRadius:20, display:'inline-block', padding:'6px 18px' }}><span style={{ fontSize:12, fontWeight:600 }}>Order #{orderSuccess.orderId}</span></div>
-            {orderSuccess.freeDeliveryOffer && (
-              <div style={{ marginTop:10, background:'rgba(255,255,255,0.2)', borderRadius:20, display:'inline-flex', alignItems:'center', gap:6, padding:'6px 16px', marginLeft:8 }}>
-                <span style={{ fontSize:13 }}>🚩</span><span style={{ fontSize:11, fontWeight:700 }}>Ashadi Ekadashi — Free Delivery</span>
+          {/* Hero */}
+          <div style={{ background:'linear-gradient(135deg,#059669,#10B981)', padding:'56px 24px 36px', textAlign:'center', color:'#fff', position:'relative', overflow:'hidden' }}>
+            <div style={{ position:'absolute', top:-40, right:-30, width:180, height:180, borderRadius:'50%', background:'rgba(255,255,255,0.07)' }} />
+            <div style={{ position:'absolute', bottom:-60, left:-20, width:140, height:140, borderRadius:'50%', background:'rgba(255,255,255,0.05)' }} />
+            <div style={{ position:'relative', zIndex:1 }}>
+              <div style={{ width:84, height:84, borderRadius:26, background:'rgba(255,255,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:42, margin:'0 auto 18px', border:'3px solid rgba(255,255,255,0.35)' }}>✅</div>
+              <div style={{ fontSize:24, fontWeight:800, marginBottom:6 }}>Order Placed!</div>
+              <div style={{ fontSize:14, opacity:0.9, marginBottom:14 }}>Your food is being prepared</div>
+              <div style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.18)', borderRadius:20, padding:'7px 18px', backdropFilter:'blur(4px)' }}>
+                <span style={{ fontSize:13, fontWeight:700 }}>Order #{orderSuccess.orderId?.slice(-6)?.toUpperCase()}</span>
               </div>
-            )}
+              {orderSuccess.freeDeliveryOffer && (
+                <div style={{ marginTop:10, display:'inline-flex', alignItems:'center', gap:7, background:'rgba(255,255,255,0.15)', borderRadius:20, padding:'6px 16px', marginLeft:8, backdropFilter:'blur(4px)' }}>
+                  <span style={{ fontSize:13 }}>🚩</span><span style={{ fontSize:11, fontWeight:700 }}>Free Delivery Applied</span>
+                </div>
+              )}
+              {orderSuccess.discountAmount > 0 && (
+                <div style={{ marginTop:10, display:'inline-flex', alignItems:'center', gap:7, background:'rgba(255,255,255,0.15)', borderRadius:20, padding:'6px 16px', backdropFilter:'blur(4px)' }}>
+                  <span style={{ fontSize:13 }}>🏷️</span><span style={{ fontSize:11, fontWeight:700 }}>Saved ₹{orderSuccess.discountAmount}</span>
+                </div>
+              )}
+            </div>
           </div>
+
           <div style={{ padding:20 }}>
             {orderSuccess.vendorPhone && (
-              <div style={{ background:'#fafafa', borderRadius:14, padding:16, marginBottom:16, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
-                <div style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:10, display:'flex', alignItems:'center', gap:6 }}><span>📞</span> Contact Restaurant</div>
-                <div style={{ fontSize:13, color:'#6b7280', marginBottom:10 }}>You can call or WhatsApp <strong>{orderSuccess.vendorName}</strong> directly:</div>
+              <div style={{ background:'#FAFAFA', borderRadius:18, padding:16, marginBottom:16, border:`1px solid ${DS.border}`, boxShadow:DS.shadow }}>
+                <div style={{ fontSize:12, fontWeight:700, color:DS.textSecondary, marginBottom:8, textTransform:'uppercase', letterSpacing:0.5, display:'flex', alignItems:'center', gap:6 }}><span>📞</span> Contact Restaurant</div>
+                <div style={{ fontSize:13, color:DS.textSecondary, marginBottom:12 }}>Call or WhatsApp <strong style={{ color:DS.textPrimary }}>{orderSuccess.vendorName}</strong> directly:</div>
                 <div style={{ display:'flex', gap:10 }}>
-                  <button onClick={()=>notifyVendorWhatsApp(orderSuccess.vendorPhone,{userName:orderSuccess.userName,userPhone:orderSuccess.userPhone||'',address:orderSuccess.address,items:orderSuccess.items,subtotal:orderSuccess.subtotal,deliveryFee:orderSuccess.deliveryFee,total:orderSuccess.total})} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'11px 0', background:'#25D366', border:'none', borderRadius:10, cursor:'pointer', fontFamily:'Poppins' }}><span style={{ fontSize:18 }}>💬</span><span style={{ fontSize:13, fontWeight:600, color:'#fff' }}>WhatsApp</span></button>
-                  <button onClick={()=>callVendor(orderSuccess.vendorPhone)} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'11px 0', background:'#E24B4A', border:'none', borderRadius:10, cursor:'pointer', fontFamily:'Poppins' }}><span style={{ fontSize:18 }}>📞</span><span style={{ fontSize:13, fontWeight:600, color:'#fff' }}>Call</span></button>
+                  <button onClick={()=>notifyVendorWhatsApp(orderSuccess.vendorPhone,{userName:orderSuccess.userName,userPhone:orderSuccess.userPhone||'',address:orderSuccess.address,items:orderSuccess.items,subtotal:orderSuccess.subtotal,deliveryFee:orderSuccess.deliveryFee,total:orderSuccess.total})} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'13px 0', background:'#25D366', border:'none', borderRadius:14, cursor:'pointer', fontFamily:'Poppins' }}>
+                    <span style={{ fontSize:18 }}>💬</span><span style={{ fontSize:13, fontWeight:700, color:'#fff' }}>WhatsApp</span>
+                  </button>
+                  <button onClick={()=>callVendor(orderSuccess.vendorPhone)} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'13px 0', background:DS.primary, border:'none', borderRadius:14, cursor:'pointer', fontFamily:'Poppins' }}>
+                    <span style={{ fontSize:18 }}>📞</span><span style={{ fontSize:13, fontWeight:700, color:'#fff' }}>Call</span>
+                  </button>
                 </div>
               </div>
             )}
-            <button onClick={() => { setBillOrder(orderSuccess); setShowBill(true) }} style={{ width:'100%', background:'#1f2937', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>🧾 View Digital Bill</button>
-            <button onClick={()=>{const latestOrder=orders[0];setOrderSuccess(null);setTab('orders');if(latestOrder)setTimeout(()=>setSelectedOrder(latestOrder),100)}} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:14, borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginBottom:10 }}>📋 Track My Order</button>
-            <button onClick={()=>{setOrderSuccess(null);setTab('home')}} style={{ width:'100%', background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:12, borderRadius:10, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>🏠 Back to Home</button>
+            <button onClick={() => { setBillOrder(orderSuccess); setShowBill(true) }} style={{ width:'100%', background:DS.textPrimary, color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>🧾 View Digital Bill</button>
+            <button onClick={()=>{const latestOrder=orders[0];setOrderSuccess(null);setTab('orders');if(latestOrder)setTimeout(()=>setSelectedOrder(latestOrder),100)}} style={{ width:'100%', background:DS.primary, color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, boxShadow:`0 4px 18px rgba(226,75,74,0.4)` }}>📋 Track My Order</button>
+            <button onClick={()=>{setOrderSuccess(null);setTab('home')}} style={{ width:'100%', background:'transparent', color:DS.textSecondary, border:`1.5px solid ${DS.borderMed}`, padding:'13px 0', borderRadius:14, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>🏠 Back to Home</button>
           </div>
         </div>
       )}
@@ -2875,33 +2953,33 @@ export default function UserApp() {
       {/* ── TERMS ── */}
       {showTerms && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }} onClick={e=>{if(e.target===e.currentTarget)setShowTerms(false)}}>
-          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'88vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
-            <div style={{ padding:'16px 20px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, background:'#fff', zIndex:1 }}>
-              <div><div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>📜 Terms & Conditions</div><div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>Please read carefully</div></div>
-              <button onClick={()=>setShowTerms(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
+          <div style={{ background:'#fff', borderRadius:'24px 24px 0 0', maxHeight:'88vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif', boxShadow:DS.shadowLg }}>
+            <div style={{ padding:'16px 20px', borderBottom:`1px solid ${DS.border}`, display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, background:'#fff', zIndex:1, borderRadius:'24px 24px 0 0' }}>
+              <div><div style={{ fontSize:16, fontWeight:800, color:DS.textPrimary }}>📜 Terms & Conditions</div><div style={{ fontSize:11, color:DS.textMuted, marginTop:2 }}>Please read carefully</div></div>
+              <button onClick={()=>setShowTerms(false)} style={{ background:DS.border, border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
             </div>
             <div style={{ padding:'20px 20px 48px' }}>
               {[
-                { title:'1. Acceptance of Terms', body:'By using FeedoZone, you agree to be bound by these terms and conditions. If you do not agree, please do not use the platform.' },
+                { title:'1. Acceptance of Terms', body:'By using FeedoZone, you agree to be bound by these terms and conditions.' },
                 { title:'2. Eligibility', body:'You must be 18 years or older, or have parental / guardian consent to use FeedoZone.' },
-                { title:'3. Location Requirement', body:'FeedoZone requires location access to show nearby restaurants and calculate delivery charges. Restaurants beyond 4km are not available for delivery.' },
-                { title:'4. Orders & Payments', body:'All orders placed are subject to restaurant availability and acceptance. Payment is currently Cash on Delivery (COD) only.' },
-                { title:'5. Delivery Charges', body:'Delivery charges are set by each restaurant — either a fixed fee or distance-based (₹10/1km, ₹20/2km, ₹30/3km, ₹40/4km). FeedoZone may run limited-time promotions (e.g. festival-based free-delivery days) that temporarily waive this charge.' },
-                { title:'6. Cancellation Policy', body:'Users may cancel orders within 5 minutes of placing them. Cancellations after 5 minutes are not permitted through the app.' },
-                { title:'7. User Responsibilities', body:'You are responsible for providing accurate delivery details, including address and contact number.' },
+                { title:'3. Location Requirement', body:'FeedoZone requires location access to show nearby restaurants and calculate delivery charges. Restaurants beyond 4km are not available.' },
+                { title:'4. Orders & Payments', body:'All orders are subject to restaurant availability. Payment is Cash on Delivery (COD) only.' },
+                { title:'5. Delivery Charges', body:'Charges are set by each restaurant — fixed or distance-based (₹10/km up to ₹40/4km). Festival promotions may temporarily waive charges.' },
+                { title:'6. Cancellation Policy', body:'Users may cancel within 5 minutes of placing an order. Cancellations after 5 minutes are not permitted.' },
+                { title:'7. User Responsibilities', body:'You are responsible for providing accurate delivery details including address and contact number.' },
                 { title:'8. Prohibited Conduct', body:'Users must not misuse the platform, place fraudulent orders, or abuse vendors or delivery personnel.' },
                 { title:'9. Intellectual Property', body:'All content, logos, and branding on FeedoZone are the property of FeedoZone.' },
                 { title:'10. Changes to Terms', body:'FeedoZone reserves the right to update these terms at any time without prior notice.' },
               ].map((section, i) => (
                 <div key={i} style={{ marginBottom:18 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:5 }}>{section.title}</div>
-                  <div style={{ fontSize:12, color:'#6b7280', lineHeight:1.8 }}>{section.body}</div>
+                  <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:5 }}>{section.title}</div>
+                  <div style={{ fontSize:12, color:DS.textSecondary, lineHeight:1.8 }}>{section.body}</div>
                 </div>
               ))}
-              <div style={{ marginTop:10, padding:'12px 14px', background:'#f9fafb', borderRadius:10, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
-                <div style={{ fontSize:11, color:'#9ca3af', lineHeight:1.6 }}>Last updated: June 2025 · FeedoZone, Warananagar, Kolhapur, Maharashtra, India</div>
+              <div style={{ marginTop:10, padding:'12px 14px', background:'#FAFAFA', borderRadius:12, border:`1px solid ${DS.border}` }}>
+                <div style={{ fontSize:11, color:DS.textMuted, lineHeight:1.6 }}>Last updated: June 2025 · FeedoZone, Warananagar, Kolhapur, Maharashtra, India</div>
               </div>
-              <button onClick={()=>setShowTerms(false)} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:13, borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginTop:16 }}>I Understand ✓</button>
+              <button onClick={()=>setShowTerms(false)} style={{ width:'100%', background:DS.primary, color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginTop:16, boxShadow:`0 4px 18px rgba(226,75,74,0.4)` }}>I Understand ✓</button>
             </div>
           </div>
         </div>
@@ -2910,33 +2988,33 @@ export default function UserApp() {
       {/* ── PRIVACY ── */}
       {showPrivacy && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', flexDirection:'column', justifyContent:'flex-end' }} onClick={e=>{if(e.target===e.currentTarget)setShowPrivacy(false)}}>
-          <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'88vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
-            <div style={{ padding:'16px 20px', borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, background:'#fff', zIndex:1 }}>
-              <div><div style={{ fontSize:16, fontWeight:700, color:'#1f2937' }}>🔒 Privacy Policy</div><div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>How we handle your data</div></div>
-              <button onClick={()=>setShowPrivacy(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer' }}>✕</button>
+          <div style={{ background:'#fff', borderRadius:'24px 24px 0 0', maxHeight:'88vh', overflowY:'auto', maxWidth:430, width:'100%', margin:'0 auto', fontFamily:'Poppins,sans-serif', boxShadow:DS.shadowLg }}>
+            <div style={{ padding:'16px 20px', borderBottom:`1px solid ${DS.border}`, display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, background:'#fff', zIndex:1, borderRadius:'24px 24px 0 0' }}>
+              <div><div style={{ fontSize:16, fontWeight:800, color:DS.textPrimary }}>🔒 Privacy Policy</div><div style={{ fontSize:11, color:DS.textMuted, marginTop:2 }}>How we handle your data</div></div>
+              <button onClick={()=>setShowPrivacy(false)} style={{ background:DS.border, border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
             </div>
             <div style={{ padding:'20px 20px 48px' }}>
               {[
-                { title:'1. Information We Collect', body:'We collect your name, email address, phone number, delivery address, and GPS location when you register or place an order.' },
-                { title:'2. Location Data', body:'Location access is required to use FeedoZone. It is used to show nearby restaurants within 4km and calculate delivery charges. Location is not tracked continuously or in the background.' },
-                { title:'3. How We Use Your Data', body:'Your data is used solely to process orders, facilitate food delivery, improve your experience on FeedoZone, and send you relevant notifications.' },
-                { title:'4. Data Storage & Security', body:'Your data is securely stored using Google Firebase. We follow industry-standard encryption and security practices.' },
-                { title:'5. Push Notifications', body:'With your permission, we send push notifications for order status updates. You can disable notifications at any time.' },
+                { title:'1. Information We Collect', body:'We collect your name, email, phone number, delivery address, and GPS location when you register or place an order.' },
+                { title:'2. Location Data', body:'Location is required to show nearby restaurants and calculate delivery charges. It is not tracked continuously or in the background.' },
+                { title:'3. How We Use Your Data', body:'Your data is used solely to process orders, facilitate delivery, improve your experience, and send relevant notifications.' },
+                { title:'4. Data Storage & Security', body:'Your data is securely stored using Google Firebase with industry-standard encryption.' },
+                { title:'5. Push Notifications', body:'With your permission, we send notifications for order updates. You can disable them at any time.' },
                 { title:'6. Sharing of Information', body:'We may share your order details with the restaurant vendor solely to fulfill your order.' },
-                { title:'7. Data Retention', body:'We retain your account data for as long as your account is active. You may request deletion at any time via Support.' },
+                { title:'7. Data Retention', body:'We retain data while your account is active. You may request deletion via Support.' },
                 { title:'8. Your Rights', body:'You have the right to access, correct, or delete your personal data. Contact us through the Support section.' },
-                { title:'9. Changes to This Policy', body:'We may update this Privacy Policy from time to time. Continued use constitutes acceptance of the revised policy.' },
+                { title:'9. Changes to This Policy', body:'We may update this policy from time to time. Continued use constitutes acceptance.' },
               ].map((section, i) => (
                 <div key={i} style={{ marginBottom:18 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', marginBottom:5 }}>{section.title}</div>
-                  <div style={{ fontSize:12, color:'#6b7280', lineHeight:1.8 }}>{section.body}</div>
+                  <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:5 }}>{section.title}</div>
+                  <div style={{ fontSize:12, color:DS.textSecondary, lineHeight:1.8 }}>{section.body}</div>
                 </div>
               ))}
-              <div style={{ marginTop:10, padding:'12px 14px', background:'#f0fdf4', borderRadius:10, borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0', display:'flex', alignItems:'flex-start', gap:10 }}>
+              <div style={{ marginTop:10, padding:'12px 14px', background:DS.successLight, borderRadius:12, border:`1px solid #BBF7D0`, display:'flex', alignItems:'flex-start', gap:10 }}>
                 <span style={{ fontSize:16, flexShrink:0 }}>🔐</span>
                 <div style={{ fontSize:11, color:'#166534', lineHeight:1.6 }}>Your privacy matters to us. FeedoZone will never sell your data.</div>
               </div>
-              <button onClick={()=>setShowPrivacy(false)} style={{ width:'100%', background:'#E24B4A', color:'#fff', border:'none', padding:13, borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginTop:16 }}>Got It ✓</button>
+              <button onClick={()=>setShowPrivacy(false)} style={{ width:'100%', background:DS.primary, color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginTop:16, boxShadow:`0 4px 18px rgba(226,75,74,0.4)` }}>Got It ✓</button>
             </div>
           </div>
         </div>
@@ -2944,32 +3022,47 @@ export default function UserApp() {
 
       {/* Cart bar */}
       {cart.length > 0 && (tab==='home' || tab==='vendor-menu') && (
-        <div onClick={() => setTab('cart')} style={{ background:'#E24B4A', color:'#fff', padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', flexShrink:0 }}>
-          <span style={{ fontSize:13 }}>{cartCount} item{cartCount>1?'s':''} · ₹{cartTotal}{deliveryFeeWaived ? ' · 🎉 Free delivery' : ''}</span>
-          <strong style={{ fontSize:14 }}>View Cart →</strong>
+        <div onClick={() => setTab('cart')} style={{ background: `linear-gradient(135deg,${DS.primary},${DS.primaryDark})`, color:'#fff', padding:'14px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', flexShrink:0, boxShadow:`0 -4px 20px rgba(226,75,74,0.35)` }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ background:'rgba(255,255,255,0.2)', borderRadius:10, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800 }}>{cartCount}</div>
+            <div>
+              <div style={{ fontSize:13, fontWeight:700 }}>{cartCount} item{cartCount>1?'s':''}</div>
+              <div style={{ fontSize:10, opacity:0.85 }}>{cartVendor?.storeName}{deliveryFeeWaived ? ' · 🎉 Free delivery' : ''}</div>
+            </div>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <span style={{ fontSize:15, fontWeight:800 }}>₹{finalTotal}</span>
+            <span style={{ fontSize:13, fontWeight:600, opacity:0.9 }}>View Cart →</span>
+          </div>
         </div>
       )}
 
       {/* Bottom Nav */}
       <div style={S.bottomNav}>
         {[
-          {id:'home', icon:'🏠', label: tt('nav.home')},
-          {id:'orders', icon:'📋', label: tt('nav.orders')},
-          {id:'cart', icon:'🛒', label: `${tt('nav.cart')}${cartCount>0?` (${cartCount})`:''}`},
-          {id:'profile', icon:'👤', label: tt('nav.profile')}
-        ].map(item=>(
-          <button key={item.id} style={S.bnItem()} onClick={() => setTab(item.id)}>
-            <span style={{ fontSize:20 }}>{item.icon}</span>
-            <span style={{ fontSize:10, color:tab===item.id?'#E24B4A':'#6b7280', fontWeight:tab===item.id?600:400 }}>{item.label}</span>
-          </button>
-        ))}
+          {id:'home',    icon:(active)=> active ? '🏠' : '🏠',    label: tt('nav.home')},
+          {id:'orders',  icon:(active)=> active ? '📋' : '📋',    label: tt('nav.orders')},
+          {id:'cart',    icon:(active)=> active ? '🛒' : '🛒',    label: `${tt('nav.cart')}${cartCount>0?` (${cartCount})`:''}`},
+          {id:'profile', icon:(active)=> active ? '👤' : '👤',    label: tt('nav.profile')},
+        ].map(item => {
+          const active = tab === item.id
+          return (
+            <button key={item.id} style={S.bnItem(active)} onClick={() => setTab(item.id)}>
+              <div style={{ width:28, height:28, borderRadius:9, background: active ? DS.primaryLight : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.2s' }}>
+                <span style={{ fontSize:18 }}>{item.icon(active)}</span>
+              </div>
+              <span style={{ fontSize:10, fontWeight: active ? 700 : 500, color: active ? DS.primary : DS.textMuted, letterSpacing:0.1 }}>{item.label}</span>
+              {active && <div style={{ width:16, height:2.5, borderRadius:2, background:DS.primary }} />}
+            </button>
+          )
+        })}
         {supportUnreadCount > 0 && (
-          <button style={S.bnItem()} onClick={handleOpenSupportChat}>
-            <div style={{ position:'relative' }}>
-              <span style={{ fontSize:20 }}>🎧</span>
-              <div style={{ position:'absolute', top:-4, right:-4, background:'#E24B4A', color:'#fff', borderRadius:'50%', width:14, height:14, fontSize:8, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{supportUnreadCount}</div>
+          <button style={S.bnItem(false)} onClick={handleOpenSupportChat}>
+            <div style={{ position:'relative', width:28, height:28, borderRadius:9, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <span style={{ fontSize:18 }}>🎧</span>
+              <div style={{ position:'absolute', top:-2, right:-2, background:DS.primary, color:'#fff', borderRadius:'50%', width:14, height:14, fontSize:8, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #fff' }}>{supportUnreadCount}</div>
             </div>
-            <span style={{ fontSize:10, color:'#E24B4A', fontWeight:600 }}>Support</span>
+            <span style={{ fontSize:10, color:DS.primary, fontWeight:700 }}>Support</span>
           </button>
         )}
       </div>
