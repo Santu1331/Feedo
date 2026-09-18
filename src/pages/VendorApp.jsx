@@ -13,12 +13,14 @@ import toast from 'react-hot-toast'
 import { useOrderAlert } from '../hooks/useOrderAlert'
 import { usePendingOrderNotifier } from '../hooks/usePendingOrderNotifier'
 import VendorBill from '../components/VendorBill'
-import { doc, updateDoc, onSnapshot } from 'firebase/firestore'
+import { doc, updateDoc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import { placeOrder, sendNotification } from '../firebase/services'
 import { useLanguage } from '../i18n/LanguageContext'
 import LanguageSwitcher from '../i18n/LanguageSwitcher'
 import OfferManagement from '../components/OfferManagement'
 import VendorRevenue from '../components/VendorRevenue'
+import FeedozoneLogo from '../components/FeedozoneLogo'
 
 const STATUS_NEXT  = { pending:'accepted', accepted:'preparing', preparing:'ready', ready:'out_for_delivery', out_for_delivery:'delivered' }
 const STATUS_LABEL = { pending:'Accept Order', accepted:'Start Preparing', preparing:'Mark Ready', ready:'Out for Delivery', out_for_delivery:'Mark Delivered' }
@@ -995,6 +997,10 @@ export default function VendorApp() {
   const { t: tt } = useLanguage()
   const [tab, setTab] = useState('orders')
   const [orders, setOrders] = useState([])
+  // ── BOUNCE & ROLL ─────────────────────────────────────────────────────────
+  const [brOffers, setBrOffers] = useState([])   // incoming BR offers for this vendor
+  const [acceptingBr, setAcceptingBr] = useState(null) // id of BR offer being accepted
+  // ─────────────────────────────────────────────────────────────────────────
   const [menuItems, setMenuItems] = useState([])
   const [combos, setCombos] = useState([])
   const [isOpen, setIsOpen] = useState(false)
@@ -1199,6 +1205,80 @@ export default function VendorApp() {
     const u3 = getCombos(user.uid, (fetchedCombos) => { setCombos(fetchedCombos) })
     return () => { u1(); u2(); u3() }
   }, [user, userData])
+
+  // ── BOUNCE & ROLL LISTENER ────────────────────────────────────────────────
+  // Listen for BR offers addressed to this vendor. Shows them at top of orders.
+  useEffect(() => {
+    if (!user?.uid) return
+    const q = query(
+      collection(db, 'bounceRollOffers'),
+      where('targetVendorUid', '==', user.uid),
+      where('status', '==', 'open')
+    )
+    const unsub = onSnapshot(q,
+      snap => setBrOffers(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      err => { console.error('BR vendor listener:', err); setBrOffers([]) }
+    )
+    return unsub
+  }, [user?.uid])
+
+  // Accept a Bounce & Roll offer — converts it into a real pending order
+  const handleAcceptBrOffer = async (offer) => {
+    setAcceptingBr(offer.id)
+    try {
+      const { serverTimestamp: sTs, addDoc: aDoc, collection: col, updateDoc: uDoc, doc: dc } = await import('firebase/firestore')
+      // 1. Create order doc
+      const billNo = 'FZ-BR-' + Date.now().toString(36).slice(-6).toUpperCase()
+      const orderRef = await aDoc(col(db, 'orders'), {
+        userUid: offer.userUid,
+        userName: offer.userName || '',
+        userPhone: offer.userPhone || '',
+        vendorUid: user.uid,
+        vendorId: user.uid,
+        vendorName: userData?.storeName || '',
+        items: offer.items || [],
+        subtotal: offer.subtotal || 0,
+        deliveryFee: offer.deliveryFee || 0,
+        total: offer.total || 0,
+        address: offer.address || '',
+        paymentMode: 'COD',
+        billNo,
+        status: 'accepted',
+        isBounceRoll: true,
+        originalOrderId: offer.originalOrderId || null,
+        createdAt: sTs(),
+        updatedAt: sTs(),
+      })
+      // 2. Mark offer as accepted
+      await uDoc(dc(db, 'bounceRollOffers', offer.id), {
+        status: 'accepted',
+        acceptedByVendor: user.uid,
+        acceptedAt: sTs(),
+        newOrderId: orderRef.id,
+      })
+      // 3. Notify the customer via in-app notification
+      const { sendNotification: sn } = await import('../firebase/services')
+      await sn(offer.userUid, {
+        title: '🔄 Bounce & Roll — New Restaurant Found!',
+        body: `${userData?.storeName} has accepted your order! Tap to track.`,
+        data: { type: 'bounce_roll_accepted', orderId: orderRef.id, vendorName: userData?.storeName }
+      })
+      toast.success(`✅ Bounce & Roll order accepted! Customer notified.`)
+    } catch (err) {
+      console.error('BR accept error:', err)
+      toast.error('Failed to accept. Try again.')
+    }
+    setAcceptingBr(null)
+  }
+
+  const handleDeclineBrOffer = async (offerId) => {
+    try {
+      const { updateDoc: uDoc, doc: dc } = await import('firebase/firestore')
+      await uDoc(dc(db, 'bounceRollOffers', offerId), { status: 'declined', declinedAt: new Date() })
+      toast('BR offer declined', { icon: '👋' })
+    } catch {}
+  }
+  // ──────────────────────────────────────────────────────────────────────────
 
   // ── SUBSCRIPTION: live listener on vendors/{uid} ──────────────────────
   // useAuth reads from users/ collection which doesn't have subscriptionFee.
@@ -1917,6 +1997,10 @@ export default function VendorApp() {
 
       {/* ── HEADER ── */}
       <div style={{ background:'#1a1a1a', padding:16, flexShrink:0 }}>
+        {/* FeedoZone logo pill — small, top of vendor dashboard */}
+        <div style={{ marginBottom:10 }}>
+          <FeedozoneLogo size="sm" variant="full" dark={false} />
+        </div>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <div onClick={() => vendorPhotoRef.current?.click()} style={{ width:44, height:44, borderRadius:10, overflow:'hidden', background:'#2a2a2a', cursor:'pointer', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', borderWidth:2, borderStyle:'solid', borderColor:'#333', position:'relative' }}>
@@ -1988,6 +2072,74 @@ export default function VendorApp() {
         {/* ── ORDERS TAB ── */}
         {tab === 'orders' && (
           <>
+            {/* ── BOUNCE & ROLL INCOMING ORDERS ── */}
+            {brOffers.length > 0 && !selectedVendorOrder && (
+              <div style={{ margin:'10px 14px 0', fontFamily:'Poppins,sans-serif' }}>
+                {/* BR header */}
+                <div style={{ background:'linear-gradient(135deg,#1A0A0A,#2D0808)', borderRadius:16, padding:'14px 16px', marginBottom:10, position:'relative', overflow:'hidden' }}>
+                  <div style={{ position:'absolute', top:-20, right:-20, width:100, height:100, borderRadius:'50%', background:'rgba(226,75,74,0.15)', pointerEvents:'none' }} />
+                  <div style={{ position:'relative', zIndex:1, display:'flex', alignItems:'center', gap:10 }}>
+                    <div style={{ width:38, height:38, borderRadius:12, background:'rgba(226,75,74,0.3)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0, animation:'pulse 2s infinite' }}>🔄</div>
+                    <div>
+                      <div style={{ fontSize:13, fontWeight:800, color:'#fff' }}>Bounce & Roll — {brOffers.length} order{brOffers.length>1?'s':''} available!</div>
+                      <div style={{ fontSize:10, color:'rgba(255,255,255,0.55)', marginTop:2 }}>Accept to pick up a cancelled order · First to accept wins</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* BR offer cards */}
+                {brOffers.map(offer => (
+                  <div key={offer.id} style={{ background:'#fff', borderRadius:14, border:'1.5px solid #FECACA', overflow:'hidden', marginBottom:10, boxShadow:'0 4px 16px rgba(226,75,74,0.12)' }}>
+                    {/* Order info */}
+                    <div style={{ padding:'12px 14px', borderBottom:'1px solid #F3F4F6' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
+                        <div>
+                          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
+                            <span style={{ fontSize:11, fontWeight:800, background:'#FEE2E2', color:'#E24B4A', borderRadius:20, padding:'2px 9px' }}>🔄 BOUNCE & ROLL</span>
+                          </div>
+                          <div style={{ fontSize:13, fontWeight:700, color:'#1A1A1A' }}>{offer.userName || 'Customer'}</div>
+                          <div style={{ fontSize:11, color:'#6B7280', marginTop:2 }}>📍 {offer.address || 'Address not provided'}</div>
+                        </div>
+                        <div style={{ textAlign:'right' }}>
+                          <div style={{ fontSize:18, fontWeight:900, color:'#E24B4A' }}>₹{offer.total}</div>
+                          <div style={{ fontSize:9, color:'#9CA3AF', marginTop:1 }}>Total</div>
+                        </div>
+                      </div>
+                      {/* Items */}
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+                        {(offer.items||[]).slice(0,3).map((item,i) => (
+                          <span key={i} style={{ fontSize:10, background:'#F5F5F5', color:'#374151', borderRadius:8, padding:'3px 9px', fontWeight:600 }}>
+                            {item.qty}× {item.name}
+                          </span>
+                        ))}
+                        {(offer.items||[]).length > 3 && (
+                          <span style={{ fontSize:10, color:'#9CA3AF' }}>+{offer.items.length-3} more</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* CTA buttons */}
+                    <div style={{ display:'flex' }}>
+                      <button
+                        disabled={acceptingBr === offer.id}
+                        onClick={() => handleAcceptBrOffer(offer)}
+                        style={{ flex:2, padding:'13px 0', background: acceptingBr===offer.id ? '#FCA5A5' : 'linear-gradient(135deg,#E24B4A,#C73232)', color:'#fff', border:'none', fontSize:13, fontWeight:800, cursor: acceptingBr===offer.id ? 'not-allowed' : 'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:6, boxShadow:'0 4px 12px rgba(226,75,74,0.35)' }}
+                      >
+                        {acceptingBr===offer.id ? '⏳ Accepting...' : '✅ Accept Order'}
+                      </button>
+                      <button
+                        onClick={() => handleDeclineBrOffer(offer.id)}
+                        style={{ flex:1, padding:'13px 0', background:'#F5F5F5', color:'#6B7280', border:'none', borderLeft:'1px solid #E5E7EB', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
+                      >
+                        Skip
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ height:8 }} />
+              </div>
+            )}
+
             {selectedVendorOrder && (
               <div style={{ position:'fixed', inset:0, background:'#f7f7f7', zIndex:999, overflowY:'auto', maxWidth:430, margin:'0 auto', fontFamily:'Poppins,sans-serif' }}>
                 <div style={{ background: selectedVendorOrder.status==='pending'?'linear-gradient(135deg,#E24B4A,#c73232)': selectedVendorOrder.status==='delivered'?'linear-gradient(135deg,#16a34a,#15803d)': selectedVendorOrder.status==='cancelled'?'linear-gradient(135deg,#dc2626,#b91c1c)':'linear-gradient(135deg,#1a1a1a,#2a2a2a)', padding:'20px 16px 28px', color:'#fff' }}>
@@ -2712,7 +2864,7 @@ export default function VendorApp() {
                     <label style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Food Category</label>
                     <select style={{...inp,cursor:'pointer'}} value={storeEditData.category||''} onChange={e => setStoreEditData(p=>({...p,category:e.target.value}))}>
                       <option value="">Select category</option>
-                      {['Home Food','Tiffin Service','Restaurant','Cloud Kitchen','Bakery','Sweets & Snacks','Beverages','Biryani House','Fast Food','Healthy Food','South Indian','North Indian','Chinese','Multi-cuisine'].map(c => <option key={c}>{c}</option>)}
+                      {['Thali','Biryani','Pizza','Chinese','Snacks','Juice','Sweets','Roti','Rice'].map(c => <option key={c}>{c}</option>)}
                     </select>
                   </div>
                   <div style={{ display:'flex', gap:8, marginTop:4 }}>

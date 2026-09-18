@@ -3,6 +3,7 @@ import { loginUser, logoutUser } from '../firebase/services'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import toast from 'react-hot-toast'
+import { FeedozonePill } from '../components/FeedozoneLogo'
 
 export default function ManagerLoginPage() {
   const [email, setEmail]       = useState('')
@@ -70,16 +71,12 @@ export default function ManagerLoginPage() {
 
       {/* Brand + icon */}
       <div style={{ textAlign: 'center', marginBottom: 32, position: 'relative', zIndex: 1 }}>
-        <div style={{
-          width: 72, height: 72, borderRadius: '50%',
-          background: 'linear-gradient(135deg,#4f46e5,#7c3aed)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 32, margin: '0 auto 16px',
-          boxShadow: '0 0 32px rgba(99,102,241,0.4)',
-        }}>🧑‍💼</div>
-        <div style={{ fontSize: 13, color: '#818cf8', fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 }}>FeedoZone</div>
-        <div style={{ fontSize: 24, fontWeight: 800, color: '#fff', letterSpacing: -0.5 }}>Manager Portal</div>
-        <div style={{ fontSize: 12, color: '#475569', marginTop: 6 }}>City Operations Dashboard</div>
+        <FeedozonePill size="md" style={{ margin: '0 auto 14px' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 6 }}>
+          <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, boxShadow: '0 0 24px rgba(99,102,241,0.4)' }}>🧑‍💼</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: -0.5 }}>Manager Portal</div>
+        </div>
+        <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>City Operations Dashboard</div>
       </div>
 
       {/* Info badge */}

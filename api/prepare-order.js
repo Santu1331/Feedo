@@ -1,9 +1,10 @@
-// api/accept-order.js
-// Called from the service worker notification "Accept" action button.
-// Updates order status to 'accepted' and notifies the customer.
-//
-// Bug #1 fix: customer expoPushToken → Expo relay (not Admin SDK).
-// Bug #3 fix: also checks customer fcmToken for browser push.
+// api/prepare-order.js
+// Bug #4 fix — the "Prepare" step was never built.
+// Called when a vendor taps "Start Preparing" in the dashboard.
+// Updates order status to 'preparing' and notifies the customer via:
+//   - In-app notification (Firestore)
+//   - Mobile push (Expo relay for ExponentPushToken)
+//   - Web/browser push (FCM Admin SDK for fcmToken)
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore, FieldValue }      from 'firebase-admin/firestore'
@@ -28,6 +29,22 @@ if (!getApps().length) {
 
 const isExpoToken = (t) => typeof t === 'string' && t.startsWith('ExponentPushToken')
 
+async function sendFcm(token, title, body, data) {
+  const stringData = {}
+  for (const [k, v] of Object.entries(data)) stringData[k] = String(v)
+  try {
+    await getMessaging().send({
+      token,
+      notification: { title, body },
+      data: stringData,
+      android: { priority: 'high', notification: { sound: 'default', channelId: 'default' } },
+      apns:    { payload: { aps: { sound: 'default' } } },
+    })
+  } catch (err) {
+    console.error('FCM send error (prepare):', err.code, token.slice(0, 20))
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin',  '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -47,69 +64,57 @@ export default async function handler(req, res) {
     if (!orderDoc.exists) return res.status(404).json({ error: 'Order not found' })
 
     const orderData = orderDoc.data()
-    if (orderData.status !== 'pending') {
+
+    // Only transition from accepted → preparing
+    if (!['accepted', 'pending'].includes(orderData.status)) {
       return res.status(200).json({ success: true, message: `Order already ${orderData.status}` })
     }
 
-    // 1. Update status
-    await orderRef.update({ status: 'accepted', updatedAt: FieldValue.serverTimestamp() })
+    // 1. Update Firestore
+    await orderRef.update({ status: 'preparing', updatedAt: FieldValue.serverTimestamp() })
 
-    // 2. In-app notification to customer
+    // 2. Notify customer
     const userUid = orderData.userUid
     if (userUid) {
+      const vendorName = orderData.vendorName || 'The restaurant'
+
+      // In-app bell
       await db.collection('notifications').add({
         toUid:     userUid,
-        title:     '✅ Order Accepted!',
-        body:      `${orderData.vendorName || 'The restaurant'} accepted your order and is getting started 🎉`,
+        title:     '👨‍🍳 Chef is Cooking!',
+        body:      `${vendorName} has started preparing your food. Fresh & hot coming up! 🍳`,
         read:      false,
         createdAt: FieldValue.serverTimestamp(),
       })
 
-      // 3. Push to customer (mobile + web)
-      const userDoc   = await db.collection('users').doc(userUid).get()
-      const userData  = userDoc.exists ? userDoc.data() : {}
+      // Push tokens
+      const userDoc  = await db.collection('users').doc(userUid).get()
+      const userData = userDoc.exists ? userDoc.data() : {}
       const expoToken = userData.expoPushToken
       const fcmToken  = userData.fcmToken
 
-      const pushTitle = '✅ Order Accepted!'
-      const pushBody  = `${orderData.vendorName || 'The restaurant'} accepted your order 🎉`
-      const pushData  = { orderId: String(orderId), type: 'order_status', url: '/orders' }
+      const title   = '👨‍🍳 Chef is Cooking!'
+      const body    = `${vendorName} is preparing your food. Fresh & hot coming up! 🍳`
+      const pushData = { orderId: String(orderId), type: 'order_status', status: 'preparing', url: '/orders' }
 
-      // Mobile — Expo relay (Bug #1 fix: ExponentPushToken goes to Expo, not Admin SDK)
+      // Mobile
       if (expoToken) {
         if (isExpoToken(expoToken)) {
-          await sendExpoNotifications([{ to: expoToken, title: pushTitle, body: pushBody, data: pushData }])
+          await sendExpoNotifications([{ to: expoToken, title, body, data: pushData }])
         } else {
-          // Raw FCM token stored in expoPushToken field
-          await sendFcm(expoToken, pushTitle, pushBody, pushData)
+          await sendFcm(expoToken, title, body, pushData)
         }
       }
 
-      // Web browser — FCM (Bug #3 fix)
+      // Web
       if (fcmToken && typeof fcmToken === 'string') {
-        await sendFcm(fcmToken, pushTitle, pushBody, pushData)
+        await sendFcm(fcmToken, title, body, pushData)
       }
     }
 
-    return res.status(200).json({ success: true, message: 'Order accepted and customer notified' })
+    return res.status(200).json({ success: true, message: 'Order status set to preparing, customer notified' })
   } catch (err) {
-    console.error('accept-order error:', err)
+    console.error('prepare-order error:', err)
     return res.status(500).json({ error: 'Internal Server Error', details: err.message })
-  }
-}
-
-async function sendFcm(token, title, body, data) {
-  const stringData = {}
-  for (const [k, v] of Object.entries(data)) stringData[k] = String(v)
-  try {
-    await getMessaging().send({
-      token,
-      notification: { title, body },
-      data: stringData,
-      android: { priority: 'high', notification: { sound: 'default', channelId: 'default' } },
-      apns:    { payload: { aps: { sound: 'default' } } },
-    })
-  } catch (err) {
-    console.error('FCM send error:', err.code, token.slice(0, 20))
   }
 }

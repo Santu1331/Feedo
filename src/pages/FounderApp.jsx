@@ -6,7 +6,7 @@ import {
 } from '../firebase/services'
 import {
   doc, deleteDoc, getDocs, query, where, collection, addDoc,
-  serverTimestamp, orderBy, limit, onSnapshot, updateDoc
+  serverTimestamp, orderBy, limit, onSnapshot, updateDoc, setDoc
 } from 'firebase/firestore'
 import { db, auth } from '../firebase/config'
 import toast from 'react-hot-toast'
@@ -17,6 +17,7 @@ import Pagination from '../components/Pagination'
 import SlabSettings from '../components/SlabSettings'
 import FounderRevenue from '../components/FounderRevenue'
 import OfferApproval from '../components/OfferApproval'
+import FeedozoneLogo from '../components/FeedozoneLogo'
 
 const PUSH_URL = '/api/send-push'
 
@@ -863,6 +864,10 @@ export default function FounderApp() {
   // ── VENDOR DELETE REQUESTS (from managers) ────────────────────────────
   const [vendorDeleteRequests, setVendorDeleteRequests] = useState([])
   const [processingDeleteReq, setProcessingDeleteReq] = useState(null)
+  // ── DELETED VENDORS (soft-delete for restore) ──────────────────────────
+  const [deletedVendors, setDeletedVendors] = useState([])
+  const [restoringVendor, setRestoringVendor] = useState(null)
+  const [showDeletedVendors, setShowDeletedVendors] = useState(false)
 
   const PUSH_PRESETS = [
     { icon: '🌞', label: 'Lunch Time', title: '🍛 Hungry? Lunch Time!', body: 'Your favourite food is ready to order on FeedoZone! Order now 🚀' },
@@ -894,6 +899,17 @@ export default function FounderApp() {
     // Vendor delete requests from managers
     const unsubDeleteReqs = onSnapshot(collection(db, 'vendorDeleteRequests'), snap =>
       setVendorDeleteRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    )
+
+    // Soft-deleted vendors (for restore feature) — no orderBy to avoid index requirement
+    const unsubDeleted = onSnapshot(
+      collection(db, 'deletedVendors'),
+      snap => {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        list.sort((a, b) => (b.deletedAt?.seconds || 0) - (a.deletedAt?.seconds || 0))
+        setDeletedVendors(list)
+      },
+      err => { console.error('deletedVendors listener:', err); setDeletedVendors([]) }
     )
 
     const unsubTickets = onSnapshot(collection(db, 'supportTickets'), snap => {
@@ -933,6 +949,7 @@ export default function FounderApp() {
       if (unsubPush) unsubPush()
       if (unsubSubBills) unsubSubBills()
       unsubDeleteReqs()
+      unsubDeleted()
     }
   }, [])
 
@@ -1535,12 +1552,29 @@ export default function FounderApp() {
   const handleApproveDelete = async (req) => {
     setProcessingDeleteReq(req.id)
     try {
-      // Delete vendor from both collections
+      // Soft-delete: save data before removing
+      const vendorSnap = await getDocs(query(collection(db, 'vendors'), where('__name__', '==', req.vendorId)))
+      const userSnap   = await getDocs(query(collection(db, 'users'),   where('__name__', '==', req.vendorId)))
+      const vendorData = vendorSnap.docs[0]?.data() || {}
+      const userData2  = userSnap.docs[0]?.data()   || {}
+
+      await addDoc(collection(db, 'deletedVendors'), {
+        ...vendorData,
+        _userData: userData2,
+        _vendorId: req.vendorId,
+        deletedAt: serverTimestamp(),
+        deletedBy: user?.email || 'founder',
+        storeName: req.storeName,
+        deletionRequestId: req.id,
+        requestedBy: req.requestedBy || 'manager',
+      })
+
+      // Remove from active collections
       await deleteDoc(doc(db, 'vendors', req.vendorId))
       await deleteDoc(doc(db, 'users', req.vendorId))
       // Mark request as approved
       await updateDoc(doc(db, 'vendorDeleteRequests', req.id), { status: 'approved', processedAt: serverTimestamp() })
-      toast.success(`✅ "${req.storeName}" deleted and manager notified`)
+      toast.success(`✅ "${req.storeName}" deleted (restorable from Vendors tab)`)
     } catch (err) { toast.error('Failed: ' + err.message) }
     setProcessingDeleteReq(null)
   }
@@ -1841,12 +1875,68 @@ export default function FounderApp() {
   }
 
   const handleDeleteVendor = async (vendorId, vendorName) => {
-    if (!window.confirm(`Delete "${vendorName}"? This cannot be undone!`)) return
+    if (!window.confirm(`Delete "${vendorName}"? You can restore them later from the Deleted Vendors section.`)) return
     try {
+      // Read full vendor data before deleting
+      const vendorSnap = await getDocs(query(collection(db, 'vendors'), where('__name__', '==', vendorId)))
+      const userSnap   = await getDocs(query(collection(db, 'users'),   where('__name__', '==', vendorId)))
+      const vendorData = vendorSnap.docs[0]?.data() || {}
+      const userData2  = userSnap.docs[0]?.data()   || {}
+
+      // Save to deletedVendors for restore
+      await addDoc(collection(db, 'deletedVendors'), {
+        ...vendorData,
+        _userData: userData2,
+        _vendorId: vendorId,
+        deletedAt: serverTimestamp(),
+        deletedBy: user?.email || 'founder',
+        storeName: vendorName,
+      })
+
+      // Now soft-delete (remove from active collections)
       await deleteDoc(doc(db, 'vendors', vendorId))
-      await deleteDoc(doc(db, 'users', vendorId))
-      toast.success(`"${vendorName}" deleted!`)
+      await deleteDoc(doc(db, 'users',   vendorId))
+      toast.success(`"${vendorName}" deleted. You can restore them anytime.`)
     } catch (err) { toast.error('Delete failed: ' + err.message) }
+  }
+
+  const handleRestoreVendor = async (deleted) => {
+    setRestoringVendor(deleted.id)
+    try {
+      const vid = deleted._vendorId || deleted.id
+      const { _userData, _vendorId, deletedAt, deletedBy, ...vendorData } = deleted
+
+      // Restore to vendors collection
+      await setDoc(doc(db, 'vendors', vid), {
+        ...vendorData,
+        id: vid,
+        restoredAt: serverTimestamp(),
+        restoredBy: user?.email || 'founder',
+        subscriptionStatus: vendorData.subscriptionStatus || 'due', // reset subscription on restore
+      })
+
+      // Restore to users collection
+      await setDoc(doc(db, 'users', vid), {
+        ...(_userData || {}),
+        ...vendorData,
+        id: vid,
+        uid: vid,
+      })
+
+      // Remove from deletedVendors
+      await deleteDoc(doc(db, 'deletedVendors', deleted.id))
+
+      toast.success(`✅ "${deleted.storeName}" restored! Subscription may need reactivation.`)
+    } catch (err) { toast.error('Restore failed: ' + err.message) }
+    setRestoringVendor(null)
+  }
+
+  const handlePermanentDelete = async (deleted) => {
+    if (!window.confirm(`Permanently delete "${deleted.storeName}"? This CANNOT be undone!`)) return
+    try {
+      await deleteDoc(doc(db, 'deletedVendors', deleted.id))
+      toast.success(`"${deleted.storeName}" permanently deleted.`)
+    } catch (err) { toast.error('Failed: ' + err.message) }
   }
 
   // ── INLINE QUICK REORDER ─────────────────────────────────────────────
@@ -2039,11 +2129,8 @@ export default function FounderApp() {
         }}>
           {/* Brand */}
           <div style={{ padding: '20px 18px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 10, height: 10, background: '#E24B4A', borderRadius: '50%' }} />
-              <span style={{ fontSize: 19, fontWeight: 800, letterSpacing: -0.3 }}>FeedoZone</span>
-            </div>
-            <div style={{ fontSize: 11, color: '#888', marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <FeedozoneLogo size="sm" variant="full" dark={false} style={{ marginBottom: 8 }} />
+            <div style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span>👑</span>
               <span>Founder Dashboard</span>
             </div>
@@ -2068,6 +2155,7 @@ export default function FounderApp() {
               { id: 'revenue',    icon: '💎', label: 'Revenue',     count: undefined },
               { id: 'slabs',      icon: '📊', label: 'Slab Settings' },
               { id: 'offers',     icon: '🏷️', label: 'Offers', count: vendors.length > 0 ? undefined : undefined },
+              { id: 'trash',      icon: '🗑️', label: 'Trash',       count: deletedVendors.length || undefined, alert: deletedVendors.length > 0 },
             ].map(item => {
               const active = tab === item.id
               return (
@@ -2113,9 +2201,8 @@ export default function FounderApp() {
         {/* Mobile-only header */}
         {!isDesktop && (
           <div style={{ background: '#111', padding: 16, flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 8, height: 8, background: '#E24B4A', borderRadius: '50%' }} />
-              <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>FeedoZone</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <FeedozoneLogo size="sm" variant="full" dark={false} />
               <span style={{ fontSize: 11, color: '#555' }}>👑 Founder</span>
             </div>
             <div style={{ fontSize: 11, color: '#555', marginTop: 4 }}>Warananagar, Kolhapur</div>
@@ -2163,7 +2250,7 @@ export default function FounderApp() {
             <div>
               <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Founder Dashboard</div>
               <div style={{ fontSize: 18, fontWeight: 800, color: '#1f2937', marginTop: 2, textTransform: 'capitalize' }}>
-                {tab === 'addvendor' ? 'Add Vendor' : tab === 'userdb' ? 'User Database' : tab === 'slabs' ? 'Slab Settings' : tab === 'revenue' ? 'Platform Revenue' : tab === 'offers' ? 'Offer Approval' : tab}
+                {tab === 'addvendor' ? 'Add Vendor' : tab === 'userdb' ? 'User Database' : tab === 'slabs' ? 'Slab Settings' : tab === 'revenue' ? 'Platform Revenue' : tab === 'offers' ? 'Offer Approval' : tab === 'trash' ? 'Trash — Deleted Vendors' : tab}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -2727,6 +2814,84 @@ export default function FounderApp() {
               </div>
             ))}
             </div>
+
+            {/* ── DELETED VENDORS — RESTORE SECTION ── */}
+            {deletedVendors.length > 0 && (
+              <div style={{ background: '#fff', borderRadius: 14, border: '2px solid #FEE2E2', overflow: 'hidden', marginTop: 14 }}>
+                {/* Header */}
+                <button
+                  onClick={() => setShowDeletedVendors(s => !s)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: 'linear-gradient(135deg,#7F1D1D,#991B1B)', border: 'none', cursor: 'pointer', fontFamily: 'Poppins', textAlign: 'left' }}
+                >
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>🗑️</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>Deleted Vendors ({deletedVendors.length})</div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>Tap to {showDeletedVendors ? 'hide' : 'show'} · Restore any deleted vendor</div>
+                  </div>
+                  <span style={{ fontSize: 16, color: '#fff', transition: 'transform 0.2s', transform: showDeletedVendors ? 'rotate(180deg)' : 'rotate(0)' }}>▾</span>
+                </button>
+
+                {showDeletedVendors && (
+                  <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {deletedVendors.map(dv => {
+                      const deletedDate = dv.deletedAt?.toDate?.()
+                      return (
+                        <div key={dv.id} style={{ background: '#FFF5F5', borderRadius: 12, border: '1.5px solid #FECACA', overflow: 'hidden' }}>
+                          {/* Vendor info */}
+                          <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ width: 44, height: 44, borderRadius: 10, overflow: 'hidden', background: '#F0F0F0', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', filter: 'grayscale(100%)' }}>
+                              {dv.photo
+                                ? <img src={dv.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                : <span style={{ fontSize: 20 }}>🏪</span>
+                              }
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dv.storeName}</div>
+                              <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{dv.email} · {dv.category}</div>
+                              <div style={{ fontSize: 10, color: '#EF4444', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span>🗑️ Deleted</span>
+                                {deletedDate && <span>{deletedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
+                                {dv.deletedBy && <span>by {dv.deletedBy}</span>}
+                              </div>
+                            </div>
+                            {/* Sub-info */}
+                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                              <div style={{ fontSize: 11, color: '#9CA3AF' }}>₹{dv.subscriptionFee || 0}/mo</div>
+                              <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>{dv.town || dv.locationName || '—'}</div>
+                            </div>
+                          </div>
+
+                          {/* Action buttons */}
+                          <div style={{ display: 'flex', borderTop: '1px solid #FECACA' }}>
+                            <button
+                              onClick={() => handleRestoreVendor(dv)}
+                              disabled={restoringVendor === dv.id}
+                              style={{ flex: 2, padding: '11px 0', background: restoringVendor === dv.id ? '#E5E7EB' : 'linear-gradient(135deg,#059669,#047857)', color: restoringVendor === dv.id ? '#9CA3AF' : '#fff', border: 'none', fontSize: 12, fontWeight: 800, cursor: restoringVendor === dv.id ? 'not-allowed' : 'pointer', fontFamily: 'Poppins', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                            >
+                              {restoringVendor === dv.id ? '⏳ Restoring...' : '♻️ Restore Vendor'}
+                            </button>
+                            <button
+                              onClick={() => handlePermanentDelete(dv)}
+                              style={{ flex: 1, padding: '11px 0', background: '#FFF5F5', color: '#DC2626', border: 'none', borderLeft: '1px solid #FECACA', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}
+                            >
+                              💀 Perm. Delete
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                    <div style={{ background: '#FFF1F0', borderRadius: 10, padding: '10px 14px', fontSize: 11, color: '#9B1C1C', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                      <span style={{ fontSize: 14, flexShrink: 0 }}>ℹ️</span>
+                      <div>
+                        <strong>Restore</strong> puts the vendor back in the active list. Their subscription will need reactivation.<br/>
+                        <strong>Permanent Delete</strong> removes all data forever and cannot be undone.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ background: '#fff', borderRadius: 12, marginTop: 14, overflow: 'hidden', border: '1px solid #e5e7eb' }}>
               <Pagination
                 page={vendorPage}
@@ -3792,7 +3957,7 @@ export default function FounderApp() {
               <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Phone / WhatsApp</label><input style={inp} placeholder="+91 98765 43210" {...f('phone')} /></div>
               <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Store Address</label><input style={inp} placeholder="Near college gate, Warananagar..." {...f('address')} /></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Category</label><select style={{ ...inp, cursor: 'pointer', marginTop: 4 }} {...f('category')}>{['Thali', 'Biryani', 'Chinese', 'Snacks', 'Drinks', 'Sweets', 'Roti', 'Rice'].map(c => <option key={c}>{c}</option>)}</select></div>
+                <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Category</label><select style={{ ...inp, cursor: 'pointer', marginTop: 4 }} {...f('category')}>{['Thali', 'Biryani', 'Pizza', 'Chinese', 'Snacks', 'Juice', 'Sweets', 'Roti', 'Rice'].map(c => <option key={c}>{c}</option>)}</select></div>
                 <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Plan</label><select style={{ ...inp, cursor: 'pointer', marginTop: 4 }} {...f('plan')}><option>₹500/month</option><option>₹1000/month</option><option>Free Trial</option></select></div>
               </div>
               <div><label style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>🚴 Delivery Charge (₹)</label><input style={inp} type="number" placeholder="e.g. 30" {...f('deliveryCharge')} /></div>
@@ -4311,6 +4476,126 @@ export default function FounderApp() {
         {/* ════════════════ TAB: OFFER APPROVAL ════════════════ */}
         {tab === 'offers' && (
           <OfferApproval />
+        )}
+
+        {/* ════════════════ TAB: TRASH — DELETED VENDORS ════════════════ */}
+        {tab === 'trash' && (
+          <div style={{ fontFamily: 'Poppins, sans-serif' }}>
+            {/* Header */}
+            <div style={{ background: 'linear-gradient(135deg,#7F1D1D,#991B1B)', borderRadius: 14, padding: 16, marginBottom: 14, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', right: -10, top: -10, fontSize: 80, opacity: 0.06 }}>🗑️</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontWeight: 700, letterSpacing: 1.5, marginBottom: 3, textTransform: 'uppercase' }}>Founder Panel · Soft Delete</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: '#fff', marginBottom: 3 }}>🗑️ Deleted Vendors</div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginBottom: 12 }}>Vendors deleted from the system. Restore them anytime or permanently remove.</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+                {[
+                  { val: deletedVendors.length, label: 'In Trash', color: '#FCA5A5' },
+                  { val: vendors.length, label: 'Active', color: '#6EE7B7' },
+                  { val: deletedVendors.filter(d => {
+                      const dt = d.deletedAt?.toDate?.()
+                      return dt && (Date.now() - dt.getTime()) < 7 * 86400000
+                    }).length, label: 'This Week', color: '#93C5FD' },
+                ].map(s => (
+                  <div key={s.label} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.val}</div>
+                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Empty state */}
+            {deletedVendors.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 24px', color: '#9CA3AF' }}>
+                <div style={{ fontSize: 52, marginBottom: 12 }}>🗑️</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Trash is empty</div>
+                <div style={{ fontSize: 12 }}>Deleted vendors will appear here and can be restored.</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {deletedVendors.map(dv => {
+                  const deletedDate = dv.deletedAt?.toDate?.()
+                  const daysAgo = deletedDate ? Math.floor((Date.now() - deletedDate.getTime()) / 86400000) : null
+                  return (
+                    <div key={dv.id} style={{ background: '#FFFFFF', borderRadius: 16, border: '1.5px solid #FEE2E2', overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+                      {/* Vendor info */}
+                      <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                        {/* Photo */}
+                        <div style={{ width: 52, height: 52, borderRadius: 14, overflow: 'hidden', background: '#F0F0F0', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', filter: 'grayscale(100%) brightness(0.9)' }}>
+                          {dv.photo
+                            ? <img src={dv.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : <span style={{ fontSize: 24 }}>🏪</span>
+                          }
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dv.storeName}</div>
+                          <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{dv.email}</div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
+                            {dv.category && <span style={{ fontSize: 10, background: '#F3F4F6', color: '#6B7280', borderRadius: 8, padding: '2px 8px', fontWeight: 600 }}>{dv.category}</span>}
+                            {dv.town && <span style={{ fontSize: 10, background: '#F3F4F6', color: '#6B7280', borderRadius: 8, padding: '2px 8px' }}>📍{dv.town}</span>}
+                          </div>
+                        </div>
+                        {/* Delete info */}
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#DC2626', background: '#FFF5F5', borderRadius: 8, padding: '3px 8px', marginBottom: 4 }}>
+                            {daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo}d ago`}
+                          </div>
+                          {dv.deletedBy && <div style={{ fontSize: 9, color: '#9CA3AF' }}>by {dv.deletedBy.split('@')[0]}</div>}
+                          {dv.subscriptionFee > 0 && <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>₹{dv.subscriptionFee}/mo</div>}
+                        </div>
+                      </div>
+
+                      {/* Info strip */}
+                      <div style={{ background: '#FFF5F5', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8, borderTop: '1px solid #FEE2E2', borderBottom: '1px solid #FEE2E2' }}>
+                        <span style={{ fontSize: 11 }}>ℹ️</span>
+                        <span style={{ fontSize: 11, color: '#7F1D1D' }}>
+                          Deleted {deletedDate?.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) || '—'}
+                          {dv.phone ? ` · 📞 ${dv.phone}` : ''}
+                        </span>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div style={{ display: 'flex' }}>
+                        <button
+                          onClick={() => handleRestoreVendor(dv)}
+                          disabled={restoringVendor === dv.id}
+                          style={{
+                            flex: 2, padding: '14px 0',
+                            background: restoringVendor === dv.id
+                              ? '#E5E7EB'
+                              : 'linear-gradient(135deg,#059669,#047857)',
+                            color: restoringVendor === dv.id ? '#9CA3AF' : '#fff',
+                            border: 'none', fontSize: 13, fontWeight: 800,
+                            cursor: restoringVendor === dv.id ? 'not-allowed' : 'pointer',
+                            fontFamily: 'Poppins',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                            boxShadow: restoringVendor === dv.id ? 'none' : '0 4px 12px rgba(5,150,105,0.3)',
+                          }}
+                        >
+                          {restoringVendor === dv.id ? '⏳ Restoring...' : '♻️ Restore Vendor'}
+                        </button>
+                        <button
+                          onClick={() => handlePermanentDelete(dv)}
+                          style={{ flex: 1, padding: '14px 0', background: '#FFF5F5', color: '#DC2626', border: 'none', borderLeft: '1px solid #FEE2E2', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Poppins' }}
+                        >
+                          💀 Delete Forever
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {/* Bottom info */}
+                <div style={{ background: '#FFFBEB', borderRadius: 12, border: '1px solid #FDE68A', padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: 16, flexShrink: 0 }}>💡</span>
+                  <div style={{ fontSize: 11, color: '#92400E', lineHeight: 1.7 }}>
+                    <strong>Restore</strong> puts the vendor back in the active vendor list. Their subscription status will be set to <em>Due</em> — you'll need to reactivate it in the Subscriptions tab.<br/>
+                    <strong>Delete Forever</strong> permanently removes all vendor data. This action cannot be undone.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
       </div>

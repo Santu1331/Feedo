@@ -17,6 +17,7 @@ import toast from 'react-hot-toast'
 import { useLanguage } from '../i18n/LanguageContext'
 import LanguageSwitcher from '../i18n/LanguageSwitcher'
 import OffersSection from '../components/OffersSection'
+import FeedozoneLogo from '../components/FeedozoneLogo'
 
 // ─── Delivery charge: vendor fixed OR distance-based ─────────────────────────
 function calcDeliveryCharge(distanceKm, vendorBaseCharge, useDistanceBased) {
@@ -116,18 +117,73 @@ const DS = {
   radiusXl: 24,
 }
 
+// ── FOOD CATEGORY IMAGES (Zomato-style real food photos) ──────────────────────
+// Using high-quality royalty-free food images from Unsplash CDN (free, no auth needed)
 const CATEGORIES = [
-  { id:'All',     emoji:'🍽️',  label:'All' },
-  { id:'Thali',   emoji:'🥘',  label:'Thali' },
-  { id:'Biryani', emoji:'🍚',  label:'Biryani' },
-  { id:'Pizza',   emoji:'🍕',  label:'Pizza' },
-  { id:'Chinese', emoji:'🍜',  label:'Chinese' },
-  { id:'Snacks',  emoji:'🍟',  label:'Snacks' },
-  { id:'Juice',   emoji:'🥤',  label:'Juice' },
-  { id:'Sweets',  emoji:'🍮',  label:'Sweets' },
-  { id:'Roti',    emoji:'🫓',  label:'Roti' },
-  { id:'Rice',    emoji:'🍛',  label:'Rice' },
+  {
+    id: 'All',
+    label: 'All',
+    img: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=120&h=120&fit=crop&auto=format',
+    color: '#E24B4A',
+  },
+  {
+    id: 'Thali',
+    label: 'Thali',
+    img: 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=120&h=120&fit=crop&auto=format',
+    color: '#F59E0B',
+  },
+  {
+    id: 'Biryani',
+    label: 'Biryani',
+    img: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=120&h=120&fit=crop&auto=format',
+    color: '#D97706',
+  },
+  {
+    id: 'Pizza',
+    label: 'Pizza',
+    img: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=120&h=120&fit=crop&auto=format',
+    color: '#DC2626',
+  },
+  {
+    id: 'Chinese',
+    label: 'Chinese',
+    img: 'https://images.unsplash.com/photo-1569050467447-ce54b3bbc37d?w=120&h=120&fit=crop&auto=format',
+    color: '#EA580C',
+  },
+  {
+    id: 'Snacks',
+    label: 'Snacks',
+    img: 'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=120&h=120&fit=crop&auto=format',
+    color: '#16A34A',
+  },
+  {
+    id: 'Juice',
+    label: 'Juice',
+    img: 'https://images.unsplash.com/photo-1600271886742-f049cd451bba?w=120&h=120&fit=crop&auto=format',
+    color: '#0891B2',
+  },
+  {
+    id: 'Sweets',
+    label: 'Sweets',
+    img: 'https://images.unsplash.com/photo-1551024601-bec78aea704b?w=120&h=120&fit=crop&auto=format',
+    color: '#7C3AED',
+  },
+  {
+    id: 'Roti',
+    label: 'Roti',
+    img: 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=120&h=120&fit=crop&auto=format',
+    color: '#B45309',
+  },
+  {
+    id: 'Rice',
+    label: 'Rice',
+    img: 'https://images.unsplash.com/photo-1516714435131-44d6b64dc6a2?w=120&h=120&fit=crop&auto=format',
+    color: '#059669',
+  },
 ]
+
+// Master category name list used across Founder + Vendor + User
+const CATEGORY_NAMES = CATEGORIES.filter(c => c.id !== 'All').map(c => c.id)
 
 const PRICE_CHIPS = [
   { id:'all',    label:'All',       min:0,   max:Infinity },
@@ -885,6 +941,72 @@ function SupportReplyPopup({ reply, onOpen, onDismiss }) {
   )
 }
 
+// ── Multi-cart order panel — separate component so it can use useState legally ──
+function MultiCartOrderPanel({ vendorId, carts, removeMultiCart, user, userData, deliveryName, deliveryPhone, deliveryHostel, deliveryAddress, userLat, userLng, DS }) {
+  const [mcPlacing, setMcPlacing] = useState(false)
+  const vc = carts[vendorId]
+  if (!vc) return null
+  const mcItems = vc.items
+  const mcVendor = vc.vendor
+  const mcTotal = mcItems.reduce((s, i) => s + i.price * i.qty, 0)
+  const mcDelivery = Number(mcVendor?.deliveryCharge ?? 0)
+
+  const handlePlace = async () => {
+    if (!deliveryName?.trim() || !deliveryPhone?.trim()) {
+      toast.error('Fill in your name and phone below first')
+      return
+    }
+    setMcPlacing(true)
+    try {
+      const { placeOrder } = await import('../firebase/services')
+      const billNo = 'FZ-' + Date.now().toString(36).slice(-6).toUpperCase()
+      const fullAddress = [deliveryHostel?.trim(), deliveryAddress?.trim()].filter(Boolean).join(' · ')
+      await placeOrder({
+        userUid: user.uid, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
+        userEmail: user.email, vendorUid: mcVendor.id, vendorName: mcVendor.storeName,
+        items: mcItems.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, isCombo: i.isCombo||false, isVariant: i.isVariant||false })),
+        subtotal: mcTotal, deliveryFee: mcDelivery, total: mcTotal + mcDelivery,
+        address: fullAddress || '(same as main order)', paymentMode: 'COD', billNo,
+        userLat, userLng,
+        vendorFcmToken: mcVendor.fcmToken || null,
+        vendorExpoPushToken: mcVendor.expoPushToken || null,
+      })
+      removeMultiCart(vendorId)
+      toast.success(`✅ Order placed with ${mcVendor.storeName}!`)
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to place order. Try again.')
+    }
+    setMcPlacing(false)
+  }
+
+  return (
+    <>
+      <div style={{ background:'#FFFFFF', borderRadius:14, padding:'12px 16px', marginBottom:12, boxShadow:DS.shadow }}>
+        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+          <span style={{ fontSize:12, color:DS.textSecondary }}>Subtotal</span>
+          <span style={{ fontSize:12, fontWeight:600 }}>₹{mcTotal}</span>
+        </div>
+        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+          <span style={{ fontSize:12, color:DS.textSecondary }}>Delivery</span>
+          <span style={{ fontSize:12, fontWeight:600 }}>{mcDelivery === 0 ? 'Free 🎉' : '₹' + mcDelivery}</span>
+        </div>
+        <div style={{ display:'flex', justifyContent:'space-between', paddingTop:8, borderTop:`1.5px solid ${DS.border}` }}>
+          <span style={{ fontSize:14, fontWeight:700 }}>Total</span>
+          <span style={{ fontSize:14, fontWeight:800, color:DS.primary }}>₹{mcTotal + mcDelivery}</span>
+        </div>
+      </div>
+      <button
+        disabled={mcPlacing}
+        onClick={handlePlace}
+        style={{ width:'100%', background: mcPlacing ? '#FCA5A5' : `linear-gradient(135deg,${DS.primary},${DS.primaryDark})`, color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:800, cursor: mcPlacing ? 'not-allowed' : 'pointer', fontFamily:'Poppins', boxShadow:`0 4px 18px rgba(226,75,74,0.4)`, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+      >
+        {mcPlacing ? '⏳ Placing...' : `🎉 Place Order · ₹${mcTotal + mcDelivery}`}
+      </button>
+    </>
+  )
+}
+
 export default function UserApp() {
   const { user, userData } = useAuth()
   const [tab, setTab] = useState(() => localStorage.getItem('feedo_tab') || 'home')
@@ -892,8 +1014,44 @@ export default function UserApp() {
   const [selectedVendor, setSelectedVendor] = useState(null)
   const [menuItems, setMenuItems] = useState([])
   const [vendorCombos, setVendorCombos] = useState([])
-  const [cart, setCart] = useState([])
-  const [cartVendor, setCartVendor] = useState(null)
+
+  // ── UNIFIED MULTI-VENDOR CART ─────────────────────────────────────────────
+  // carts: { [vendorId]: { vendor: {...}, items: [{id,name,price,qty,...}] } }
+  // One object replaces the old cart+cartVendor+carts split.
+  const [carts, setCarts] = useState({})
+  const [activeCartVendorId, setActiveCartVendorId] = useState(null)
+
+  // Derived helpers (keep legacy names where possible to minimise changes)
+  const cartVendorIds   = Object.keys(carts)
+  const hasAnyCarts     = cartVendorIds.length > 0
+  // "active" cart = selected vendor tab; fallback to first vendor
+  const activeVid       = activeCartVendorId && carts[activeCartVendorId]
+    ? activeCartVendorId
+    : cartVendorIds[0] || null
+  const activeCart      = activeVid ? carts[activeVid] : null
+  const activeItems     = activeCart?.items || []
+  const activeVendor    = activeCart?.vendor || null
+  // Legacy aliases (used in checkout / offer / render sections below)
+  const cart            = activeItems
+  const cartVendor      = activeVendor
+  const cartTotal       = activeItems.reduce((s, i) => s + i.price * i.qty, 0)
+  const cartCount       = activeItems.reduce((s, i) => s + i.qty, 0)
+  const totalAllCarts   = Object.values(carts).reduce(
+    (s, vc) => s + vc.items.reduce((ss, i) => ss + i.qty, 0), 0
+  )
+  const totalAllAmt     = Object.values(carts).reduce(
+    (s, vc) => s + vc.items.reduce((ss, i) => ss + i.price * i.qty, 0), 0
+  )
+  // ─────────────────────────────────────────────────────────────────────────
+  // ── BOUNCE & ROLL ────────────────────────────────────────────────────────
+  // When a restaurant cancels an order, it broadcasts to all open vendors.
+  // The first vendor to accept wins and the customer is notified.
+  const [bounceRollEnabled, setBounceRollEnabled] = useState(() => {
+    try { return localStorage.getItem('feedo_bounce_roll') !== 'false' } catch { return true }
+  })
+  const [bounceRollOffers, setBounceRollOffers] = useState([]) // live incoming BR offers
+  const [showBrInfo, setShowBrInfo] = useState(false)         // B&R info modal
+  // ──────────────────────────────────────────────────────────────────────────
   // ── OFFER APPLICATION ─────────────────────────────────────────────────
   const [vendorOffers, setVendorOffers] = useState([])       // live offers for cart vendor
   const [appliedOffer, setAppliedOffer] = useState(null)     // currently applied offer
@@ -1145,6 +1303,126 @@ export default function UserApp() {
     return unsub
   }, [cartVendor?.id])
   // ──────────────────────────────────────────────────────────────────────────────
+  // ── BOUNCE & ROLL — listen for BR offers sent to this user ──────────────────
+  useEffect(() => {
+    if (!user?.uid || !bounceRollEnabled) { setBounceRollOffers([]); return }
+    const q = query(
+      collection(db, 'bounceRollOffers'),
+      where('targetUserUid', '==', user.uid),
+      where('status', '==', 'open')
+    )
+    const unsub = onSnapshot(q,
+      snap => setBounceRollOffers(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      err => { console.error('BR error:', err); setBounceRollOffers([]) }
+    )
+    return unsub
+  }, [user?.uid, bounceRollEnabled])
+
+  // Save bounce roll preference
+  const toggleBounceRoll = () => {
+    const newVal = !bounceRollEnabled
+    setBounceRollEnabled(newVal)
+    try { localStorage.setItem('feedo_bounce_roll', String(newVal)) } catch {}
+    toast.success(newVal ? '🔄 Bounce & Roll ON — cancelled orders will find a new restaurant!' : '⏸️ Bounce & Roll OFF')
+  }
+
+  // ── UNIFIED CART HELPERS ──────────────────────────────────────────────────
+  // All cart operations work on the unified `carts` object.
+
+  const _addItem = (vendorObj, itemObj) => {
+    const vid = vendorObj.id
+    setCarts(prev => {
+      const vc = prev[vid] || { vendor: vendorObj, items: [] }
+      const ex = vc.items.find(i => i.id === itemObj.id)
+      const items = ex
+        ? vc.items.map(i => i.id === itemObj.id ? { ...i, qty: i.qty + 1 } : i)
+        : [...vc.items, itemObj]
+      return { ...prev, [vid]: { vendor: vendorObj, items } }
+    })
+    setActiveCartVendorId(vid)
+  }
+
+  const addToCart = (item) => {
+    if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
+    const { dist, charge, rawCharge } = getDynamicCharge(selectedVendor)
+    const vendorObj = { ...selectedVendor, deliveryCharge: charge, rawDeliveryCharge: rawCharge, distanceKm: dist }
+    _addItem(vendorObj, { ...item, qty: 1 })
+    toast.success(`${item.name} added!`, { icon: '🛒', duration: 1500 })
+  }
+
+  const addVariantToCart = (item, variant) => {
+    if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
+    const { dist, charge, rawCharge } = getDynamicCharge(selectedVendor)
+    const vendorObj = { ...selectedVendor, deliveryCharge: charge, rawDeliveryCharge: rawCharge, distanceKm: dist }
+    const cartId = `${item.id}_${variant.label}`
+    _addItem(vendorObj, { id: cartId, name: `${item.name} (${variant.label})`, price: variant.price, qty: 1, isVeg: item.isVeg, photo: item.photo, isVariant: true, variantLabel: variant.label, baseItemId: item.id })
+    toast.success(`${item.name} (${variant.label}) added!`, { icon: '🛒', duration: 1500 })
+  }
+
+  const handleAddItemTap = (item) => {
+    if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
+    if (item.hasVariants && item.variants?.length >= 2) setVariantPickerItem(item)
+    else addToCart(item)
+  }
+
+  const addComboToCart = (combo) => {
+    if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
+    const { dist, charge, rawCharge } = getDynamicCharge(selectedVendor)
+    const vendorObj = { ...selectedVendor, deliveryCharge: charge, rawDeliveryCharge: rawCharge, distanceKm: dist }
+    const comboCartId = 'combo_' + combo.id
+    _addItem(vendorObj, { id: comboCartId, name: '🍱 ' + combo.name, price: combo.comboPrice, qty: 1, isCombo: true, comboItems: combo.items })
+    toast.success(`🍱 ${combo.name} added!`, { icon: '🍱', duration: 1500 })
+  }
+
+  const updateQty = (itemId, delta) => {
+    // Update item in active vendor's cart
+    if (!activeVid) return
+    setCarts(prev => {
+      const vc = prev[activeVid]
+      if (!vc) return prev
+      const items = vc.items.map(i => i.id === itemId ? { ...i, qty: i.qty + delta } : i).filter(i => i.qty > 0)
+      if (items.length === 0) {
+        const { [activeVid]: _, ...rest } = prev
+        // Switch to next available vendor cart
+        const nextVid = Object.keys(rest)[0] || null
+        setActiveCartVendorId(nextVid)
+        return rest
+      }
+      return { ...prev, [activeVid]: { ...vc, items } }
+    })
+  }
+
+  const updateMultiCartQty = (vendorId, itemId, delta) => {
+    setCarts(prev => {
+      const vc = prev[vendorId]
+      if (!vc) return prev
+      const items = vc.items.map(i => i.id === itemId ? { ...i, qty: i.qty + delta } : i).filter(i => i.qty > 0)
+      if (items.length === 0) {
+        const { [vendorId]: _, ...rest } = prev
+        if (activeCartVendorId === vendorId) setActiveCartVendorId(Object.keys(rest)[0] || null)
+        return rest
+      }
+      return { ...prev, [vendorId]: { ...vc, items } }
+    })
+  }
+
+  const removeMultiCart = (vendorId) => {
+    setCarts(prev => {
+      const { [vendorId]: _, ...rest } = prev
+      if (activeCartVendorId === vendorId) setActiveCartVendorId(Object.keys(rest)[0] || null)
+      return rest
+    })
+  }
+
+  // Legacy aliases kept for downstream checkout/offer calculations
+  const deliveryFee        = freeDeliveryToday ? 0 : Number(activeVendor?.deliveryCharge ?? 0)
+  const deliveryFeeWaived  = freeDeliveryToday && Number(activeVendor?.rawDeliveryCharge ?? 0) > 0
+  const minOrder           = Number(activeVendor?.minOrderAmount ?? 0)
+  const minOrderShortfall  = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
+  const meetsMinOrder      = minOrderShortfall === 0
+  const multiCartTotalCount = totalAllCarts  // alias used in cart bar
+  // ──────────────────────────────────────────────────────────────────────────
+
   useEffect(() => { return getAllVendors(setVendors) }, [])
   useEffect(() => { if (!user) return; return getUserOrders(user.uid, setOrders) }, [user])
 
@@ -1280,69 +1558,6 @@ export default function UserApp() {
     return { dist, charge, rawCharge }
   }
 
-  const addToCart = (item) => {
-    if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
-    if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
-    const { dist, charge, rawCharge } = getDynamicCharge(selectedVendor)
-    setCartVendor({ ...selectedVendor, deliveryCharge: charge, rawDeliveryCharge: rawCharge, distanceKm: dist })
-    setCart(prev => {
-      const ex = prev.find(c => c.id === item.id)
-      if (ex) return prev.map(c => c.id === item.id ? { ...c, qty: c.qty+1 } : c)
-      return [...prev, { ...item, qty:1 }]
-    })
-    toast.success(item.name + ' added!')
-  }
-
-  const addVariantToCart = (item, variant) => {
-    if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
-    if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
-    const { dist, charge, rawCharge } = getDynamicCharge(selectedVendor)
-    setCartVendor({ ...selectedVendor, deliveryCharge: charge, rawDeliveryCharge: rawCharge, distanceKm: dist })
-    const cartId = `${item.id}_${variant.label}`
-    setCart(prev => {
-      const ex = prev.find(c => c.id === cartId)
-      if (ex) return prev.map(c => c.id === cartId ? { ...c, qty: c.qty+1 } : c)
-      return [...prev, { id: cartId, name: `${item.name} (${variant.label})`, price: variant.price, qty: 1, isVeg: item.isVeg, photo: item.photo, isVariant: true, variantLabel: variant.label, baseItemId: item.id }]
-    })
-    toast.success(`${item.name} (${variant.label}) added!`)
-  }
-
-  const handleAddItemTap = (item) => {
-    if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
-    if (item.hasVariants && item.variants?.length >= 2) setVariantPickerItem(item)
-    else addToCart(item)
-  }
-
-  const addComboToCart = (combo) => {
-    if (!selectedVendor?.isOpen) { toast.error('This store is currently closed.'); return }
-    if (cartVendor && cartVendor.id !== selectedVendor.id) { toast.error('Clear cart first — items from ' + cartVendor.storeName); return }
-    const { dist, charge, rawCharge } = getDynamicCharge(selectedVendor)
-    setCartVendor({ ...selectedVendor, deliveryCharge: charge, rawDeliveryCharge: rawCharge, distanceKm: dist })
-    const comboCartId = 'combo_' + combo.id
-    setCart(prev => {
-      const ex = prev.find(c => c.id === comboCartId)
-      if (ex) return prev.map(c => c.id === comboCartId ? { ...c, qty: c.qty+1 } : c)
-      return [...prev, { id: comboCartId, name: '🍱 ' + combo.name, price: combo.comboPrice, qty: 1, isCombo: true, comboItems: combo.items }]
-    })
-    toast.success(`🍱 ${combo.name} added!`)
-  }
-
-  const updateQty = (itemId, delta) => {
-    setCart(prev => {
-      const updated = prev.map(c => c.id===itemId ? { ...c, qty:c.qty+delta } : c).filter(c => c.qty > 0)
-      if (updated.length === 0) setCartVendor(null)
-      return updated
-    })
-  }
-
-  const cartTotal = cart.reduce((s,c) => s + c.price*c.qty, 0)
-  const cartCount = cart.reduce((s,c) => s + c.qty, 0)
-  const deliveryFee = Number(cartVendor?.deliveryCharge ?? 0)
-  const deliveryFeeWaived = freeDeliveryToday && Number(cartVendor?.rawDeliveryCharge ?? 0) > 0
-  const minOrder = Number(cartVendor?.minOrderAmount ?? 0)
-  const minOrderShortfall = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
-  const meetsMinOrder = minOrderShortfall === 0
-
   // ── OFFER DISCOUNT CALCULATION ────────────────────────────────────────────────
   // Finds the best auto-applicable offer for the current cart total.
   // Rules:
@@ -1437,37 +1652,41 @@ export default function UserApp() {
       const billNo = 'FZ-' + Date.now().toString(36).slice(-6).toUpperCase()
       const orderRef = await placeOrder({
         userUid: user.uid, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
-        userEmail: user.email, vendorUid: cartVendor.id, vendorName: cartVendor.storeName,
-        items: cart.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty, isCombo: i.isCombo||false, isVariant: i.isVariant||false })),
+        userEmail: user.email,
+        vendorUid: activeVendor?.id || cartVendor?.id,
+        vendorName: activeVendor?.storeName || cartVendor?.storeName || '',
+        items: activeItems.map(i => ({ id:i.id, name:i.name, price:i.price, qty:i.qty, isCombo: i.isCombo||false, isVariant: i.isVariant||false })),
         subtotal: cartTotal,
         discountAmount: discountAmount || 0,
         discountedSubtotal: cartTotal - (discountAmount || 0),
         offerId: activeOffer?.id || null,
         offerTitle: activeOffer?.title || null,
         couponCode: activeOffer?.couponCode || null,
-        deliveryFee,
-        total: finalTotal,
+        deliveryFee, total: finalTotal,
         address: fullAddress, paymentMode: 'COD', billNo,
-        userLat, userLng, distanceKm: cartVendor.distanceKm || null,
+        userLat, userLng, distanceKm: activeVendor?.distanceKm || null,
         freeDeliveryOffer: deliveryFeeWaived,
-        vendorFcmToken: cartVendor.fcmToken || null,
-        vendorExpoPushToken: cartVendor.expoPushToken || null,
+        bounceRollEnabled: bounceRollEnabled,
+        vendorFcmToken: activeVendor?.fcmToken || null,
+        vendorExpoPushToken: activeVendor?.expoPushToken || null,
       })
-      const vendorInfo = cartVendor || {}
+      const orderId = orderRef?.id
       setOrderSuccess({
-        id: orderRef?.id || Math.random().toString(36).slice(-6).toUpperCase(),
-        orderId: orderRef?.id || Math.random().toString(36).slice(-6).toUpperCase(), billNo,
-        vendorName: cartVendor.storeName,
-        vendorPhone: vendorInfo.phone || vendorInfo.mobile || vendorInfo.contactPhone || '',
-        vendorPhoto: vendorInfo.photo || '', items: cart.map(i => ({ ...i })),
+        id: orderId || Math.random().toString(36).slice(-6).toUpperCase(),
+        orderId: orderId || Math.random().toString(36).slice(-6).toUpperCase(), billNo,
+        vendorName: activeVendor?.storeName || cartVendor?.storeName || '',
+        vendorPhone: (activeVendor?.phone || activeVendor?.mobile || activeVendor?.contactPhone || ''),
+        vendorPhoto: activeVendor?.photo || '', items: [...activeItems],
         total: finalTotal, subtotal: cartTotal, deliveryFee,
         discountAmount: discountAmount || 0,
         offerTitle: activeOffer?.title || null,
         freeDeliveryOffer: deliveryFeeWaived,
         address: fullAddress, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
-        prepTime: vendorInfo.prepTime || 20,
+        prepTime: activeVendor?.prepTime || 20,
       })
-      setCart([]); setCartVendor(null); setShowCheckout(false)
+      // Remove the just-ordered vendor cart; keep others
+      if (activeVid) removeMultiCart(activeVid)
+      setShowCheckout(false)
       setDeliveryNote(''); setDeliveryHostel('')
       setAppliedOffer(null); setManualCoupon(''); setCouponError('')
     } catch (err) {
@@ -1686,10 +1905,296 @@ export default function UserApp() {
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { display: none; }
         * { scrollbar-width: none; }
+
+        /* ── PREMIUM 3D & MICRO-INTERACTION ANIMATIONS ── */
         @keyframes spin { to { transform: rotate(360deg) } }
-        @keyframes fadeInUp { from { opacity:0; transform:translateY(16px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes fadeInUp { from { opacity:0; transform:translateY(20px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes fadeInScale { from { opacity:0; transform:scale(0.94) } to { opacity:1; transform:scale(1) } }
         @keyframes livePulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+        /* 3D floating food animation */
+        @keyframes float3d {
+          0%,100% { transform: translateY(0) rotateX(0deg) rotateZ(0deg); }
+          33%     { transform: translateY(-7px) rotateX(5deg) rotateZ(-2deg); }
+          66%     { transform: translateY(-3px) rotateX(-3deg) rotateZ(1.5deg); }
+        }
+        /* Hero banner gradient shift */
+        @keyframes heroBannerShift {
+          0%   { background-position: 0% 50%; }
+          50%  { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        /* Restaurant card hover lift */
+        @keyframes cardHoverFloat {
+          0%,100% { transform: translateY(0) scale(1); box-shadow: 0 2px 16px rgba(0,0,0,0.08); }
+          50%     { transform: translateY(-3px) scale(1.005); box-shadow: 0 12px 32px rgba(226,75,74,0.18); }
+        }
+        /* Shimmer scan line */
+        @keyframes shimmer3d {
+          0%   { background-position: -400% center; }
+          100% { background-position:  400% center; }
+        }
+        /* Food particle float */
+        @keyframes particleFloat {
+          0%   { transform: translateY(0) rotate(0deg) scale(1);   opacity: 0.7; }
+          50%  { transform: translateY(-18px) rotate(10deg) scale(1.1); opacity: 1; }
+          100% { transform: translateY(0) rotate(0deg) scale(1);   opacity: 0.7; }
+        }
+        /* Logo glow pulse */
+        @keyframes logoGlow {
+          0%,100% { filter: drop-shadow(0 0 0px rgba(226,75,74,0)) drop-shadow(0 4px 8px rgba(226,75,74,0.3)); }
+          50%     { filter: drop-shadow(0 0 10px rgba(226,75,74,0.7)) drop-shadow(0 4px 12px rgba(226,75,74,0.5)); }
+        }
+        /* 3D category chip press */
+        @keyframes chipPress3d {
+          0%   { transform: perspective(300px) rotateX(0deg) scale(1); box-shadow: 0 6px 16px rgba(226,75,74,0.35); }
+          50%  { transform: perspective(300px) rotateX(8deg) scale(0.94); box-shadow: 0 2px 6px rgba(226,75,74,0.2); }
+          100% { transform: perspective(300px) rotateX(0deg) scale(1); box-shadow: 0 6px 16px rgba(226,75,74,0.35); }
+        }
+        /* Badge pop spring */
+        @keyframes badgePop {
+          0%   { transform: scale(0.8) rotate(-5deg); opacity:0; }
+          60%  { transform: scale(1.15) rotate(3deg); opacity:1; }
+          100% { transform: scale(1) rotate(0deg); opacity:1; }
+        }
+        /* Ripple on click */
+        @keyframes ripple {
+          0%   { transform: scale(0); opacity: 0.6; }
+          100% { transform: scale(4); opacity: 0; }
+        }
+        /* Cart bar slide up */
+        @keyframes slideInBottom {
+          from { transform: translateY(100%); opacity: 0; }
+          to   { transform: translateY(0);    opacity: 1; }
+        }
+        /* Bounce in for qty badge */
+        @keyframes bounceIn {
+          0%   { transform: scale(0.3);  opacity: 0; }
+          50%  { transform: scale(1.12); opacity: 1; }
+          70%  { transform: scale(0.94); }
+          100% { transform: scale(1); }
+        }
+        /* Cart qty pulse */
+        @keyframes cartPulse {
+          0%,100% { transform: scale(1); }
+          30%     { transform: scale(1.1); }
+          60%     { transform: scale(0.96); }
+        }
+        /* Order status glow ring */
+        @keyframes statusGlow {
+          0%,100% { box-shadow: 0 0 0 0 rgba(226,75,74,0.4); }
+          50%     { box-shadow: 0 0 0 8px rgba(226,75,74,0); }
+        }
+        /* Number counter pop */
+        @keyframes numberPop {
+          0%   { transform: scale(0.5) rotate(-10deg); opacity:0; }
+          70%  { transform: scale(1.2) rotate(3deg); }
+          100% { transform: scale(1) rotate(0deg); opacity:1; }
+        }
+        /* Gradient background shift */
+        @keyframes gradientShift {
+          0%   { background-position: 0% 50%; }
+          50%  { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        /* 3D tilt card idle */
+        @keyframes tilt3d {
+          0%,100% { transform: perspective(600px) rotateX(0deg) rotateY(0deg); }
+          25%     { transform: perspective(600px) rotateX(2deg) rotateY(-3deg); }
+          75%     { transform: perspective(600px) rotateX(-2deg) rotateY(3deg); }
+        }
+        /* Stagger list items */
+        @keyframes stagger-in {
+          from { opacity:0; transform: translateY(28px) scale(0.95); }
+          to   { opacity:1; transform: translateY(0) scale(1); }
+        }
+        /* 3D hero card depth */
+        @keyframes heroCardDepth {
+          0%,100% { transform: perspective(800px) rotateY(0deg) rotateX(0deg) translateZ(0px); }
+          33%     { transform: perspective(800px) rotateY(-2deg) rotateX(1deg) translateZ(8px); }
+          66%     { transform: perspective(800px) rotateY(1.5deg) rotateX(-1deg) translateZ(4px); }
+        }
+        /* Food emoji float around home */
+        @keyframes foodOrbit {
+          0%   { transform: rotate(0deg) translateX(8px) rotate(0deg) scale(1); }
+          100% { transform: rotate(360deg) translateX(8px) rotate(-360deg) scale(1); }
+        }
+        /* Success order celebration */
+        @keyframes celebrationPop {
+          0%   { transform: scale(0) rotate(-15deg); opacity:0; }
+          40%  { transform: scale(1.2) rotate(5deg);  opacity:1; }
+          70%  { transform: scale(0.93) rotate(-2deg); }
+          100% { transform: scale(1) rotate(0deg); opacity:1; }
+        }
+        /* Skeleton loading shimmer */
+        @keyframes skeletonShimmer {
+          0%   { background-position: -200% 0; }
+          100% { background-position:  200% 0; }
+        }
+        /* Floating label */
+        @keyframes labelFloat {
+          0%,100% { transform: translateY(0) rotate(-1deg); }
+          50%     { transform: translateY(-4px) rotate(1deg); }
+        }
+
+        /* ── PREMIUM CARD HOVER 3D ── */
+        .fz-vendor-card {
+          transition: transform 0.24s cubic-bezier(0.34,1.56,0.64,1),
+                      box-shadow 0.24s ease;
+          transform-style: preserve-3d;
+          will-change: transform;
+        }
+        .fz-vendor-card:active {
+          transform: perspective(800px) rotateX(2deg) scale(0.97) translateY(2px) !important;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.12) !important;
+        }
+        .fz-vendor-card:hover {
+          transform: perspective(800px) rotateX(-1deg) rotateY(1deg) translateY(-6px) scale(1.015);
+          box-shadow: 0 20px 48px rgba(0,0,0,0.16), 0 6px 16px rgba(226,75,74,0.15) !important;
+        }
+
+        /* ── 3D ADD / ICON BUTTON ── */
+        .fz-add-btn {
+          transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1),
+                      box-shadow 0.18s ease;
+          transform-style: preserve-3d;
+        }
+        .fz-add-btn:active {
+          transform: perspective(300px) rotateX(12deg) scale(0.88) translateY(2px);
+          box-shadow: 0 1px 4px rgba(0,0,0,0.2) !important;
+        }
+        .fz-add-btn:hover {
+          transform: perspective(300px) rotateX(-4deg) translateY(-3px) scale(1.08);
+          box-shadow: 0 8px 24px rgba(226,75,74,0.5) !important;
+        }
+
+        /* ── NAV ITEM 3D ── */
+        .fz-nav-item {
+          transition: transform 0.16s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        .fz-nav-item:active { transform: scale(0.85) translateY(2px) !important; }
+
+        /* ── 3D CATEGORY CHIP ── */
+        .fz-cat {
+          transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1),
+                      box-shadow 0.2s ease;
+          transform-style: preserve-3d;
+        }
+        .fz-cat:active {
+          animation: chipPress3d 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards;
+        }
+        .fz-cat-active {
+          animation: float3d 4s ease-in-out infinite;
+        }
+
+        /* ── RIPPLE BUTTON ── */
+        .fz-ripple-btn {
+          position: relative; overflow: hidden;
+          transition: transform 0.15s ease;
+        }
+        .fz-ripple-btn:active { transform: scale(0.96); }
+        .fz-ripple-btn::after {
+          content: '';
+          position: absolute; border-radius: 50%;
+          background: rgba(255,255,255,0.4);
+          width: 120px; height: 120px;
+          top: 50%; left: 50%;
+          transform: scale(0); opacity: 0;
+          margin: -60px 0 0 -60px;
+          pointer-events: none;
+        }
+        .fz-ripple-btn:active::after {
+          animation: ripple 0.55s ease-out forwards;
+        }
+
+        /* ── PREMIUM LOGO GLOW ── */
+        .fz-logo { animation: logoGlow 3.5s ease-in-out infinite; }
+
+        /* ── STAGGER ITEMS ── */
+        .fz-stagger { animation: stagger-in 0.45s cubic-bezier(0.34,1.2,0.64,1) both; }
+        .fz-stagger:nth-child(1)  { animation-delay: 0ms;   }
+        .fz-stagger:nth-child(2)  { animation-delay: 55ms;  }
+        .fz-stagger:nth-child(3)  { animation-delay: 110ms; }
+        .fz-stagger:nth-child(4)  { animation-delay: 165ms; }
+        .fz-stagger:nth-child(5)  { animation-delay: 220ms; }
+        .fz-stagger:nth-child(6)  { animation-delay: 275ms; }
+        .fz-stagger:nth-child(7)  { animation-delay: 330ms; }
+        .fz-stagger:nth-child(8)  { animation-delay: 385ms; }
+        .fz-stagger:nth-child(9)  { animation-delay: 440ms; }
+        .fz-stagger:nth-child(10) { animation-delay: 495ms; }
+
+        /* ── 3D CART FLOAT BAR ── */
+        .fz-cart-float { animation: float3d 4.5s ease-in-out infinite; transform-style: preserve-3d; }
+        .fz-cart-bar   { animation: slideInBottom 0.45s cubic-bezier(0.34,1.56,0.64,1); }
+        .fz-cart-bar:active { transform: scale(0.98); }
+
+        /* ── BADGE POP ── */
+        .fz-badge-pop { animation: badgePop 0.45s cubic-bezier(0.34,1.56,0.64,1); }
+
+        /* ── SKELETON SHIMMER ── */
+        .fz-skeleton {
+          background: linear-gradient(90deg, #F0F0F0 25%, #E8E8E8 50%, #F0F0F0 75%);
+          background-size: 200% 100%;
+          animation: skeletonShimmer 1.5s ease-in-out infinite;
+          border-radius: 10px;
+        }
+
+        /* ── PREMIUM HEADER SHIMMER ── */
+        .fz-header-shimmer::before {
+          content: '';
+          position: absolute; inset: 0; z-index: 0; pointer-events: none;
+          background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.6) 50%, transparent 70%);
+          background-size: 200% 100%;
+          animation: shimmer3d 4s ease-in-out infinite;
+        }
+
+        /* ── HERO 3D CARD (vendor menu) ── */
+        .fz-hero-3d {
+          animation: heroCardDepth 6s ease-in-out infinite;
+          transform-style: preserve-3d;
+        }
+
+        /* ── FOOD PARTICLE ── */
+        .fz-particle { animation: particleFloat var(--dur, 3s) ease-in-out infinite; }
+        .fz-particle:nth-child(1) { animation-delay: 0s;    --dur: 3.2s; }
+        .fz-particle:nth-child(2) { animation-delay: 0.6s;  --dur: 2.8s; }
+        .fz-particle:nth-child(3) { animation-delay: 1.2s;  --dur: 3.6s; }
+        .fz-particle:nth-child(4) { animation-delay: 1.8s;  --dur: 2.5s; }
+        .fz-particle:nth-child(5) { animation-delay: 2.4s;  --dur: 3.9s; }
+
+        /* ── PREMIUM BANNER GRADIENT ── */
+        .fz-gradient-banner {
+          background-size: 200% 200%;
+          animation: heroBannerShift 6s ease infinite;
+        }
+
+        /* ── ORDER SUCCESS CELEBRATION ── */
+        .fz-celebrate { animation: celebrationPop 0.6s cubic-bezier(0.34,1.56,0.64,1) both; }
+
+        /* ── SMOOTH SCROLLBAR HIDE ── */
+        .fz-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+        .fz-scroll::-webkit-scrollbar { display: none; }
+        /* ── BOUNCE & ROLL TOGGLE ── */
+        @keyframes brPulse {
+          0%,100% { box-shadow: 0 0 0 0 rgba(226,75,74,0.5); }
+          50%      { box-shadow: 0 0 0 8px rgba(226,75,74,0); }
+        }
+        @keyframes brBounce {
+          0%,100% { transform: translateY(0) rotate(0deg); }
+          25%     { transform: translateY(-4px) rotate(-8deg); }
+          75%     { transform: translateY(-2px) rotate(6deg); }
+        }
+        .fz-br-on  { animation: brPulse 2s ease-in-out infinite; }
+        .fz-br-icon { animation: brBounce 2.5s ease-in-out infinite; }
+
+        /* ── MULTI-CART TAB ── */
+        @keyframes cartslide {
+          from { opacity:0; transform: translateX(-12px); }
+          to   { opacity:1; transform: translateX(0); }
+        }
+        .fz-multicart-tab { animation: cartslide 0.3s cubic-bezier(0.34,1.2,0.64,1) both; }
+
         input, textarea, select, button { font-family: 'Poppins', sans-serif; }
       `}</style>
 
@@ -1718,48 +2223,291 @@ export default function UserApp() {
         <SupportChatModal user={user} userData={userData} tickets={myTickets} onClose={() => setShowSupportChat(false)} onSendMessage={handleSendSupportMessage} />
       )}
 
-      {/* ── HEADER ── */}
-      <div style={S.redHdr}>
-        <div style={{ padding: '14px 16px 12px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          {/* Logo + Location */}
-          <div>
-            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
-              <div style={{ width:28, height:28, borderRadius:8, background:'linear-gradient(135deg,#E24B4A,#FF6B6A)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(226,75,74,0.35)' }}>
-                <span style={{ fontSize:14 }}>🍽️</span>
-              </div>
-              <span style={{ fontSize:20, fontWeight:800, color:DS.primary, letterSpacing:-0.5 }}>feedo</span>
-              <span style={{ fontSize:9, fontWeight:700, color:DS.textMuted, background:DS.border, borderRadius:20, padding:'2px 7px', marginLeft:2, letterSpacing:0.5 }}>FOOD</span>
+      {/* ── BOUNCE & ROLL INFO MODAL ── */}
+      {showBrInfo && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:5000, display:'flex', alignItems:'flex-end', justifyContent:'center', fontFamily:'Poppins,sans-serif' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowBrInfo(false) }}>
+          <div style={{ background:'#fff', borderRadius:'24px 24px 0 0', padding:'8px 20px 36px', width:'100%', maxWidth:430, boxShadow:'0 -8px 32px rgba(0,0,0,0.2)' }}>
+            <div style={{ display:'flex', justifyContent:'center', paddingTop:8, marginBottom:20 }}>
+              <div style={{ width:40, height:4, borderRadius:2, background:'#E5E7EB' }} />
             </div>
-            <div onClick={() => setShowLocationPicker(true)} style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:6, maxWidth:210 }}>
-              <div style={{ width:16, height:16, background:DS.primary, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                <span style={{ fontSize:9, color:'#fff' }}>📍</span>
+
+            {/* Animated icon */}
+            <div style={{ textAlign:'center', marginBottom:16 }}>
+              <div style={{ width:72, height:72, borderRadius:22, background:'linear-gradient(135deg,#FFF1F0,#FFE4E4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:36, margin:'0 auto 12px', boxShadow:'0 8px 24px rgba(226,75,74,0.25)', animation:'float3d 4s ease-in-out infinite' }}>
+                🔄
               </div>
+              <div style={{ fontSize:19, fontWeight:900, color:'#1A1A1A', letterSpacing:-0.3 }}>Bounce & Roll</div>
+              <div style={{ fontSize:12, color:'#6B7280', marginTop:4 }}>Smart order recovery system</div>
+            </div>
+
+            {/* Steps */}
+            <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
+              {[
+                { icon:'🍽️', title:'You place an order', desc:'Order goes to your chosen restaurant normally.' },
+                { icon:'❌', title:'Restaurant cancels', desc:'If the restaurant cancels, Bounce & Roll kicks in automatically.' },
+                { icon:'📡', title:'We broadcast to all open restaurants', desc:'All nearby open restaurants get your order request simultaneously.' },
+                { icon:'🏆', title:'First to accept wins', desc:'The first restaurant to accept your order gets it — you\'re notified instantly.' },
+                { icon:'✅', title:'You confirm or skip', desc:'You see who accepted and can confirm. No extra steps needed.' },
+              ].map((step, i) => (
+                <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:12, padding:'10px 14px', background:'#F8F8F8', borderRadius:14 }}>
+                  <div style={{ width:36, height:36, borderRadius:12, background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0, boxShadow:'0 2px 8px rgba(0,0,0,0.08)' }}>{step.icon}</div>
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#1A1A1A', marginBottom:2 }}>{step.title}</div>
+                    <div style={{ fontSize:11, color:'#6B7280', lineHeight:1.5 }}>{step.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Current status */}
+            <div style={{ background: bounceRollEnabled ? '#ECFDF5' : '#F5F5F5', borderRadius:14, padding:'12px 16px', marginBottom:14, display:'flex', justifyContent:'space-between', alignItems:'center', border:`1.5px solid ${bounceRollEnabled ? '#86EFAC' : '#E5E7EB'}` }}>
               <div>
-                <div style={{ fontSize:9, fontWeight:700, color:DS.textMuted, letterSpacing:0.8, textTransform:'uppercase' }}>Delivering to</div>
-                <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                  <span style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:160, lineHeight:1.3 }}>
-                    {locationLoading ? 'Detecting...' : locationName || 'Set Location'}
-                  </span>
-                  <span style={{ fontSize:11, color:DS.textMuted }}>▾</span>
+                <div style={{ fontSize:13, fontWeight:700, color: bounceRollEnabled ? '#065F46' : '#374151' }}>
+                  {bounceRollEnabled ? '🟢 Bounce & Roll is ON' : '⏸️ Bounce & Roll is OFF'}
+                </div>
+                <div style={{ fontSize:11, color:'#6B7280', marginTop:2 }}>
+                  {bounceRollEnabled ? 'Your cancelled orders will auto-find a new restaurant' : 'Cancelled orders will not be rebroadcast'}
+                </div>
+              </div>
+              <button
+                onClick={() => { toggleBounceRoll(); setShowBrInfo(false) }}
+                style={{ background: bounceRollEnabled ? '#FEE2E2' : 'linear-gradient(135deg,#E24B4A,#FF6B6A)', color: bounceRollEnabled ? '#DC2626' : '#fff', border:'none', borderRadius:12, padding:'8px 14px', fontSize:12, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', flexShrink:0, boxShadow: bounceRollEnabled ? 'none' : '0 4px 12px rgba(226,75,74,0.4)' }}
+              >
+                {bounceRollEnabled ? 'Turn OFF' : 'Turn ON'}
+              </button>
+            </div>
+
+            <button onClick={() => setShowBrInfo(false)} style={{ width:'100%', background:'#1A1A1A', color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', boxShadow:'0 4px 16px rgba(0,0,0,0.2)' }}>
+              Got it ✓
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── BOUNCE & ROLL INCOMING OFFERS ── */}
+      {bounceRollEnabled && bounceRollOffers.length > 0 && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:4000, display:'flex', alignItems:'flex-end', justifyContent:'center', fontFamily:'Poppins,sans-serif' }}
+          onClick={e => { if (e.target === e.currentTarget) setBounceRollOffers([]) }}>
+          <div style={{ background:'#fff', borderRadius:'24px 24px 0 0', padding:'8px 20px 32px', width:'100%', maxWidth:430, maxHeight:'80vh', overflowY:'auto', boxShadow:'0 -8px 32px rgba(0,0,0,0.25)' }}>
+            <div style={{ display:'flex', justifyContent:'center', paddingTop:8, marginBottom:16 }}>
+              <div style={{ width:40, height:4, borderRadius:2, background:'#E5E7EB' }} />
+            </div>
+            {/* Header */}
+            <div style={{ background:'linear-gradient(135deg,#1A0A0A,#2D0808)', borderRadius:16, padding:'16px 18px', marginBottom:16, position:'relative', overflow:'hidden' }}>
+              <div style={{ position:'absolute', top:-20, right:-20, width:100, height:100, borderRadius:'50%', background:'rgba(226,75,74,0.15)', pointerEvents:'none' }} />
+              <div style={{ position:'relative', zIndex:1 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
+                  <div style={{ width:36, height:36, borderRadius:12, background:'rgba(226,75,74,0.3)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, animation:'float3d 3s ease-in-out infinite' }}>🔄</div>
+                  <div>
+                    <div style={{ fontSize:14, fontWeight:800, color:'#fff' }}>Bounce & Roll — New Offer!</div>
+                    <div style={{ fontSize:10, color:'rgba(255,255,255,0.6)', marginTop:1 }}>A restaurant wants to prepare your order</div>
+                  </div>
+                </div>
+                <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:10, padding:'8px 12px', fontSize:11, color:'rgba(255,255,255,0.8)' }}>
+                  ⚡ Your cancelled order has been picked up by a restaurant. Accept to confirm!
                 </div>
               </div>
             </div>
+
+            {bounceRollOffers.map(offer => {
+              const vendor = vendors.find(v => v.id === offer.targetVendorUid)
+              return (
+                <div key={offer.id} style={{ background:'#FAFAFA', borderRadius:18, border:`1.5px solid ${DS.border}`, overflow:'hidden', marginBottom:12, boxShadow:DS.shadow }}>
+                  {/* Vendor info */}
+                  <div style={{ padding:'14px 16px', display:'flex', alignItems:'center', gap:12 }}>
+                    <div style={{ width:52, height:52, borderRadius:16, overflow:'hidden', background:'#F0F0F0', flexShrink:0 }}>
+                      {vendor?.photo
+                        ? <img src={vendor.photo} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                        : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24 }}>🍽️</div>
+                      }
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:15, fontWeight:800, color:DS.textPrimary }}>{vendor?.storeName || offer.targetVendorName || 'Restaurant'}</div>
+                      <div style={{ fontSize:11, color:DS.textSecondary, marginTop:2 }}>{vendor?.category} · ⭐ {vendor?.rating||4.5}</div>
+                      <div style={{ display:'flex', gap:6, marginTop:5, flexWrap:'wrap' }}>
+                        {offer.items?.slice(0,2).map((item, i) => (
+                          <span key={i} style={{ fontSize:10, background:DS.primaryLight, color:DS.primary, borderRadius:8, padding:'2px 8px', fontWeight:600 }}>{item.qty}× {item.name}</span>
+                        ))}
+                        {(offer.items?.length||0) > 2 && <span style={{ fontSize:10, color:DS.textMuted }}>+{offer.items.length - 2} more</span>}
+                      </div>
+                    </div>
+                    <div style={{ textAlign:'right', flexShrink:0 }}>
+                      <div style={{ fontSize:16, fontWeight:900, color:DS.primary }}>₹{offer.total}</div>
+                      <div style={{ fontSize:9, color:DS.textMuted, marginTop:2 }}>Total</div>
+                    </div>
+                  </div>
+                  {/* Actions */}
+                  <div style={{ display:'flex', gap:0, borderTop:`1px solid ${DS.border}` }}>
+                    <button
+                      onClick={async () => {
+                        try {
+                          // Accept the BR offer — place order with this vendor
+                          const { updateDoc: ud, doc: dc } = await import('firebase/firestore')
+                          // Mark BR offer as accepted
+                          await ud(dc(db, 'bounceRollOffers', offer.id), { status: 'accepted', acceptedAt: serverTimestamp() })
+                          // Place a new order with this vendor
+                          const billNo = 'FZ-BR-' + Date.now().toString(36).slice(-6).toUpperCase()
+                          await placeOrder({
+                            userUid: user.uid,
+                            userName: userData?.name || '',
+                            userPhone: userData?.mobile || '',
+                            userEmail: user.email,
+                            vendorUid: offer.targetVendorUid,
+                            vendorName: offer.targetVendorName || vendor?.storeName || '',
+                            items: offer.items || [],
+                            subtotal: offer.subtotal || 0,
+                            deliveryFee: offer.deliveryFee || 0,
+                            total: offer.total || 0,
+                            address: offer.address || '',
+                            paymentMode: 'COD',
+                            billNo,
+                            userLat: offer.userLat, userLng: offer.userLng,
+                            isBounceRoll: true,
+                            originalOrderId: offer.originalOrderId,
+                          })
+                          setBounceRollOffers(p => p.filter(o => o.id !== offer.id))
+                          toast.success(`✅ Order confirmed with ${vendor?.storeName || 'restaurant'}!`)
+                        } catch (err) {
+                          toast.error('Failed to confirm. Try again.')
+                          console.error(err)
+                        }
+                      }}
+                      className="fz-ripple-btn"
+                      style={{ flex:2, padding:'14px 0', background:`linear-gradient(135deg,${DS.primary},${DS.primaryDark})`, color:'#fff', border:'none', fontSize:13, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}
+                    >
+                      ✅ Accept & Confirm Order
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await updateDoc(doc(db, 'bounceRollOffers', offer.id), { status: 'declined' })
+                          setBounceRollOffers(p => p.filter(o => o.id !== offer.id))
+                          toast('Offer declined', { icon: '👋' })
+                        } catch {}
+                      }}
+                      style={{ flex:1, padding:'14px 0', background:'#F5F5F5', color:DS.textSecondary, border:'none', borderLeft:`1px solid ${DS.border}`, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}
+                    >
+                      Skip
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-          {/* Right actions */}
-          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <button onClick={() => setShowMap(true)} style={{ width:38, height:38, background:DS.primaryLight, border:'none', borderRadius:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>🗺️</button>
-            <div onClick={() => setShowNotifs(!showNotifs)} style={{ position:'relative', cursor:'pointer', width:38, height:38, background:DS.primaryLight, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        </div>
+      )}
+
+      {/* ── PREMIUM HEADER ── */}
+      <div style={{ background:'#FFFFFF', flexShrink:0, boxShadow:'0 1px 0 rgba(0,0,0,0.06)' }}>
+
+        {/* Top row — logo + actions */}
+        <div style={{ padding:'12px 16px 0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          {/* Logo */}
+          <div style={{ display:'flex', alignItems:'center', gap:9 }}>
+            <FeedozoneLogo size="md" variant="full" dark={true} />
+            {/* Live badge */}
+            <div style={{ display:'flex', alignItems:'center', gap:3, background:'#ECFDF5', borderRadius:20, padding:'2px 8px' }}>
+              <div style={{ width:5, height:5, borderRadius:'50%', background:'#10B981', animation:'livePulse 1.8s ease infinite' }} />
+              <span style={{ fontSize:8, fontWeight:800, color:'#065F46', letterSpacing:0.5 }}>LIVE</span>
+            </div>
+          </div>
+
+          {/* Right action icons */}
+          <div style={{ display:'flex', gap:7, alignItems:'center' }}>
+            {/* Map */}
+            <button onClick={() => setShowMap(true)} className="fz-add-btn" style={{ width:38, height:38, background:'#F5F5F5', border:'none', borderRadius:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>🗺️</button>
+            {/* Bell */}
+            <div onClick={() => setShowNotifs(!showNotifs)} style={{ position:'relative', cursor:'pointer', width:38, height:38, background:'#F5F5F5', borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
               <span style={{ fontSize:16 }}>🔔</span>
-              {unreadCount > 0 && <div style={{ position:'absolute', top:6, right:6, background:DS.primary, color:'#fff', borderRadius:'50%', width:14, height:14, fontSize:8, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #fff' }}>{unreadCount}</div>}
+              {unreadCount > 0 && <div className="fz-badge-pop" style={{ position:'absolute', top:5, right:5, background:DS.primary, color:'#fff', borderRadius:'50%', width:14, height:14, fontSize:8, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #fff' }}>{unreadCount}</div>}
             </div>
             <LanguageSwitcher variant="pill" />
           </div>
         </div>
 
+        {/* Location + Bounce & Roll row */}
+        <div style={{ padding:'10px 16px 12px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+          {/* Location pill */}
+          <div onClick={() => setShowLocationPicker(true)} style={{ flex:1, cursor:'pointer', display:'flex', alignItems:'center', gap:8, background:'#F8F8F8', borderRadius:14, padding:'8px 12px', border:`1.5px solid ${DS.border}`, minWidth:0, transition:'border-color 0.2s' }}>
+            <div style={{ width:22, height:22, background:'linear-gradient(135deg,#E24B4A,#FF6B6A)', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:'0 2px 6px rgba(226,75,74,0.4)' }}>
+              <span style={{ fontSize:10, color:'#fff' }}>📍</span>
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:9, fontWeight:700, color:DS.textMuted, letterSpacing:0.8, textTransform:'uppercase', lineHeight:1 }}>Delivering to</div>
+              <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', marginTop:1 }}>
+                {locationLoading ? 'Detecting...' : locationName || 'Set Location'}
+              </div>
+            </div>
+            <span style={{ fontSize:11, color:DS.primary, fontWeight:800, flexShrink:0 }}>▾</span>
+          </div>
+
+          {/* ── BOUNCE & ROLL TOGGLE ── */}
+          <div style={{ flexShrink:0 }}>
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
+              <button
+                onClick={toggleBounceRoll}
+                className={bounceRollEnabled ? 'fz-br-on' : ''}
+                style={{
+                  width:52, height:28, borderRadius:14, border:'none',
+                  cursor:'pointer', position:'relative', padding:0,
+                  background: bounceRollEnabled
+                    ? 'linear-gradient(135deg,#E24B4A,#FF6B6A)'
+                    : '#E5E7EB',
+                  boxShadow: bounceRollEnabled
+                    ? '0 4px 12px rgba(226,75,74,0.45)'
+                    : '0 1px 4px rgba(0,0,0,0.1)',
+                  transition: 'all 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+                }}
+                title={bounceRollEnabled
+                  ? 'Bounce & Roll ON — if a restaurant cancels, we find you a new one instantly!'
+                  : 'Bounce & Roll OFF'}
+              >
+                <div style={{
+                  position:'absolute', top:3,
+                  left: bounceRollEnabled ? 26 : 3,
+                  width:22, height:22, borderRadius:11,
+                  background:'#fff',
+                  boxShadow:'0 2px 6px rgba(0,0,0,0.2)',
+                  transition:'left 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontSize:11,
+                }}>
+                  <span className={bounceRollEnabled ? 'fz-br-icon' : ''}>
+                    {bounceRollEnabled ? '🔄' : '⏸️'}
+                  </span>
+                </div>
+              </button>
+              <div style={{
+                fontSize:8, fontWeight:800, letterSpacing:0.3, whiteSpace:'nowrap',
+                textTransform:'uppercase', cursor:'pointer',
+                color: bounceRollEnabled ? DS.primary : DS.textMuted,
+                textDecorationLine:'underline', textDecorationStyle:'dotted',
+              }} onClick={() => setShowBrInfo(true)}>
+                {bounceRollEnabled ? 'B&R ON' : 'B&R OFF'} ℹ️
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── MULTI-CART INDICATOR (shown when 2+ vendor carts active) ── */}
+        {Object.keys(carts).length >= 2 && (
+          <div style={{ margin:'0 16px 10px', background:'linear-gradient(135deg,#1A0A0A,#2D0808)', borderRadius:14, padding:'10px 14px', display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:32, height:32, borderRadius:10, background:'rgba(226,75,74,0.3)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, animation:'cartPulse 2s infinite' }}>🛒</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:12, fontWeight:800, color:'#fff' }}>{Object.keys(carts).length} active carts</div>
+              <div style={{ fontSize:10, color:'rgba(255,255,255,0.6)', marginTop:1 }}>{Object.values(carts).map(c=>c.vendor.storeName).join(' · ')}</div>
+            </div>
+            <button onClick={() => setTab('cart')} style={{ background:DS.primary, border:'none', color:'#fff', borderRadius:10, padding:'6px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+              View →
+            </button>
+          </div>
+        )}
+
         {freeDeliveryToday && (
-          <div style={{ margin:'0 16px 10px', background:'linear-gradient(135deg,#FF9933,#E24B4A)', borderRadius:10, padding:'7px 12px', display:'flex', alignItems:'center', gap:7 }}>
-            <span style={{ fontSize:13 }}>🚩</span>
-            <span style={{ fontSize:11, fontWeight:700, color:'#fff' }}>{t('Free delivery today — Ashadi Ekadashi!','आज मोफत डिलिव्हरी — आषाढी एकादशी!')}</span>
+          <div style={{ margin:'0 16px 10px', background:'linear-gradient(135deg,#FF9933,#E24B4A)', borderRadius:12, padding:'8px 14px', display:'flex', alignItems:'center', gap:8, boxShadow:'0 4px 14px rgba(226,75,74,0.3)' }}>
+            <span style={{ fontSize:15, animation:'float3d 3s ease-in-out infinite' }}>🚩</span>
+            <span style={{ fontSize:12, fontWeight:700, color:'#fff' }}>{t('Free delivery today — Ashadi Ekadashi!','आज मोफत डिलिव्हरी — आषाढी एकादशी!')}</span>
           </div>
         )}
 
@@ -1812,10 +2560,13 @@ export default function UserApp() {
         )}
 
         {(tab==='home' || tab==='vendor-menu') && (
-          <div style={{ margin:'0 16px 14px', background:'#FAFAFA', borderRadius:14, display:'flex', alignItems:'center', gap:10, padding:'12px 14px', border:`1.5px solid ${DS.border}` }}>
-            <span style={{ fontSize:16, color:DS.textMuted }}>🔍</span>
-            <input style={{ border:'none', outline:'none', fontSize:14, flex:1, fontFamily:'Poppins', color:DS.textPrimary, background:'transparent' }} placeholder="Search restaurants or food..." value={searchQuery} onChange={e => { setSearchQuery(e.target.value); if (tab==='vendor-menu') setTab('home') }} />
-            {searchQuery && <button onClick={() => setSearchQuery('')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, color:DS.textMuted, padding:0 }}>✕</button>}
+          <div style={{ margin:'0 16px 14px', background:'#FAFAFA', borderRadius:16, display:'flex', alignItems:'center', gap:10, padding:'12px 16px', border:`1.5px solid ${DS.border}`, boxShadow:'0 2px 12px rgba(0,0,0,0.04)', transition:'box-shadow 0.2s ease, border-color 0.2s ease' }}
+            onFocus={() => {}} onBlur={() => {}}>
+            <div style={{ width:26, height:26, borderRadius:9, background:'linear-gradient(135deg,#FFF1F0,#FFE4E4)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <span style={{ fontSize:13, color:DS.primary }}>🔍</span>
+            </div>
+            <input style={{ border:'none', outline:'none', fontSize:14, flex:1, fontFamily:'Poppins', color:DS.textPrimary, background:'transparent', fontWeight:500 }} placeholder="Search restaurants or food..." value={searchQuery} onChange={e => { setSearchQuery(e.target.value); if (tab==='vendor-menu') setTab('home') }} />
+            {searchQuery && <button onClick={() => setSearchQuery('')} style={{ background:'#F0F0F0', border:'none', cursor:'pointer', fontSize:12, color:DS.textSecondary, padding:0, width:22, height:22, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>}
           </div>
         )}
 
@@ -1834,20 +2585,89 @@ export default function UserApp() {
         {/* ── HOME ── */}
         {tab==='home' && (
           <div style={{ background:DS.bg, minHeight:'100%' }}>
-            {/* Delivery info strip */}
+            {/* ── PREMIUM 3D HERO GREETING BANNER ── */}
+            <div className="fz-gradient-banner" style={{
+              background: 'linear-gradient(135deg,#1A0A0A 0%,#2D0808 35%,#1A1A2E 70%,#0D0D1A 100%)',
+              padding:'22px 20px 20px', position:'relative', overflow:'hidden',
+            }}>
+              {/* 3D depth orbs */}
+              <div style={{ position:'absolute', top:-50, right:-30, width:180, height:180, borderRadius:'50%', background:'radial-gradient(circle,rgba(226,75,74,0.18) 0%,transparent 70%)', pointerEvents:'none', animation:'float3d 6s ease-in-out infinite' }} />
+              <div style={{ position:'absolute', bottom:-60, left:-20, width:140, height:140, borderRadius:'50%', background:'radial-gradient(circle,rgba(226,75,74,0.12) 0%,transparent 70%)', pointerEvents:'none', animation:'float3d 8s ease-in-out infinite reverse' }} />
+              <div style={{ position:'absolute', top:'30%', right:'15%', width:80, height:80, borderRadius:'50%', background:'radial-gradient(circle,rgba(255,107,106,0.1) 0%,transparent 70%)', pointerEvents:'none', animation:'float3d 5s ease-in-out infinite 1s' }} />
+
+              {/* Shimmer scan line */}
+              <div style={{ position:'absolute', top:0, right:0, bottom:0, left:0, background:'linear-gradient(120deg,transparent 20%,rgba(255,255,255,0.04) 50%,transparent 80%)', backgroundSize:'200% 100%', animation:'shimmer3d 5s ease-in-out infinite', pointerEvents:'none' }} />
+
+              {/* Floating food particles */}
+              <div style={{ position:'absolute', top:0, right:0, bottom:0, left:0, pointerEvents:'none', overflow:'hidden' }}>
+                {[
+                  { emoji:'🍕', top:'8%',  right:'8%',  size:22, delay:0 },
+                  { emoji:'🍜', top:'55%', right:'18%', size:18, delay:0.8 },
+                  { emoji:'🥘', top:'15%', right:'38%', size:20, delay:1.5 },
+                  { emoji:'🍚', top:'68%', right:'4%',  size:16, delay:2.2 },
+                  { emoji:'🍟', top:'35%', right:'28%', size:19, delay:0.4 },
+                ].map((p, i) => (
+                  <div key={i} className="fz-particle" style={{
+                    position:'absolute', top:p.top, right:p.right,
+                    fontSize:p.size, opacity:0.35,
+                    animationDelay: `${p.delay}s`,
+                    filter:'blur(0.3px)',
+                  }}>{p.emoji}</div>
+                ))}
+              </div>
+
+              {/* Content */}
+              <div style={{ position:'relative', zIndex:1 }}>
+                <div style={{ fontSize:11, color:'rgba(255,255,255,0.45)', fontWeight:700, letterSpacing:1.2, marginBottom:5, textTransform:'uppercase' }}>
+                  {new Date().getHours() < 12 ? '🌅 Good morning' : new Date().getHours() < 17 ? '☀️ Good afternoon' : '🌙 Good evening'}
+                  {userData?.name ? `, ${userData.name.split(' ')[0]}` : ''}
+                </div>
+                <div style={{ fontSize:23, fontWeight:900, color:'#FFFFFF', letterSpacing:-0.5, lineHeight:1.2, marginBottom:12 }}>
+                  What are you{' '}
+                  <span style={{ background:'linear-gradient(135deg,#FF6B6A,#E24B4A,#FF9933)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text', backgroundSize:'200% 200%', animation:'heroBannerShift 3s ease infinite' }}>craving</span>
+                  {' '}today?
+                </div>
+
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(255,255,255,0.09)', borderRadius:20, padding:'5px 12px', backdropFilter:'blur(8px)', border:'1px solid rgba(255,255,255,0.1)' }}>
+                    <div style={{ width:6, height:6, borderRadius:'50%', background:'#10B981', animation:'livePulse 1.5s infinite', boxShadow:'0 0 6px rgba(16,185,129,0.6)' }} />
+                    <span style={{ fontSize:11, color:'rgba(255,255,255,0.85)', fontWeight:700 }}>{openVendors.length} restaurants open</span>
+                  </div>
+                  <button onClick={() => setShowMap(true)} className="fz-add-btn" style={{ display:'flex', alignItems:'center', gap:5, background:'linear-gradient(135deg,rgba(226,75,74,0.4),rgba(199,50,50,0.3))', borderRadius:20, padding:'5px 12px', border:'1px solid rgba(226,75,74,0.3)', cursor:'pointer', backdropFilter:'blur(8px)' }}>
+                    <span style={{ fontSize:11 }}>🗺️</span>
+                    <span style={{ fontSize:11, color:'rgba(255,255,255,0.9)', fontWeight:700 }}>Map</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* ── DELIVERY STRIP ── */}
             <div style={{ background:'#FFFFFF', padding:'10px 16px', display:'flex', alignItems:'center', gap:10, borderBottom:`1px solid ${DS.border}` }}>
-              <div style={{ width:32, height:32, borderRadius:10, background: freeDeliveryToday ? 'linear-gradient(135deg,#FF9933,#E24B4A)' : DS.primaryLight, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                <span style={{ fontSize:15 }}>🚚</span>
+              <div style={{ width:34, height:34, borderRadius:11,
+                background: freeDeliveryToday
+                  ? 'linear-gradient(135deg,#FF9933,#E24B4A)'
+                  : 'linear-gradient(135deg,#FFF1F0,#FFE4E4)',
+                display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+                boxShadow: freeDeliveryToday
+                  ? '0 4px 14px rgba(226,75,74,0.4), inset 0 1px 0 rgba(255,255,255,0.2)'
+                  : '0 2px 8px rgba(226,75,74,0.12)',
+                animation: freeDeliveryToday ? 'float3d 4s ease-in-out infinite' : 'none',
+              }}>
+                <span style={{ fontSize:16 }}>🚚</span>
               </div>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:12, fontWeight:700, color: freeDeliveryToday ? DS.primary : DS.textPrimary }}>
-                  {freeDeliveryToday ? '🎉 Free delivery today — Ashadi Ekadashi!' : 'Delivery within 4km'}
+                  {freeDeliveryToday ? '🎉 Free delivery today — Ashadi Ekadashi!' : 'Fast delivery within 4km'}
                 </div>
                 <div style={{ fontSize:10, color:DS.textMuted }}>
                   {freeDeliveryToday ? `On every order · Max ${MAX_DELIVERY_KM}km` : `Fixed or distance-based · Max ${MAX_DELIVERY_KM}km`}
                 </div>
               </div>
-              <button onClick={() => setShowMap(true)} style={{ background:DS.primaryLight, border:'none', color:DS.primary, padding:'6px 12px', borderRadius:20, fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>🗺️ Map</button>
+              {freeDeliveryToday && (
+                <div style={{ background:'linear-gradient(135deg,#FF9933,#E24B4A)', borderRadius:20, padding:'4px 10px', boxShadow:'0 4px 12px rgba(226,75,74,0.4)' }}>
+                  <span style={{ fontSize:10, fontWeight:800, color:'#fff' }}>FREE</span>
+                </div>
+              )}
             </div>
 
             {freeDeliveryToday && <FreeDeliveryOfferBanner lang={lang} />}
@@ -1860,27 +2680,44 @@ export default function UserApp() {
               </div>
             )}
 
-            {/* Categories */}
+            {/* ── CATEGORIES — Zomato-style real food images ── */}
             {!searchQuery.trim() && (
               <div style={{ background:'#FFFFFF', borderBottom:`1px solid ${DS.border}` }}>
-                <div style={{ overflowX:'auto', padding:'16px 16px 14px', scrollbarWidth:'none' }}>
+                <div style={{ overflowX:'auto', padding:'18px 16px 16px', scrollbarWidth:'none' }}>
                   <div style={{ display:'flex', gap:14, width:'max-content' }}>
-                    {CATEGORIES.map(c => {
+                    {CATEGORIES.map((c, i) => {
                       const active = catFilter === c.id
                       return (
-                        <div key={c.id} onClick={() => setCatFilter(c.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, cursor:'pointer', flexShrink:0 }}>
+                        <div key={c.id} onClick={() => setCatFilter(c.id)}
+                          className={`fz-cat fz-stagger ${active ? 'fz-cat-active' : ''}`}
+                          style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:7, cursor:'pointer', flexShrink:0, animationDelay:`${i * 45}ms` }}>
+                          {/* Image circle */}
                           <div style={{
-                            width:56, height:56, borderRadius:18,
-                            background: active ? DS.primary : '#F5F5F5',
-                            display:'flex', alignItems:'center', justifyContent:'center',
-                            fontSize:24,
-                            boxShadow: active ? `0 6px 16px rgba(226,75,74,0.35)` : '0 1px 4px rgba(0,0,0,0.06)',
-                            border: `2px solid ${active ? DS.primary : 'transparent'}`,
-                            transform: active ? 'scale(1.08)' : 'scale(1)',
-                            transition: 'all 0.2s ease',
-                          }}>{c.emoji}</div>
-                          <span style={{ fontSize:10, fontWeight: active ? 700 : 500, color: active ? DS.primary : DS.textSecondary, whiteSpace:'nowrap' }}>{c.label}</span>
-                          {active && <div style={{ width:16, height:2.5, background:DS.primary, borderRadius:2 }} />}
+                            width:64, height:64, borderRadius:22,
+                            overflow:'hidden', position:'relative', flexShrink:0,
+                            boxShadow: active
+                              ? `0 10px 26px rgba(226,75,74,0.5), 0 4px 10px rgba(226,75,74,0.25)`
+                              : '0 3px 10px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.06)',
+                            border: `3px solid ${active ? DS.primary : 'rgba(0,0,0,0)'}`,
+                            transform: active ? 'scale(1.13) translateY(-4px)' : 'scale(1)',
+                            transition: 'all 0.28s cubic-bezier(0.34,1.56,0.64,1)',
+                            transformStyle:'preserve-3d',
+                          }}>
+                            <img
+                              src={c.img}
+                              alt={c.label}
+                              loading="lazy"
+                              style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', transition:'transform 0.35s ease', transform: active ? 'scale(1.1)' : 'scale(1)' }}
+                            />
+                            {/* Active tint overlay */}
+                            {active && (
+                              <div style={{ position:'absolute', inset:0, background:'rgba(226,75,74,0.18)', pointerEvents:'none' }} />
+                            )}
+                          </div>
+                          <span style={{ fontSize:10, fontWeight: active ? 800 : 600, color: active ? DS.primary : DS.textSecondary, whiteSpace:'nowrap', transition:'color 0.2s', letterSpacing: active ? 0 : 0.1 }}>{c.label}</span>
+                          {active && (
+                            <div style={{ width:22, height:3, background:`linear-gradient(90deg,${DS.primary},#FF6B6A)`, borderRadius:2, animation:'badgePop 0.35s cubic-bezier(0.34,1.56,0.64,1)' }} />
+                          )}
                         </div>
                       )
                     })}
@@ -1889,50 +2726,56 @@ export default function UserApp() {
               </div>
             )}
 
-            {/* Section header */}
+            {/* ── SECTION HEADER ── */}
             <div style={{ padding:'16px 16px 10px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
               <div>
-                <div style={{ fontSize:16, fontWeight:800, color:DS.textPrimary }}>
-                  {searchQuery.trim() ? '🔍 Search Results' : 'Restaurants Near You'}
+                <div style={{ fontSize:17, fontWeight:900, color:DS.textPrimary, letterSpacing:-0.3 }}>
+                  {searchQuery.trim() ? '🔍 Search Results' : '🍽️ Restaurants Near You'}
                 </div>
-                <div style={{ fontSize:11, color:DS.textMuted, marginTop:2 }}>Within {MAX_DELIVERY_KM}km</div>
+                <div style={{ fontSize:11, color:DS.textMuted, marginTop:2, display:'flex', alignItems:'center', gap:5 }}>
+                  <span style={{ width:6, height:6, borderRadius:'50%', background:DS.success, display:'inline-block', animation:'livePulse 2s infinite' }} />
+                  <span>Within {MAX_DELIVERY_KM}km · {openVendors.length} open now</span>
+                </div>
               </div>
               {closedVendors.length > 0 && !showClosedVendors && (
-                <button onClick={() => setShowClosedVendors(true)} style={{ background:DS.border, border:'none', color:DS.textSecondary, borderRadius:20, padding:'4px 10px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
+                <button onClick={() => setShowClosedVendors(true)} className="fz-ripple-btn" style={{ background:'linear-gradient(135deg,#F5F5F5,#EFEFEF)', border:'none', color:DS.textSecondary, borderRadius:20, padding:'5px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', boxShadow:'0 1px 4px rgba(0,0,0,0.08)' }}>
                   +{closedVendors.length} closed
                 </button>
               )}
             </div>
 
             {openVendors.length === 0 && !searchQuery && (
-              <div style={{ textAlign:'center', padding:'40px 24px', color:DS.textMuted }}>
-                <div style={{ fontSize:52, marginBottom:12 }}>🗺️</div>
+              <div style={{ textAlign:'center', padding:'52px 28px', color:DS.textMuted }}>
+                {/* 3D floating illustration */}
+                <div style={{ fontSize:72, marginBottom:16, display:'inline-block', animation:'float3d 4s ease-in-out infinite', filter:'drop-shadow(0 12px 20px rgba(0,0,0,0.15))' }}>🗺️</div>
                 {!locationName ? (
                   <>
-                    <div style={{ fontSize:15, fontWeight:700, color:DS.textPrimary, marginBottom:6 }}>Set your location first</div>
-                    <div style={{ fontSize:13, lineHeight:1.6, marginBottom:16, color:DS.textSecondary }}>Tap the location pin at the top to find restaurants near you.</div>
-                    <button onClick={() => setShowLocationPicker(true)} style={{ background:DS.primary, color:'#fff', border:'none', padding:'12px 24px', borderRadius:14, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', boxShadow:`0 4px 16px rgba(226,75,74,0.35)` }}>
+                    <div style={{ fontSize:17, fontWeight:900, color:DS.textPrimary, marginBottom:8, letterSpacing:-0.3 }}>Set your location first</div>
+                    <div style={{ fontSize:13, lineHeight:1.7, marginBottom:20, color:DS.textSecondary, maxWidth:260, margin:'0 auto 20px' }}>Tap the location pin at the top to find restaurants near you.</div>
+                    <button onClick={() => setShowLocationPicker(true)} className="fz-ripple-btn fz-add-btn" style={{ background:'linear-gradient(135deg,#E24B4A,#FF6B6A)', color:'#fff', border:'none', padding:'14px 28px', borderRadius:18, fontSize:14, fontWeight:800, cursor:'pointer', fontFamily:'Poppins', boxShadow:'0 8px 24px rgba(226,75,74,0.4)' }}>
                       📍 Set My Location
                     </button>
                   </>
                 ) : (
                   <>
-                    <div style={{ fontSize:15, fontWeight:700, color:DS.textPrimary, marginBottom:6 }}>No restaurants in {locationName} yet</div>
-                    <div style={{ fontSize:13, lineHeight:1.6, marginBottom:16, color:DS.textSecondary }}>FeedoZone is coming to your area soon!</div>
-                    <button onClick={() => setShowLocationPicker(true)} style={{ background:'#F3F4F6', color:DS.textPrimary, border:'none', padding:'11px 20px', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>
-                      📍 Change Location
-                    </button>
-                    {closedVendors.length > 0 && (
-                      <button onClick={() => setShowClosedVendors(true)} style={{ background:'transparent', color:DS.primary, border:`1.5px solid #FECACA`, padding:'11px 20px', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', marginLeft:8 }}>
-                        👀 See {closedVendors.length} closed
+                    <div style={{ fontSize:17, fontWeight:900, color:DS.textPrimary, marginBottom:8, letterSpacing:-0.3 }}>No restaurants in {locationName} yet</div>
+                    <div style={{ fontSize:13, lineHeight:1.7, marginBottom:20, color:DS.textSecondary, maxWidth:260, margin:'0 auto 20px' }}>FeedoZone is coming to your area soon! 🚀</div>
+                    <div style={{ display:'flex', gap:10, justifyContent:'center', flexWrap:'wrap' }}>
+                      <button onClick={() => setShowLocationPicker(true)} className="fz-ripple-btn" style={{ background:'#F5F5F5', color:DS.textPrimary, border:'none', padding:'12px 22px', borderRadius:14, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+                        📍 Change Location
                       </button>
-                    )}
+                      {closedVendors.length > 0 && (
+                        <button onClick={() => setShowClosedVendors(true)} className="fz-ripple-btn" style={{ background:DS.primaryLight, color:DS.primary, border:`1.5px solid #FECACA`, padding:'12px 22px', borderRadius:14, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>
+                          👀 See {closedVendors.length} closed
+                        </button>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
             )}
 
-            {/* Vendor Cards */}
+            {/* ── VENDOR CARDS ── */}
             <div style={{ padding:'0 16px 8px' }}>
               {filteredVendors.map((v, idx) => {
                 const vMinOrder = Number(v.minOrderAmount ?? 0)
@@ -1941,67 +2784,127 @@ export default function UserApp() {
                 const openIdx = openVendors.findIndex(ov => ov.id === v.id)
                 const rankEmoji = openIdx === 0 ? '🥇' : openIdx === 1 ? '🥈' : openIdx === 2 ? '🥉' : null
                 return (
-                  <div key={v.id} onClick={() => openVendor(v)}
-                    style={{ background:'#FFFFFF', borderRadius:20, overflow:'hidden', marginBottom:16, cursor: v.isOpen ? 'pointer' : 'default', boxShadow:DS.shadow, border:`1px solid ${DS.border}`, transition:'transform 0.15s ease, box-shadow 0.15s ease' }}>
-                    {/* Image */}
-                    <div style={{ height:150, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#FEE2E2,#FECACA)' }}>
+                  <div key={v.id}
+                    className="fz-vendor-card fz-stagger"
+                    onClick={() => openVendor(v)}
+                    style={{
+                      background:'#FFFFFF', borderRadius:22, overflow:'hidden',
+                      marginBottom:20, cursor: v.isOpen ? 'pointer' : 'default',
+                      boxShadow:'0 6px 24px rgba(0,0,0,0.09), 0 2px 6px rgba(0,0,0,0.04)',
+                      border:`1px solid ${DS.border}`,
+                      animationDelay:`${idx * 60}ms`,
+                    }}>
+
+                    {/* IMAGE */}
+                    <div style={{ height:168, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#FEE2E2,#FECACA)' }}>
                       {v.photo
-                        ? <img src={v.photo} alt={v.storeName} style={{ width:'100%', height:'100%', objectFit:'cover', filter: v.isOpen ? 'none' : 'grayscale(60%) brightness(0.85)' }} />
-                        : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:4 }}><span style={{ fontSize:44 }}>🍽️</span></div>
+                        ? <img src={v.photo} alt={v.storeName}
+                            style={{ width:'100%', height:'100%', objectFit:'cover',
+                              filter: v.isOpen ? 'none' : 'grayscale(55%) brightness(0.88)',
+                              transition:'transform 0.5s ease',
+                            }} />
+                        : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                            <span style={{ fontSize:54, animation:'float3d 5s ease-in-out infinite' }}>🍽️</span>
+                          </div>
                       }
-                      {/* Gradient overlay */}
-                      <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 55%)' }} />
+                      {/* Rich gradient overlay */}
+                      <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.15) 45%, transparent 100%)' }} />
 
                       {/* Closed overlay */}
                       {!v.isOpen && (
-                        <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.42)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                          <div style={{ background:'rgba(0,0,0,0.72)', borderRadius:12, padding:'8px 18px', display:'flex', alignItems:'center', gap:8, backdropFilter:'blur(4px)' }}>
-                            <span style={{ fontSize:14 }}>🔒</span>
+                        <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(3px)' }}>
+                          <div style={{ background:'rgba(0,0,0,0.72)', borderRadius:16, padding:'10px 22px', display:'flex', alignItems:'center', gap:10, border:'1px solid rgba(255,255,255,0.1)', boxShadow:'0 8px 24px rgba(0,0,0,0.3)' }}>
+                            <span style={{ fontSize:16 }}>🔒</span>
                             <div>
-                              <div style={{ fontSize:12, fontWeight:700, color:'#fff' }}>Closed</div>
-                              {v.openTime && <div style={{ fontSize:10, color:'rgba(255,255,255,0.7)', marginTop:1 }}>Opens {v.openTime}</div>}
+                              <div style={{ fontSize:13, fontWeight:800, color:'#fff' }}>Closed Now</div>
+                              {v.openTime && <div style={{ fontSize:10, color:'rgba(255,255,255,0.6)', marginTop:1 }}>Opens at {v.openTime}</div>}
                             </div>
                           </div>
                         </div>
                       )}
 
-                      {/* Top badges */}
-                      <div style={{ position:'absolute', top:10, left:10, display:'flex', gap:6 }}>
-                        <span style={{ background:'rgba(255,255,255,0.92)', backdropFilter:'blur(4px)', color:DS.textSecondary, fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:20 }}>{v.category||'Food'}</span>
-                        {rankEmoji && <span style={{ background:'rgba(0,0,0,0.65)', backdropFilter:'blur(4px)', color:'#fff', fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:20 }}>{rankEmoji}</span>}
-                      </div>
-                      <div style={{ position:'absolute', top:10, right:10 }}>
-                        <span style={{ background: v.isOpen ? DS.success : DS.textMuted, color:'#fff', fontSize:10, fontWeight:700, padding:'4px 9px', borderRadius:20 }}>{v.isOpen ? '● Open' : '● Closed'}</span>
+                      {/* Top-left: category + rank */}
+                      <div style={{ position:'absolute', top:12, left:12, display:'flex', gap:6 }}>
+                        <span style={{
+                          background:'rgba(255,255,255,0.9)', backdropFilter:'blur(12px)',
+                          color:'#374151', fontSize:10, fontWeight:700,
+                          padding:'4px 10px', borderRadius:20,
+                          boxShadow:'0 2px 8px rgba(0,0,0,0.12)',
+                        }}>{v.category||'Food'}</span>
+                        {rankEmoji && (
+                          <span style={{
+                            background:'rgba(0,0,0,0.65)', backdropFilter:'blur(8px)',
+                            color:'#fff', fontSize:11, fontWeight:800,
+                            padding:'4px 10px', borderRadius:20,
+                            boxShadow:'0 2px 8px rgba(0,0,0,0.2)',
+                          }}>{rankEmoji}</span>
+                        )}
                       </div>
 
-                      {/* Bottom info */}
-                      <div style={{ position:'absolute', bottom:10, left:12, right:12, display:'flex', alignItems:'flex-end', justifyContent:'space-between' }}>
-                        <div style={{ color:'#fff' }}>
-                          <div style={{ fontSize:16, fontWeight:800, lineHeight:1.2, textShadow:'0 1px 4px rgba(0,0,0,0.4)' }}>{v.storeName}</div>
-                          <div style={{ fontSize:11, opacity:0.9, marginTop:2 }}>{v.category}</div>
+                      {/* Top-right: open/closed pill */}
+                      <div style={{ position:'absolute', top:12, right:12 }}>
+                        <span style={{
+                          background: v.isOpen ? 'rgba(16,185,129,0.92)' : 'rgba(107,114,128,0.85)',
+                          backdropFilter:'blur(8px)', color:'#fff',
+                          fontSize:10, fontWeight:800, padding:'4px 11px', borderRadius:20,
+                          boxShadow: v.isOpen ? '0 3px 10px rgba(16,185,129,0.45)' : '0 2px 6px rgba(0,0,0,0.2)',
+                          display:'flex', alignItems:'center', gap:5,
+                        }}>
+                          <span style={{
+                            width:5, height:5, borderRadius:'50%', background:'#fff', display:'inline-block',
+                            animation: v.isOpen ? 'livePulse 2s infinite' : 'none',
+                            boxShadow: v.isOpen ? '0 0 5px rgba(255,255,255,0.8)' : 'none',
+                          }} />
+                          {v.isOpen ? 'Open' : 'Closed'}
+                        </span>
+                      </div>
+
+                      {/* Bottom: name + rating */}
+                      <div style={{ position:'absolute', bottom:14, left:14, right:14, display:'flex', alignItems:'flex-end', justifyContent:'space-between' }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:18, fontWeight:900, color:'#fff', lineHeight:1.2, textShadow:'0 2px 10px rgba(0,0,0,0.5)', marginBottom:2 }}>{v.storeName}</div>
+                          <div style={{ fontSize:11, color:'rgba(255,255,255,0.75)', fontWeight:500 }}>{v.category}</div>
                         </div>
-                        <div style={{ background:'rgba(255,255,255,0.92)', backdropFilter:'blur(4px)', borderRadius:10, padding:'4px 8px', display:'flex', alignItems:'center', gap:3 }}>
-                          <span style={{ fontSize:11, fontWeight:800, color:'#1A1A1A' }}>⭐ {v.rating||4.5}</span>
+                        <div style={{
+                          background:'rgba(255,255,255,0.92)', backdropFilter:'blur(10px)',
+                          borderRadius:12, padding:'5px 10px',
+                          display:'flex', alignItems:'center', gap:4,
+                          boxShadow:'0 3px 10px rgba(0,0,0,0.15)',
+                          flexShrink:0, marginLeft:10,
+                        }}>
+                          <span style={{ fontSize:13, color:'#F59E0B' }}>★</span>
+                          <span style={{ fontSize:13, fontWeight:900, color:'#1A1A1A' }}>{v.rating||4.5}</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Info row */}
-                    <div style={{ padding:'12px 14px' }}>
+                    {/* INFO ROW */}
+                    <div style={{ padding:'13px 16px 15px' }}>
                       <div style={{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' }}>
-                        <span style={{ fontSize:11, color:DS.textSecondary, display:'flex', alignItems:'center', gap:4 }}>
-                          <span>🕐</span> 20-30 min
+                        <span style={{ fontSize:12, color:DS.textSecondary, display:'flex', alignItems:'center', gap:5, fontWeight:500 }}>
+                          <span>🕐</span> 20–35 min
                         </span>
                         {v.distance !== null && (
-                          <span style={{ fontSize:11, color:DS.textSecondary, display:'flex', alignItems:'center', gap:4 }}>
+                          <span style={{ fontSize:12, color:DS.textSecondary, display:'flex', alignItems:'center', gap:4, fontWeight:500 }}>
                             <span>📍</span> {v.distance < 1 ? `${Math.round(v.distance*1000)}m` : `${v.distance.toFixed(1)}km`}
                           </span>
                         )}
-                        <span style={{ fontSize:11, fontWeight:700, background: dynamicCharge===0 ? DS.successLight : DS.warningLight, color: dynamicCharge===0 ? DS.success : DS.warning, borderRadius:8, padding:'2px 8px' }}>
+                        <span style={{
+                          fontSize:11, fontWeight:800, borderRadius:12, padding:'4px 11px',
+                          background: dynamicCharge===0
+                            ? 'linear-gradient(135deg,#D1FAE5,#A7F3D0)'
+                            : 'linear-gradient(135deg,#FEF3C7,#FDE68A)',
+                          color: dynamicCharge===0 ? '#065F46' : '#78350F',
+                          boxShadow: dynamicCharge===0
+                            ? '0 2px 6px rgba(16,185,129,0.2)'
+                            : '0 2px 6px rgba(245,158,11,0.15)',
+                        }}>
                           {freeDeliveryToday && rawCharge > 0 ? '🎉 Free today' : dynamicCharge===0 ? '🎉 Free delivery' : `🚚 ₹${dynamicCharge}`}
                         </span>
                         {vMinOrder > 0 && (
-                          <span style={{ fontSize:11, fontWeight:600, background:DS.infoLight, color:DS.info, borderRadius:8, padding:'2px 8px' }}>Min ₹{vMinOrder}</span>
+                          <span style={{ fontSize:11, fontWeight:700, background:'linear-gradient(135deg,#DBEAFE,#BFDBFE)', color:'#1E3A8A', borderRadius:12, padding:'4px 10px' }}>
+                            Min ₹{vMinOrder}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -2009,31 +2912,37 @@ export default function UserApp() {
                 )
               })}
 
+              {/* Toggle closed */}
               {closedVendors.length > 0 && openVendors.length > 0 && (
-                <div style={{ marginBottom:16 }}>
-                  <button onClick={() => setShowClosedVendors(s => !s)} style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:10, padding:'13px 0', borderRadius:16, border:'none', cursor:'pointer', fontFamily:'Poppins', background: showClosedVendors ? DS.primaryLight : '#F5F5F5', transition:'all 0.2s' }}>
-                    <span style={{ fontSize:14 }}>{showClosedVendors ? '🙈' : '👀'}</span>
-                    <span style={{ fontSize:13, fontWeight:600, color: showClosedVendors ? DS.primary : DS.textSecondary }}>
+                <div style={{ marginBottom:18 }}>
+                  <button onClick={() => setShowClosedVendors(s => !s)} className="fz-ripple-btn"
+                    style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:10, padding:'14px 0', borderRadius:18, border:`1.5px solid ${showClosedVendors ? '#FECACA' : DS.borderMed}`, cursor:'pointer', fontFamily:'Poppins', background: showClosedVendors ? DS.primaryLight : '#FFFFFF', boxShadow:'0 2px 12px rgba(0,0,0,0.05)', transition:'all 0.2s' }}>
+                    <span style={{ fontSize:16 }}>{showClosedVendors ? '🙈' : '👀'}</span>
+                    <span style={{ fontSize:13, fontWeight:700, color: showClosedVendors ? DS.primary : DS.textSecondary }}>
                       {showClosedVendors ? 'Hide closed restaurants' : `See ${closedVendors.length} closed restaurant${closedVendors.length>1?'s':''}`}
                     </span>
-                    {!showClosedVendors && <span style={{ fontSize:11, background:DS.border, color:DS.textSecondary, borderRadius:20, padding:'2px 8px', fontWeight:600 }}>{closedVendors.length}</span>}
+                    {!showClosedVendors && <span style={{ fontSize:10, background:DS.border, color:DS.textSecondary, borderRadius:20, padding:'2px 8px', fontWeight:700 }}>{closedVendors.length}</span>}
                   </button>
                 </div>
               )}
 
+              {/* Coming soon footer */}
               {!searchQuery.trim() && openVendors.length > 0 && (
-                <div style={{ marginTop:4, marginBottom:24, background:'#FFFFFF', borderRadius:18, padding:'18px 20px', border:`1.5px dashed ${DS.borderMed}`, display:'flex', alignItems:'center', gap:16 }}>
-                  <div style={{ width:48, height:48, borderRadius:14, background:DS.primaryLight, display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0 }}>🍽️</div>
+                <div style={{ marginTop:4, marginBottom:28, background:'linear-gradient(135deg,#FAFAFA,#F5F5F5)', borderRadius:22, padding:'20px 20px', border:`1.5px dashed ${DS.borderMed}`, display:'flex', alignItems:'center', gap:16, boxShadow:'0 2px 10px rgba(0,0,0,0.04)' }}>
+                  <div style={{ width:54, height:54, borderRadius:18, background:'linear-gradient(135deg,#FFF1F0,#FFE4E4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28, flexShrink:0, animation:'float3d 4.5s ease-in-out infinite', boxShadow:'0 6px 18px rgba(226,75,74,0.22)' }}>🍽️</div>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, lineHeight:1.4 }}>More restaurants joining FeedoZone!</div>
-                    <div style={{ fontSize:11, color:DS.textMuted, marginTop:3 }}>New restaurants available soon 🚀</div>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
+                      <div style={{ width:6, height:6, borderRadius:'50%', background:DS.warning, animation:'pulse 1.5s infinite' }} />
+                      <span style={{ fontSize:9, fontWeight:800, color:DS.warning, letterSpacing:0.8, textTransform:'uppercase' }}>Coming Soon</span>
+                    </div>
+                    <div style={{ fontSize:13, fontWeight:800, color:DS.textPrimary, lineHeight:1.4 }}>More restaurants joining FeedoZone!</div>
+                    <div style={{ fontSize:11, color:DS.textMuted, marginTop:3 }}>Stay tuned for exciting new options 🚀</div>
                   </div>
                 </div>
               )}
             </div>
           </div>
         )}
-                    {/* card body rendered above */}
 
         {/* ── VENDOR MENU ── */}
         {tab==='vendor-menu' && selectedVendor && (() => {
@@ -2079,52 +2988,80 @@ export default function UserApp() {
 
           return (
               <div style={{ background:'#fff', minHeight:'100%' }}>
-              <div style={{ height:200, position:'relative', background:'linear-gradient(135deg,#FEE2E2,#FECACA)' }}>
-                {selectedVendor.photo ? <img src={selectedVendor.photo} alt={selectedVendor.storeName} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}><span style={{ fontSize:56 }}>🍽️</span></div>}
-                <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top, rgba(0,0,0,0.65) 0%, transparent 55%)' }} />
+
+              {/* ── PREMIUM 3D RESTAURANT HERO ── */}
+              <div className="fz-hero-3d" style={{ height:210, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#1A0A0A,#2D0808)' }}>
+                {selectedVendor.photo
+                  ? <img src={selectedVendor.photo} alt={selectedVendor.storeName}
+                      style={{ width:'100%', height:'100%', objectFit:'cover', transition:'transform 0.5s ease' }} />
+                  : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <span style={{ fontSize:72, animation:'float3d 5s ease-in-out infinite', filter:'drop-shadow(0 8px 20px rgba(0,0,0,0.5))' }}>🍽️</span>
+                    </div>
+                }
+                {/* Multi-layer gradient */}
+                <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.2) 50%, transparent 100%)' }} />
+                <div style={{ position:'absolute', inset:0, background:'linear-gradient(to right, rgba(0,0,0,0.3) 0%, transparent 60%)' }} />
+
+                {/* Shimmer scan */}
+                <div style={{ position:'absolute', inset:0, background:'linear-gradient(120deg,transparent 30%,rgba(255,255,255,0.06) 50%,transparent 70%)', backgroundSize:'200% 100%', animation:'shimmer3d 5s ease-in-out infinite', pointerEvents:'none' }} />
+
+                {/* Free delivery badge */}
                 {freeDeliveryToday && (
-                  <div style={{ position:'absolute', top:12, right:12, background:'linear-gradient(135deg,#FF9933,#E24B4A)', color:'#fff', fontSize:10, fontWeight:800, padding:'5px 12px', borderRadius:20, display:'flex', alignItems:'center', gap:4, boxShadow:'0 3px 10px rgba(0,0,0,0.25)' }}>
+                  <div style={{ position:'absolute', top:14, right:14, background:'linear-gradient(135deg,#FF9933,#E24B4A)', color:'#fff', fontSize:10, fontWeight:900, padding:'6px 13px', borderRadius:22, display:'flex', alignItems:'center', gap:5, boxShadow:'0 4px 14px rgba(226,75,74,0.5), 0 1px 0 rgba(255,255,255,0.2)', animation:'float3d 4s ease-in-out infinite' }}>
                     🚩 FREE DELIVERY
                   </div>
                 )}
-                <div style={{ position:'absolute', bottom:14, left:16, right:16, color:'#fff' }}>
-                  <div style={{ fontSize:20, fontWeight:800, lineHeight:1.2 }}>{selectedVendor.storeName}</div>
-                  <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:6, flexWrap:'wrap' }}>
-                    <span style={{ fontSize:12, opacity:0.95 }}>{selectedVendor.category}</span>
-                    <span style={{ background:'rgba(255,255,255,0.2)', backdropFilter:'blur(4px)', color:'#fff', fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20 }}>⭐ {selectedVendor.rating||4.5}</span>
-                    <span style={{ background: selectedVendor.isOpen ? 'rgba(16,185,129,0.85)' : 'rgba(107,114,128,0.85)', backdropFilter:'blur(4px)', color:'#fff', fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:20 }}>{selectedVendor.isOpen ? '● Open' : '● Closed'}</span>
+
+                {/* Bottom info */}
+                <div style={{ position:'absolute', bottom:16, left:16, right:16, color:'#fff' }}>
+                  <div style={{ fontSize:22, fontWeight:900, lineHeight:1.2, textShadow:'0 3px 12px rgba(0,0,0,0.6)', marginBottom:8 }}>{selectedVendor.storeName}</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                    <span style={{ fontSize:11, color:'rgba(255,255,255,0.8)', fontWeight:600 }}>{selectedVendor.category}</span>
+                    <span style={{ background:'rgba(255,255,255,0.18)', backdropFilter:'blur(10px)', color:'#fff', fontSize:11, fontWeight:800, padding:'3px 10px', borderRadius:20, border:'1px solid rgba(255,255,255,0.15)', boxShadow:'0 2px 6px rgba(0,0,0,0.15)' }}>⭐ {selectedVendor.rating||4.5}</span>
+                    <span style={{
+                      background: selectedVendor.isOpen ? 'rgba(16,185,129,0.88)' : 'rgba(107,114,128,0.85)',
+                      backdropFilter:'blur(8px)', color:'#fff', fontSize:10, fontWeight:800,
+                      padding:'3px 10px', borderRadius:20,
+                      boxShadow: selectedVendor.isOpen ? '0 2px 8px rgba(16,185,129,0.4)' : 'none',
+                      display:'flex', alignItems:'center', gap:4,
+                    }}>
+                      <span style={{ width:5, height:5, borderRadius:'50%', background:'#fff', display:'inline-block', animation: selectedVendor.isOpen ? 'livePulse 2s infinite' : 'none' }} />
+                      {selectedVendor.isOpen ? 'Open' : 'Closed'}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              <div style={{ padding:'12px 16px', borderBottom:`1px solid ${DS.border}`, display:'flex', gap:12, flexWrap:'wrap', alignItems:'center', background:'#FFFFFF' }}>
-                <span style={{ fontSize:12, color:DS.textSecondary, display:'flex', alignItems:'center', gap:4 }}>🕐 20–30 min</span>
+              {/* Info strip */}
+              <div style={{ padding:'12px 16px', borderBottom:`1px solid ${DS.border}`, display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', background:'#FFFFFF' }}>
+                <span style={{ fontSize:12, color:DS.textSecondary, display:'flex', alignItems:'center', gap:4, fontWeight:500 }}>🕐 20–35 min</span>
                 {freeDeliveryToday ? (
-                  <span style={{ fontSize:12, fontWeight:700, background:DS.warningLight, color:DS.warning, borderRadius:8, padding:'3px 9px', display:'flex', alignItems:'center', gap:5 }}>
-                    🚚 {rawVendorCharge > 0 && <span style={{ textDecoration:'line-through', opacity:0.55 }}>₹{rawVendorCharge}</span>} 🎉 Free today
+                  <span style={{ fontSize:11, fontWeight:800, background:'linear-gradient(135deg,#FEF3C7,#FDE68A)', color:'#78350F', borderRadius:12, padding:'4px 11px', display:'flex', alignItems:'center', gap:5, boxShadow:'0 1px 4px rgba(245,158,11,0.2)' }}>
+                    🚚 {rawVendorCharge > 0 && <span style={{ textDecoration:'line-through', opacity:0.5 }}>₹{rawVendorCharge}</span>} 🎉 Free today
                   </span>
                 ) : (
-                  <span style={{ fontSize:12, fontWeight:700, background: dynamicCharge===0 ? DS.successLight : DS.warningLight, color: dynamicCharge===0 ? DS.success : DS.warning, borderRadius:8, padding:'3px 9px' }}>🚚 {dynamicCharge===0?'Free delivery':'₹'+dynamicCharge}</span>
+                  <span style={{ fontSize:11, fontWeight:800, background: dynamicCharge===0 ? 'linear-gradient(135deg,#D1FAE5,#A7F3D0)' : 'linear-gradient(135deg,#FEF3C7,#FDE68A)', color: dynamicCharge===0 ? '#065F46' : '#78350F', borderRadius:12, padding:'4px 11px', boxShadow: dynamicCharge===0 ? '0 1px 4px rgba(16,185,129,0.2)' : '0 1px 4px rgba(245,158,11,0.15)' }}>
+                    🚚 {dynamicCharge===0 ? 'Free delivery 🎉' : `₹${dynamicCharge}`}
+                  </span>
                 )}
-                {vendorDist !== null && <span style={{ fontSize:12, color:DS.success, fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>📍 {vendorDist < 1 ? `${vendorDist*1000|0}m` : `${vendorDist.toFixed(1)}km`}</span>}
-                {Number(selectedVendor.minOrderAmount) > 0 && <span style={{ fontSize:11, fontWeight:700, background:DS.infoLight, color:DS.info, borderRadius:8, padding:'3px 9px' }}>🛒 Min ₹{selectedVendor.minOrderAmount}</span>}
+                {vendorDist !== null && <span style={{ fontSize:11, color:DS.success, fontWeight:700, display:'flex', alignItems:'center', gap:3 }}>📍 {vendorDist < 1 ? `${vendorDist*1000|0}m` : `${vendorDist.toFixed(1)}km`}</span>}
+                {Number(selectedVendor.minOrderAmount) > 0 && <span style={{ fontSize:11, fontWeight:700, background:'linear-gradient(135deg,#DBEAFE,#BFDBFE)', color:'#1E3A8A', borderRadius:12, padding:'4px 10px', boxShadow:'0 1px 4px rgba(59,130,246,0.15)' }}>🛒 Min ₹{selectedVendor.minOrderAmount}</span>}
               </div>
 
               {freeDeliveryToday && (
-                <div style={{ margin:'10px 16px 0', background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:'#fbbf24' }}>
-                  <div style={{ fontSize:20, flexShrink:0 }}>🚩</div>
+                <div style={{ margin:'10px 16px 0', background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:14, padding:'11px 14px', display:'flex', alignItems:'center', gap:10, border:'1.5px solid #FDE68A', boxShadow:'0 3px 12px rgba(245,158,11,0.15)' }}>
+                  <div style={{ fontSize:22, flexShrink:0, animation:'float3d 3s ease-in-out infinite' }}>🚩</div>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>{t('Ashadi Ekadashi Offer: Free Delivery','आषाढी एकादशी ऑफर: मोफत डिलिव्हरी')}</div>
+                    <div style={{ fontSize:12, fontWeight:800, color:'#92400e' }}>{t('Ashadi Ekadashi Offer: Free Delivery','आषाढी एकादशी ऑफर: मोफत डिलिव्हरी')}</div>
                     <div style={{ fontSize:10, color:'#a16207', marginTop:1 }}>{t('Delivery charge is waived on this order today only','आजच्या ऑर्डरवर डिलिव्हरी चार्ज माफ')}</div>
                   </div>
                 </div>
               )}
 
-              {/* ── VENDOR-SPECIFIC OFFERS STRIP ── */}
-              <div style={{ marginTop: 10 }}>
+              {/* Vendor-specific offers */}
+              <div style={{ marginTop:10 }}>
                 <OffersSection vendorId={selectedVendor.id} compact={true} />
               </div>
-
               {selectedVendor.packingCharges > 0 && (
                 <div style={{ margin:'10px 16px 0', background:'linear-gradient(135deg,#fffbeb,#fef3c7)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10, borderWidth:1.5, borderStyle:'solid', borderColor:'#fbbf24', boxShadow:'0 2px 8px rgba(251,191,36,0.2)' }}>
                   <div style={{ fontSize:20, flexShrink:0 }}>⭐</div>
@@ -2522,6 +3459,116 @@ export default function UserApp() {
         {/* ── CART ── */}
         {tab==='cart' && (
           <div style={{ padding:'16px 16px 24px', background:DS.bg, minHeight:'100%' }}>
+
+            {/* ── MULTI-CART SECTION ── */}
+            {(() => {
+              // Build a unified cart list: main cart + all carts
+              const hasMulti = Object.keys(carts).length > 0
+              if (!hasMulti && !cartVendor) return null  // nothing at all
+
+              // If only one restaurant (main cart only), show normally — skip tabs
+              if (!hasMulti) return null
+
+              // Multi-restaurant: show tabs
+              return (
+                <div style={{ marginBottom:16 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:DS.textMuted, marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>
+                    🛒 Multiple Restaurants
+                  </div>
+
+                  {/* Tab pills */}
+                  <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:6, scrollbarWidth:'none' }}>
+                    {/* Main cart tab (Restaurant 1) */}
+                    {cartVendor && cart.length > 0 && (
+                      <button
+                        onClick={() => setActiveCartVendorId(null)}
+                        className="fz-multicart-tab"
+                        style={{ flexShrink:0, padding:'9px 14px', borderRadius:14, border:`2px solid ${activeCartVendorId === null ? DS.primary : DS.border}`, background: activeCartVendorId === null ? DS.primaryLight : '#fff', cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:8, boxShadow: activeCartVendorId === null ? `0 4px 12px rgba(226,75,74,0.2)` : DS.shadow, transition:'all 0.2s' }}
+                      >
+                        <div style={{ width:24, height:24, borderRadius:8, overflow:'hidden', background:'#F0F0F0', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          {cartVendor.photo ? <img src={cartVendor.photo} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:13 }}>🍽️</span>}
+                        </div>
+                        <div style={{ textAlign:'left' }}>
+                          <div style={{ fontSize:11, fontWeight:800, color: activeCartVendorId === null ? DS.primary : DS.textPrimary, maxWidth:100, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{cartVendor.storeName}</div>
+                          <div style={{ fontSize:9, color:DS.textMuted }}>{cartCount} items · ₹{cartTotal}</div>
+                        </div>
+                        {activeCartVendorId === null && <div style={{ width:7, height:7, borderRadius:'50%', background:DS.primary, flexShrink:0 }} />}
+                      </button>
+                    )}
+
+                    {/* Additional vendor cart tabs */}
+                    {Object.entries(carts).map(([vid, vc]) => (
+                      <button
+                        key={vid}
+                        onClick={() => setActiveCartVendorId(vid)}
+                        className="fz-multicart-tab"
+                        style={{ flexShrink:0, padding:'9px 14px', borderRadius:14, border:`2px solid ${activeCartVendorId === vid ? DS.primary : DS.border}`, background: activeCartVendorId === vid ? DS.primaryLight : '#fff', cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:8, position:'relative', boxShadow: activeCartVendorId === vid ? `0 4px 12px rgba(226,75,74,0.2)` : DS.shadow, transition:'all 0.2s' }}
+                      >
+                        <div style={{ width:24, height:24, borderRadius:8, overflow:'hidden', background:'#F0F0F0', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          {vc.vendor?.photo ? <img src={vc.vendor.photo} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:13 }}>🍽️</span>}
+                        </div>
+                        <div style={{ textAlign:'left' }}>
+                          <div style={{ fontSize:11, fontWeight:800, color: activeCartVendorId === vid ? DS.primary : DS.textPrimary, maxWidth:100, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{vc.vendor?.storeName}</div>
+                          <div style={{ fontSize:9, color:DS.textMuted }}>{vc.items.reduce((s,i)=>s+i.qty,0)} items · ₹{vc.items.reduce((s,i)=>s+i.price*i.qty,0)}</div>
+                        </div>
+                        <button onClick={e => { e.stopPropagation(); removeMultiCart(vid) }} style={{ position:'absolute', top:-6, right:-6, width:17, height:17, borderRadius:'50%', background:'#EF4444', color:'#fff', border:'2px solid #fff', cursor:'pointer', fontSize:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700 }}>✕</button>
+                        {activeCartVendorId === vid && <div style={{ width:7, height:7, borderRadius:'50%', background:DS.primary, flexShrink:0 }} />}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Active multi-cart items (only for non-main carts) */}
+                  {activeCartVendorId && carts[activeCartVendorId] && (
+                    <div style={{ marginTop:14 }}>
+                      <div style={{ fontSize:13, fontWeight:800, color:DS.textPrimary, marginBottom:10 }}>
+                        🛒 {carts[activeCartVendorId].vendor?.storeName}
+                      </div>
+                      <div style={{ background:'#FFFFFF', borderRadius:16, overflow:'hidden', marginBottom:12, boxShadow:DS.shadow }}>
+                        {carts[activeCartVendorId].items.map((item, i, arr) => (
+                          <div key={item.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'13px 16px', borderBottom: i < arr.length-1 ? `1px solid ${DS.border}` : 'none' }}>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontSize:13, fontWeight:600, color:DS.textPrimary }}>{item.name}</div>
+                              <div style={{ fontSize:11, color:DS.textMuted, marginTop:1 }}>₹{item.price} each</div>
+                            </div>
+                            <div style={{ display:'flex', alignItems:'center', gap:8, marginLeft:10 }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:7, background:DS.primaryLight, borderRadius:22, padding:'5px 10px', border:`1.5px solid ${DS.primary}` }}>
+                                <button onClick={() => updateMultiCartQty(activeCartVendorId, item.id, -1)} style={{ background:'none', border:'none', cursor:'pointer', color:DS.primary, fontSize:17, fontWeight:700, padding:0, lineHeight:1 }}>−</button>
+                                <span style={{ fontSize:13, fontWeight:700, color:DS.primary, minWidth:16, textAlign:'center' }}>{item.qty}</span>
+                                <button onClick={() => updateMultiCartQty(activeCartVendorId, item.id, 1)} style={{ background:'none', border:'none', cursor:'pointer', color:DS.primary, fontSize:17, fontWeight:700, padding:0, lineHeight:1 }}>+</button>
+                              </div>
+                              <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary }}>₹{item.price*item.qty}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <MultiCartOrderPanel
+                        vendorId={activeCartVendorId}
+                        carts={carts}
+                        removeMultiCart={removeMultiCart}
+                        user={user}
+                        userData={userData}
+                        deliveryName={deliveryName}
+                        deliveryPhone={deliveryPhone}
+                        deliveryHostel={deliveryHostel}
+                        deliveryAddress={deliveryAddress}
+                        userLat={userLat}
+                        userLng={userLng}
+                        DS={DS}
+                      />
+                    </div>
+                  )}
+
+                  {/* Info note */}
+                  {activeCartVendorId === null && (
+                    <div style={{ marginTop:10, background:'linear-gradient(135deg,#EFF6FF,#DBEAFE)', borderRadius:12, padding:'10px 14px', fontSize:11, color:'#1E40AF', display:'flex', gap:8, alignItems:'flex-start', border:'1px solid #BFDBFE' }}>
+                      <span style={{ fontSize:14, flexShrink:0 }}>ℹ️</span>
+                      <span>Scroll down to view and checkout Restaurant 1 items. Tap the other restaurant tab to manage it separately.</span>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
             <div style={{ fontSize:18, fontWeight:800, color:DS.textPrimary, marginBottom:4 }}>Your Cart</div>
             {cartVendor && <div style={{ fontSize:12, color:DS.textSecondary, marginBottom:14 }}>from <strong style={{ color:DS.primary }}>{cartVendor.storeName}</strong></div>}
 
@@ -2650,7 +3697,7 @@ export default function UserApp() {
                     })}
                   </div>
                 )}
-                <button onClick={() => { if (!meetsMinOrder) { toast.error(`Add ₹${minOrderShortfall} more to meet the ₹${minOrder} minimum order`, { icon: '🛒', duration: 3000 }); return }; setShowCheckout(true) }} style={{ width:'100%', background: meetsMinOrder ? DS.primary : '#9CA3AF', color:'#fff', border:'none', padding:'16px 0', borderRadius:16, fontSize:15, fontWeight:700, cursor: meetsMinOrder ? 'pointer' : 'not-allowed', fontFamily:'Poppins', boxShadow: meetsMinOrder ? `0 4px 18px rgba(226,75,74,0.4)` : 'none' }}>
+                <button onClick={() => { if (!meetsMinOrder) { toast.error(`Add ₹${minOrderShortfall} more to meet the ₹${minOrder} minimum order`, { icon: '🛒', duration: 3000 }); return }; setShowCheckout(true) }} className="fz-ripple-btn" style={{ width:'100%', background: meetsMinOrder ? `linear-gradient(135deg,${DS.primary},${DS.primaryDark})` : '#9CA3AF', color:'#fff', border:'none', padding:'17px 0', borderRadius:18, fontSize:15, fontWeight:800, cursor: meetsMinOrder ? 'pointer' : 'not-allowed', fontFamily:'Poppins', boxShadow: meetsMinOrder ? `0 6px 22px rgba(226,75,74,0.45), 0 2px 8px rgba(226,75,74,0.2)` : 'none', transition:'all 0.2s ease' }}>
                   {meetsMinOrder ? `Proceed to Checkout · ₹${finalTotal}` : `Add ₹${minOrderShortfall} more to checkout`}
                 </button>
               </>
@@ -2699,7 +3746,7 @@ export default function UserApp() {
                 <div style={{ background:DS.warningLight, borderRadius:12, padding:'10px 14px', fontSize:12, color:'#78350f', marginBottom:14, display:'flex', alignItems:'center', gap:8, border:`1px solid #FDE68A` }}>
                   <span style={{ fontSize:15 }}>�</span><span>Payment: <strong>Cash on Delivery (COD)</strong></span>
                 </div>
-                <button onClick={handlePlaceOrder} disabled={placingOrder} style={{ width:'100%', background: placingOrder ? '#FCA5A5' : DS.primary, color:'#fff', border:'none', padding:'16px 0', borderRadius:16, fontSize:15, fontWeight:700, cursor: placingOrder ? 'not-allowed' : 'pointer', fontFamily:'Poppins', marginBottom:10, boxShadow: placingOrder ? 'none' : `0 4px 18px rgba(226,75,74,0.4)` }}>
+                <button onClick={handlePlaceOrder} disabled={placingOrder} className="fz-ripple-btn" style={{ width:'100%', background: placingOrder ? '#FCA5A5' : `linear-gradient(135deg,${DS.primary},${DS.primaryDark})`, color:'#fff', border:'none', padding:'17px 0', borderRadius:18, fontSize:15, fontWeight:800, cursor: placingOrder ? 'not-allowed' : 'pointer', fontFamily:'Poppins', marginBottom:10, boxShadow: placingOrder ? 'none' : `0 6px 22px rgba(226,75,74,0.45), 0 2px 8px rgba(226,75,74,0.2)`, transition:'all 0.2s ease' }}>
                   {placingOrder ? '⏳ Placing Order...' : `🎉 Place Order · ₹${finalTotal}`}
                 </button>
                 <button onClick={() => setShowCheckout(false)} style={{ width:'100%', background:'transparent', color:DS.primary, border:`1.5px solid #FECACA`, padding:'13px 0', borderRadius:14, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>← Back to Cart</button>
@@ -2903,49 +3950,56 @@ export default function UserApp() {
 
       {/* ── ORDER SUCCESS ── */}
       {orderSuccess && (
-        <div style={{ position:'fixed', inset:0, background:'#fff', zIndex:999, overflowY:'auto', fontFamily:'Poppins,sans-serif', maxWidth:430, margin:'0 auto' }}>
+        <div style={{ position:'fixed', inset:0, background:'#fff', zIndex:999, overflowY:'auto', fontFamily:'Poppins,sans-serif', maxWidth:430, margin:'0 auto', animation:'fadeInScale 0.4s cubic-bezier(0.34,1.2,0.64,1)' }}>
           {/* Hero */}
-          <div style={{ background:'linear-gradient(135deg,#059669,#10B981)', padding:'56px 24px 36px', textAlign:'center', color:'#fff', position:'relative', overflow:'hidden' }}>
-            <div style={{ position:'absolute', top:-40, right:-30, width:180, height:180, borderRadius:'50%', background:'rgba(255,255,255,0.07)' }} />
-            <div style={{ position:'absolute', bottom:-60, left:-20, width:140, height:140, borderRadius:'50%', background:'rgba(255,255,255,0.05)' }} />
+          <div style={{ background:'linear-gradient(135deg,#0D9488 0%,#059669 50%,#10B981 100%)', padding:'56px 24px 36px', textAlign:'center', color:'#fff', position:'relative', overflow:'hidden' }}>
+            {/* Decorative orbs */}
+            <div style={{ position:'absolute', top:-50, right:-30, width:200, height:200, borderRadius:'50%', background:'rgba(255,255,255,0.07)', pointerEvents:'none' }} />
+            <div style={{ position:'absolute', bottom:-70, left:-20, width:160, height:160, borderRadius:'50%', background:'rgba(255,255,255,0.05)', pointerEvents:'none' }} />
+            {/* Shimmer */}
+            <div style={{ position:'absolute', inset:0, background:'linear-gradient(120deg,transparent 30%,rgba(255,255,255,0.12) 50%,transparent 70%)', backgroundSize:'200% 100%', animation:'shimmer3d 3s ease-in-out infinite', pointerEvents:'none' }} />
             <div style={{ position:'relative', zIndex:1 }}>
-              <div style={{ width:84, height:84, borderRadius:26, background:'rgba(255,255,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:42, margin:'0 auto 18px', border:'3px solid rgba(255,255,255,0.35)' }}>✅</div>
-              <div style={{ fontSize:24, fontWeight:800, marginBottom:6 }}>Order Placed!</div>
-              <div style={{ fontSize:14, opacity:0.9, marginBottom:14 }}>Your food is being prepared</div>
-              <div style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.18)', borderRadius:20, padding:'7px 18px', backdropFilter:'blur(4px)' }}>
-                <span style={{ fontSize:13, fontWeight:700 }}>Order #{orderSuccess.orderId?.slice(-6)?.toUpperCase()}</span>
+              {/* Checkmark with 3D bounce */}
+              <div style={{ width:90, height:90, borderRadius:28, background:'rgba(255,255,255,0.22)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:46, margin:'0 auto 18px', border:'3px solid rgba(255,255,255,0.35)', animation:'bounceIn 0.7s cubic-bezier(0.34,1.56,0.64,1)', boxShadow:'0 12px 32px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.3)', transform:'perspective(400px) rotateX(0deg)', transformStyle:'preserve-3d' }}>✅</div>
+              <div style={{ fontSize:26, fontWeight:900, marginBottom:6, textShadow:'0 2px 8px rgba(0,0,0,0.15)' }}>Order Placed! 🎉</div>
+              <div style={{ fontSize:14, opacity:0.9, marginBottom:16 }}>Your food is being prepared</div>
+              <div style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.2)', borderRadius:20, padding:'7px 18px', backdropFilter:'blur(8px)', boxShadow:'inset 0 1px 0 rgba(255,255,255,0.3)' }}>
+                <span style={{ fontSize:13, fontWeight:800 }}>Order #{orderSuccess.orderId?.slice(-6)?.toUpperCase()}</span>
               </div>
-              {orderSuccess.freeDeliveryOffer && (
-                <div style={{ marginTop:10, display:'inline-flex', alignItems:'center', gap:7, background:'rgba(255,255,255,0.15)', borderRadius:20, padding:'6px 16px', marginLeft:8, backdropFilter:'blur(4px)' }}>
-                  <span style={{ fontSize:13 }}>🚩</span><span style={{ fontSize:11, fontWeight:700 }}>Free Delivery Applied</span>
-                </div>
-              )}
-              {orderSuccess.discountAmount > 0 && (
-                <div style={{ marginTop:10, display:'inline-flex', alignItems:'center', gap:7, background:'rgba(255,255,255,0.15)', borderRadius:20, padding:'6px 16px', backdropFilter:'blur(4px)' }}>
-                  <span style={{ fontSize:13 }}>🏷️</span><span style={{ fontSize:11, fontWeight:700 }}>Saved ₹{orderSuccess.discountAmount}</span>
+              {(orderSuccess.freeDeliveryOffer || orderSuccess.discountAmount > 0) && (
+                <div style={{ marginTop:12, display:'flex', gap:8, justifyContent:'center', flexWrap:'wrap' }}>
+                  {orderSuccess.freeDeliveryOffer && (
+                    <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(255,255,255,0.15)', borderRadius:20, padding:'5px 14px', backdropFilter:'blur(4px)' }}>
+                      <span style={{ fontSize:12 }}>🚩</span><span style={{ fontSize:11, fontWeight:700 }}>Free Delivery</span>
+                    </div>
+                  )}
+                  {orderSuccess.discountAmount > 0 && (
+                    <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(255,255,255,0.15)', borderRadius:20, padding:'5px 14px', backdropFilter:'blur(4px)' }}>
+                      <span style={{ fontSize:12 }}>🏷️</span><span style={{ fontSize:11, fontWeight:700 }}>Saved ₹{orderSuccess.discountAmount}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </div>
-
           <div style={{ padding:20 }}>
             {orderSuccess.vendorPhone && (
-              <div style={{ background:'#FAFAFA', borderRadius:18, padding:16, marginBottom:16, border:`1px solid ${DS.border}`, boxShadow:DS.shadow }}>
-                <div style={{ fontSize:12, fontWeight:700, color:DS.textSecondary, marginBottom:8, textTransform:'uppercase', letterSpacing:0.5, display:'flex', alignItems:'center', gap:6 }}><span>📞</span> Contact Restaurant</div>
-                <div style={{ fontSize:13, color:DS.textSecondary, marginBottom:12 }}>Call or WhatsApp <strong style={{ color:DS.textPrimary }}>{orderSuccess.vendorName}</strong> directly:</div>
+              <div style={{ background:'#FAFAFA', borderRadius:20, padding:16, marginBottom:16, border:`1px solid ${DS.border}`, boxShadow:DS.shadow }}>
+                <div style={{ fontSize:11, fontWeight:700, color:DS.textMuted, marginBottom:10, textTransform:'uppercase', letterSpacing:0.5 }}>📞 Contact Restaurant</div>
+                <div style={{ fontSize:13, color:DS.textSecondary, marginBottom:12 }}>Call or WhatsApp <strong style={{ color:DS.textPrimary }}>{orderSuccess.vendorName}</strong>:</div>
                 <div style={{ display:'flex', gap:10 }}>
-                  <button onClick={()=>notifyVendorWhatsApp(orderSuccess.vendorPhone,{userName:orderSuccess.userName,userPhone:orderSuccess.userPhone||'',address:orderSuccess.address,items:orderSuccess.items,subtotal:orderSuccess.subtotal,deliveryFee:orderSuccess.deliveryFee,total:orderSuccess.total})} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'13px 0', background:'#25D366', border:'none', borderRadius:14, cursor:'pointer', fontFamily:'Poppins' }}>
+                  <button onClick={()=>notifyVendorWhatsApp(orderSuccess.vendorPhone,{userName:orderSuccess.userName,userPhone:orderSuccess.userPhone||'',address:orderSuccess.address,items:orderSuccess.items,subtotal:orderSuccess.subtotal,deliveryFee:orderSuccess.deliveryFee,total:orderSuccess.total})} className="fz-ripple-btn" style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'14px 0', background:'#25D366', border:'none', borderRadius:16, cursor:'pointer', fontFamily:'Poppins', boxShadow:'0 4px 16px rgba(37,211,102,0.4)' }}>
                     <span style={{ fontSize:18 }}>💬</span><span style={{ fontSize:13, fontWeight:700, color:'#fff' }}>WhatsApp</span>
                   </button>
-                  <button onClick={()=>callVendor(orderSuccess.vendorPhone)} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'13px 0', background:DS.primary, border:'none', borderRadius:14, cursor:'pointer', fontFamily:'Poppins' }}>
+                  <button onClick={()=>callVendor(orderSuccess.vendorPhone)} className="fz-ripple-btn" style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'14px 0', background:DS.primary, border:'none', borderRadius:16, cursor:'pointer', fontFamily:'Poppins', boxShadow:'0 4px 16px rgba(226,75,74,0.4)' }}>
                     <span style={{ fontSize:18 }}>📞</span><span style={{ fontSize:13, fontWeight:700, color:'#fff' }}>Call</span>
                   </button>
                 </div>
               </div>
             )}
-            <button onClick={() => { setBillOrder(orderSuccess); setShowBill(true) }} style={{ width:'100%', background:DS.textPrimary, color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>🧾 View Digital Bill</button>
-            <button onClick={()=>{const latestOrder=orders[0];setOrderSuccess(null);setTab('orders');if(latestOrder)setTimeout(()=>setSelectedOrder(latestOrder),100)}} style={{ width:'100%', background:DS.primary, color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, boxShadow:`0 4px 18px rgba(226,75,74,0.4)` }}>📋 Track My Order</button>
-            <button onClick={()=>{setOrderSuccess(null);setTab('home')}} style={{ width:'100%', background:'transparent', color:DS.textSecondary, border:`1.5px solid ${DS.borderMed}`, padding:'13px 0', borderRadius:14, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>🏠 Back to Home</button>
+            <button onClick={() => { setBillOrder(orderSuccess); setShowBill(true) }} className="fz-ripple-btn" style={{ width:'100%', background:'#1A1A1A', color:'#fff', border:'none', padding:'16px 0', borderRadius:18, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:'0 4px 16px rgba(0,0,0,0.2)' }}>🧾 View Digital Bill</button>
+            <button onClick={()=>{const latestOrder=orders[0];setOrderSuccess(null);setTab('orders');if(latestOrder)setTimeout(()=>setSelectedOrder(latestOrder),100)}} className="fz-ripple-btn" style={{ width:'100%', background:DS.primary, color:'#fff', border:'none', padding:'16px 0', borderRadius:18, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', marginBottom:10, boxShadow:`0 6px 20px rgba(226,75,74,0.45)` }}>📋 Track My Order</button>
+            <button onClick={()=>{setOrderSuccess(null);setTab('home')}} style={{ width:'100%', background:'transparent', color:DS.textSecondary, border:`1.5px solid ${DS.borderMed}`, padding:'14px 0', borderRadius:16, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}>🏠 Back to Home</button>
           </div>
         </div>
       )}
@@ -3020,47 +4074,82 @@ export default function UserApp() {
         </div>
       )}
 
-      {/* Cart bar */}
-      {cart.length > 0 && (tab==='home' || tab==='vendor-menu') && (
-        <div onClick={() => setTab('cart')} style={{ background: `linear-gradient(135deg,${DS.primary},${DS.primaryDark})`, color:'#fff', padding:'14px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', flexShrink:0, boxShadow:`0 -4px 20px rgba(226,75,74,0.35)` }}>
-          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <div style={{ background:'rgba(255,255,255,0.2)', borderRadius:10, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800 }}>{cartCount}</div>
+      {/* ── PREMIUM 3D CART BAR ── */}
+      {(cart.length > 0 || Object.keys(carts).length > 0) && (tab==='home' || tab==='vendor-menu') && (
+        <div onClick={() => setTab('cart')}
+          className="fz-cart-bar fz-ripple-btn"
+          style={{
+            background:'linear-gradient(135deg,#E24B4A 0%,#FF6B6A 40%,#C73232 100%)',
+            backgroundSize:'200% 200%',
+            color:'#fff', padding:'13px 20px',
+            display:'flex', justifyContent:'space-between', alignItems:'center',
+            cursor:'pointer', flexShrink:0,
+            boxShadow:'0 -8px 32px rgba(226,75,74,0.5), 0 -1px 0 rgba(255,255,255,0.05)',
+          }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+            <div style={{ width:42, height:42, borderRadius:14, background:'rgba(255,255,255,0.18)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:'0 4px 14px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.25)', animation:'float3d 3.5s ease-in-out infinite' }}>
+              <span style={{ fontSize:20, animation:'cartPulse 2.5s ease-in-out infinite' }}>🛒</span>
+            </div>
             <div>
-              <div style={{ fontSize:13, fontWeight:700 }}>{cartCount} item{cartCount>1?'s':''}</div>
-              <div style={{ fontSize:10, opacity:0.85 }}>{cartVendor?.storeName}{deliveryFeeWaived ? ' · 🎉 Free delivery' : ''}</div>
+              <div style={{ fontSize:14, fontWeight:900, letterSpacing:-0.2 }}>
+                {cartCount + multiCartTotalCount} item{(cartCount + multiCartTotalCount)>1?'s':''} in cart
+                {Object.keys(carts).length > 0 && (
+                  <span style={{ fontSize:10, background:'rgba(255,255,255,0.25)', borderRadius:20, padding:'1px 7px', marginLeft:6, fontWeight:700 }}>
+                    {1 + Object.keys(carts).length} restaurants
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize:10, opacity:0.78, marginTop:1 }}>
+                {Object.keys(carts).length > 0
+                  ? [cartVendor?.storeName, ...Object.values(carts).map(c=>c.vendor?.storeName)].filter(Boolean).join(' + ')
+                  : `${cartVendor?.storeName || ''}${deliveryFeeWaived ? ' · 🎉 Free delivery' : ''}`}
+              </div>
             </div>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <span style={{ fontSize:15, fontWeight:800 }}>₹{finalTotal}</span>
-            <span style={{ fontSize:13, fontWeight:600, opacity:0.9 }}>View Cart →</span>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <div style={{ textAlign:'right' }}>
+              <div style={{ fontSize:17, fontWeight:900, letterSpacing:-0.3 }}>₹{finalTotal}</div>
+            </div>
+            <div style={{ background:'rgba(255,255,255,0.2)', borderRadius:12, padding:'7px 14px', display:'flex', alignItems:'center', gap:5, fontSize:12, fontWeight:800, boxShadow:'0 2px 8px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.2)' }}>
+              View Cart <span>→</span>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Bottom Nav */}
+      {/* ── PREMIUM BOTTOM NAV ── */}
       <div style={S.bottomNav}>
         {[
-          {id:'home',    icon:(active)=> active ? '🏠' : '🏠',    label: tt('nav.home')},
-          {id:'orders',  icon:(active)=> active ? '📋' : '📋',    label: tt('nav.orders')},
-          {id:'cart',    icon:(active)=> active ? '🛒' : '🛒',    label: `${tt('nav.cart')}${cartCount>0?` (${cartCount})`:''}`},
-          {id:'profile', icon:(active)=> active ? '👤' : '👤',    label: tt('nav.profile')},
+          {id:'home',    icon: active => active ? '🏠' : '🏠', label: tt('nav.home')},
+          {id:'orders',  icon: active => active ? '📋' : '📋', label: tt('nav.orders')},
+          {id:'cart',    icon: active => active ? '🛒' : '🛒', label: `${tt('nav.cart')}${(cartCount+multiCartTotalCount)>0?` (${cartCount+multiCartTotalCount})`:''}`},
+          {id:'profile', icon: active => active ? '👤' : '👤', label: tt('nav.profile')},
         ].map(item => {
           const active = tab === item.id
           return (
-            <button key={item.id} style={S.bnItem(active)} onClick={() => setTab(item.id)}>
-              <div style={{ width:28, height:28, borderRadius:9, background: active ? DS.primaryLight : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.2s' }}>
-                <span style={{ fontSize:18 }}>{item.icon(active)}</span>
+            <button key={item.id} className="fz-nav-item" style={S.bnItem(active)} onClick={() => setTab(item.id)}>
+              <div style={{
+                width:30, height:30, borderRadius:10,
+                background: active
+                  ? 'linear-gradient(135deg,#FFF1F0,#FFE4E4)'
+                  : 'transparent',
+                display:'flex', alignItems:'center', justifyContent:'center',
+                transition:'all 0.2s cubic-bezier(0.34,1.56,0.64,1)',
+                transform: active ? 'scale(1.08)' : 'scale(1)',
+                boxShadow: active ? '0 2px 8px rgba(226,75,74,0.2)' : 'none',
+              }}>
+                <span style={{ fontSize:19, filter: active ? 'none' : 'grayscale(20%)' }}>{item.icon(active)}</span>
               </div>
-              <span style={{ fontSize:10, fontWeight: active ? 700 : 500, color: active ? DS.primary : DS.textMuted, letterSpacing:0.1 }}>{item.label}</span>
-              {active && <div style={{ width:16, height:2.5, borderRadius:2, background:DS.primary }} />}
+              <span style={{ fontSize:10, fontWeight: active ? 800 : 500, color: active ? DS.primary : DS.textMuted, letterSpacing:0.1, transition:'color 0.15s' }}>{item.label}</span>
+              {active && <div style={{ width:18, height:3, borderRadius:2, background:'linear-gradient(90deg,#E24B4A,#FF6B6A)', animation:'badgePop 0.35s cubic-bezier(0.34,1.56,0.64,1)' }} />}
             </button>
           )
         })}
         {supportUnreadCount > 0 && (
-          <button style={S.bnItem(false)} onClick={handleOpenSupportChat}>
-            <div style={{ position:'relative', width:28, height:28, borderRadius:9, display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <span style={{ fontSize:18 }}>🎧</span>
-              <div style={{ position:'absolute', top:-2, right:-2, background:DS.primary, color:'#fff', borderRadius:'50%', width:14, height:14, fontSize:8, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #fff' }}>{supportUnreadCount}</div>
+          <button className="fz-nav-item" style={S.bnItem(false)} onClick={handleOpenSupportChat}>
+            <div style={{ position:'relative', width:30, height:30, borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <span style={{ fontSize:19 }}>🎧</span>
+              <div className="fz-badge-pop" style={{ position:'absolute', top:-2, right:-2, background:DS.primary, color:'#fff', borderRadius:'50%', width:15, height:15, fontSize:8, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #fff', boxShadow:'0 2px 6px rgba(226,75,74,0.5)', animation:'statusGlow 2s ease infinite' }}>{supportUnreadCount}</div>
             </div>
             <span style={{ fontSize:10, color:DS.primary, fontWeight:700 }}>Support</span>
           </button>

@@ -4,6 +4,7 @@ import { logoutUser, updateVendorStore, founderCreateVendor, uploadPhoto } from 
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import toast from 'react-hot-toast'
+import FeedozoneLogo from '../components/FeedozoneLogo'
 
 const EMPTY_VENDOR_FORM = {
   storeName:'', email:'', phone:'', password:'', confirmPass:'',
@@ -256,8 +257,7 @@ export default function ManagerApp() {
         <aside style={{width:240,flexShrink:0,background:'#0f172a',display:'flex',flexDirection:'column',minHeight:'100vh',position:'sticky',top:0}}>
           <div style={{padding:'20px 18px 16px',borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <div style={{width:10,height:10,background:'#6366f1',borderRadius:'50%'}}/>
-              <span style={{fontSize:18,fontWeight:800,color:'#fff',letterSpacing:-0.3}}>FeedoZone</span>
+              <FeedozoneLogo size="sm" variant="full" dark={false} />
             </div>
             <div style={{fontSize:11,color:'#94a3b8',marginTop:5}}>🧑‍💼 {mgr} · Manager</div>
             <div style={{fontSize:10,color:'#475569',marginTop:2}}>📍 {city}{district!==city?` · ${district}`:''}</div>
@@ -291,8 +291,7 @@ export default function ManagerApp() {
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <div>
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <div style={{width:8,height:8,background:'#6366f1',borderRadius:'50%'}}/>
-                  <span style={{fontSize:17,fontWeight:800,color:'#fff'}}>FeedoZone</span>
+                  <FeedozoneLogo size="sm" variant="full" dark={false} />
                   <span style={{fontSize:10,background:'rgba(255,255,255,0.12)',color:'#94a3b8',borderRadius:10,padding:'2px 8px'}}>Manager</span>
                 </div>
                 <div style={{fontSize:11,color:'#94a3b8',marginTop:4}}>👤 {mgr} · 📍 {city}</div>

@@ -12,6 +12,7 @@ import DeleteAccount from './pages/delete-account'
 import FounderProfile from './pages/FounderProfile'
 import WikiFeedozone from './pages/WikiFeedozone'
 import WikiSantosh from './pages/WikiSantosh'
+import { FeedozonePill } from './components/FeedozoneLogo'
 
 export default function App() {
   const { user, userData, loading } = useAuth()
@@ -48,10 +49,17 @@ export default function App() {
   }, [loading, user, userData])
 
   if (loading) return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'100vh', fontFamily:'Poppins,sans-serif' }}>
-      <div style={{ fontSize:28, fontWeight:700, color:'#E24B4A', marginBottom:16 }}>Feedo</div>
-      <div style={{ width:32, height:32, border:'3px solid #FCEBEB', borderTopColor:'#E24B4A', borderRadius:'50%', animation:'spin 0.7s linear infinite' }} />
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'100vh', fontFamily:'Poppins,sans-serif', background:'#FAFAFA' }}>
+      <FeedozonePill size="lg" style={{ marginBottom:28, animation:'splashPulse 2s ease-in-out infinite' }} />
+      <div style={{ width:36, height:36, border:'3px solid #FECACA', borderTopColor:'#E24B4A', borderRadius:'50%', animation:'spin 0.7s linear infinite' }} />
+      <div style={{ fontSize:12, color:'#9CA3AF', marginTop:14, fontWeight:500 }}>Loading FeedoZone...</div>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg) } }
+        @keyframes splashPulse {
+          0%,100% { transform: scale(1);    box-shadow: 0 6px 24px rgba(226,75,74,0.45); }
+          50%     { transform: scale(1.04); box-shadow: 0 10px 32px rgba(226,75,74,0.65); }
+        }
+      `}</style>
     </div>
   )
 

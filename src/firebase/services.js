@@ -374,63 +374,23 @@ export const placeOrder = async (orderData) => {
     data: { orderId: ref.id, type: 'new_order' }
   }).catch(err => console.error('Vendor bell notification failed:', err))
 
-  // 🔔 Expo push notification to vendor's phone (non-blocking)
-  // Use token passed directly from UserApp (avoids Firestore permission error)
-  const vendorExpoToken = orderData.vendorExpoPushToken || null
-  if (vendorExpoToken) {
-    const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
-    sendExpoPushNotification({
-      expoPushToken: vendorExpoToken,
-      title: '🔔 New Order Received!',
-      body: `₹${orderData.total} · ${itemsSummary.slice(0, 80)}`,
-      data: { orderId: ref.id, type: 'new_order', url: '/vendor' }
-    }).catch(err => console.error('Vendor expo push failed:', err))
-  } else {
-    // Fallback: try reading from Firestore
-    getExpoPushToken(orderData.vendorUid, 'vendor')
-      .then(token => {
-        if (token) {
-          const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
-          sendExpoPushNotification({
-            expoPushToken: token,
-            title: '🔔 New Order Received!',
-            body: `₹${orderData.total} · ${itemsSummary.slice(0, 80)}`,
-            data: { orderId: ref.id, type: 'new_order', url: '/vendor' }
-          }).catch(() => {})
-        }
-      }).catch(() => {})
-  }
-
-  // 🔔 Web browser push (FCM) — fires even when vendor tab is CLOSED
-  // Use token passed directly from UserApp (avoids Firestore permission error)
-  const vendorFcmToken = orderData.vendorFcmToken || null
-  if (vendorFcmToken) {
-    const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
-    sendWebPushNotification({
-      fcmToken: vendorFcmToken,
-      title: `🛎️ New Order — ₹${orderData.total}`,
-      body: `${orderData.userName} · ${itemsSummary.slice(0, 80)}`,
-      data: {
-        orderId: ref.id, type: 'new_order', url: '/vendor',
-        customerName: orderData.userName || '',
-        total: String(orderData.total || ''),
-      },
-    }).catch(err => console.error('Vendor FCM push failed:', err))
-  } else {
-    // Fallback: try reading from Firestore
-    getFcmToken(orderData.vendorUid, 'vendor')
-      .then(token => {
-        if (token) {
-          const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
-          sendWebPushNotification({
-            fcmToken: token,
-            title: `🛎️ New Order — ₹${orderData.total}`,
-            body: `${orderData.userName} · ${itemsSummary.slice(0, 80)}`,
-            data: { orderId: ref.id, type: 'new_order', url: '/vendor', customerName: orderData.userName || '', total: String(orderData.total || '') },
-          }).catch(() => {})
-        }
-      }).catch(() => {})
-  }
+  // 🔔 Instant push to vendor — Bug #2 fix: fires immediately, not on next cron tick.
+  // Routes to the correct push relay based on token type (Expo vs FCM).
+  const itemsSummary = orderData.items?.map(i => `${i.qty}x ${i.name}`).join(', ') || ''
+  fetch('/api/notify-vendor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      vendorUid:           orderData.vendorUid,
+      orderId:             ref.id,
+      customerName:        orderData.userName || '',
+      itemsSummary:        itemsSummary.slice(0, 100),
+      total:               orderData.total,
+      // Pass tokens directly — avoids server-side Firestore read, faster
+      vendorExpoPushToken: orderData.vendorExpoPushToken || null,
+      vendorFcmToken:      orderData.vendorFcmToken      || null,
+    }),
+  }).catch(err => console.error('notify-vendor failed:', err))
 
   return ref
 }
@@ -493,6 +453,57 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
     if (orderData.cancelledBy)        updatePayload.cancelledBy = orderData.cancelledBy
     if (orderData.rejectionType)      updatePayload.rejectionType = orderData.rejectionType
     updatePayload.cancelledAt = serverTimestamp()
+
+    // ── BOUNCE & ROLL ─────────────────────────────────────────────────────
+    // If vendor cancelled and customer had Bounce & Roll on, broadcast the
+    // order to all open vendors so anyone can pick it up.
+    if (orderData.cancelledBy === 'vendor' && orderData.bounceRollEnabled) {
+      try {
+        // Get all open vendors
+        const vendorSnap = await getDocs(collection(db, 'vendors'))
+        const openVendors = vendorSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(v => v.isOpen && v.id !== (orderData.vendorUid || orderData.vendorId))
+
+        // Create a bounceRollOffer doc for each open vendor
+        const brData = {
+          originalOrderId: orderId,
+          userUid: orderData.userUid,
+          userName: orderData.userName || '',
+          userPhone: orderData.userPhone || '',
+          items: orderData.items || [],
+          subtotal: orderData.subtotal || 0,
+          deliveryFee: orderData.deliveryFee || 0,
+          total: orderData.total || 0,
+          address: orderData.address || '',
+          userLat: orderData.userLat || null,
+          userLng: orderData.userLng || null,
+          targetUserUid: orderData.userUid,
+          status: 'open',
+          createdAt: serverTimestamp(),
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 min window
+        }
+
+        await Promise.all(
+          openVendors.map(v =>
+            addDoc(collection(db, 'bounceRollOffers'), {
+              ...brData,
+              targetVendorUid: v.id,
+              targetVendorName: v.storeName || '',
+            }).catch(() => {})
+          )
+        )
+
+        // Notify the user their order is being re-broadcast
+        await sendNotification(orderData.userUid, {
+          title: '🔄 Finding You a New Restaurant!',
+          body: `Your order was cancelled. Bounce & Roll is searching for a new restaurant to fulfil it!`,
+          data: { type: 'bounce_roll', orderId }
+        })
+      } catch (e) {
+        console.error('Bounce & Roll broadcast failed:', e)
+      }
+    }
   }
 
   // ── AUTO PLATFORM FEE ON DELIVERY ────────────────────────────────────────
@@ -559,34 +570,32 @@ export const updateOrderStatus = async (orderId, status, orderData = {}) => {
         data: { orderId, type: 'order_status' }
       })
 
-      // 🔔 Expo push notification to user's phone
+      // 🔔 Push to customer — dual path: Expo (mobile) + FCM (web)
+      // Bug #1/#3 fix: ExponentPushToken → Expo relay; fcmToken → Admin SDK
       try {
-        const userToken = await getExpoPushToken(orderData.userUid, 'user')
-        if (userToken) {
-          await sendExpoPushNotification({
-            expoPushToken: userToken,
-            title: msg.title,
-            body: msg.body,
-            data: { orderId, type: 'order_status', url: '/orders' }
-          })
+        const [expoToken, fcmToken] = await Promise.all([
+          getExpoPushToken(orderData.userUid, 'user').catch(() => null),
+          getFcmToken(orderData.userUid, 'user').catch(() => null),
+        ])
+
+        const pushData = { orderId, type: 'order_status', url: '/orders', status }
+
+        // Mobile — Expo relay
+        if (expoToken && typeof expoToken === 'string') {
+          if (expoToken.startsWith('ExponentPushToken')) {
+            await sendExpoPushNotification({ expoPushToken: expoToken, title: msg.title, body: msg.body, data: pushData })
+          } else {
+            // Raw FCM token stored in expoPushToken field
+            await sendWebPushNotification({ fcmToken: expoToken, title: msg.title, body: msg.body, data: pushData })
+          }
+        }
+
+        // Web browser — FCM Admin SDK
+        if (fcmToken && typeof fcmToken === 'string' && fcmToken !== expoToken) {
+          await sendWebPushNotification({ fcmToken, title: msg.title, body: msg.body, data: pushData })
         }
       } catch (err) {
         console.error('User push notification failed:', err)
-      }
-
-      // 🔔 Web browser push (FCM) to user — fires even if tab is closed
-      try {
-        const userFcm = await getFcmToken(orderData.userUid, 'user')
-        if (userFcm) {
-          await sendWebPushNotification({
-            fcmToken: userFcm,
-            title: msg.title,
-            body: msg.body,
-            data: { orderId, type: 'order_status', url: '/home', status },
-          })
-        }
-      } catch (err) {
-        console.error('User FCM push failed:', err)
       }
     }
   }

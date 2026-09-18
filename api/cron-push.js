@@ -1,187 +1,153 @@
 // api/cron-push.js
-// Called by cron job — notifies vendors ONLY if they have real pending orders
-// Fix: checks actual pending orders per vendor + cooldown to prevent spam
+// Safety-net cron: notifies vendors with pending orders they may have missed.
+// Called on a schedule (e.g. every 5 min via Vercel Cron or external cron).
+//
+// Bug #1 fix: detects token type — Expo tokens → Expo relay, FCM tokens → Admin SDK.
+// Bug #3 fix: checks BOTH expoPushToken (mobile) and fcmToken (web browser).
+// Bug #5 fix: categoryId is forwarded to Expo payload.
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
-import { getFirestore } from 'firebase-admin/firestore'
-import { getMessaging } from 'firebase-admin/messaging'
+import { getFirestore }                  from 'firebase-admin/firestore'
+import { getMessaging }                  from 'firebase-admin/messaging'
+import { sendExpoNotifications }         from './send-push.js'
 
 if (!getApps().length) {
   try {
     if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-      if (serviceAccount.private_key) {
-        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
-      }
-      initializeApp({
-        credential: cert(serviceAccount)
-      });
+      const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
+      if (sa.private_key) sa.private_key = sa.private_key.replace(/\\n/g, '\n')
+      initializeApp({ credential: cert(sa) })
     } else {
-      initializeApp({
-        credential: cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-        })
-      });
+      initializeApp({ credential: cert({
+        projectId:   process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey:  process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      })})
     }
-    console.log("Firebase Admin Initialized Successfully");
-  } catch (error) {
-    console.error("CRITICAL: Firebase Admin Initialization Failed:", error);
-  }
+  } catch (e) { console.error('Firebase Admin init failed:', e) }
 }
 
-// ── How long to wait before re-notifying same vendor (10 minutes) ──
-const COOLDOWN_MS = 10 * 60 * 1000
+const COOLDOWN_MS = 10 * 60 * 1000 // 10 min between reminders per vendor
+
+// Helper: is this an Expo push token?
+const isExpoToken = (t) => typeof t === 'string' && t.startsWith('ExponentPushToken')
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Origin',  '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-cron-secret')
 
   if (req.method === 'OPTIONS') return res.status(200).end()
 
-  // Auth check — only cron job can call this
   const cronSecret = process.env.CRON_SECRET || 'feedozone_cron_2025'
-  const secret = req.query.secret || req.headers['x-cron-secret']
-  if (!secret || secret !== cronSecret) {
-    return res.status(401).json({ error: 'Unauthorized' })
-  }
+  const secret     = req.query.secret || req.headers['x-cron-secret']
+  if (!secret || secret !== cronSecret) return res.status(401).json({ error: 'Unauthorized' })
 
   try {
-    const db = getFirestore()
+    const db  = getFirestore()
     const now = Date.now()
 
-    // ── Step 1: Get all open vendors with a valid push token ──
     const vendorSnap = await db.collection('vendors').get()
-    if (vendorSnap.empty) {
-      return res.status(200).json({ message: 'No vendors found', sent: 0 })
-    }
+    if (vendorSnap.empty) return res.status(200).json({ message: 'No vendors', sent: 0 })
 
-    const notifications = []
-    const skipped = []
+    const expoMessages = []   // Expo relay
+    const fcmMessages  = []   // Firebase Admin SDK (native FCM or web browser)
+    const skipped      = []
 
     for (const doc of vendorSnap.docs) {
-      const data = doc.data()
-      const vendorId = doc.id
-      const token = data.expoPushToken
+      const data      = doc.data()
+      const vendorId  = doc.id
+      const expoToken = data.expoPushToken   // mobile (Expo)
+      const fcmToken  = data.fcmToken        // web browser (FCM)
 
-      // Skip vendors with no token or who are closed
-      if (!token || typeof token !== 'string' || token.trim() === '') continue
       if (!data.isOpen) continue
+      if (!expoToken && !fcmToken) continue
 
-      // ── Step 2: Cooldown check — did we notify this vendor recently? ──
+      // Cooldown
       const lastNotified = data.lastPendingNotifiedAt?.toMillis?.() || 0
-      if (now - lastNotified < COOLDOWN_MS) {
-        skipped.push(vendorId)
-        continue
-      }
+      if (now - lastNotified < COOLDOWN_MS) { skipped.push(vendorId); continue }
 
-      // ── Step 3: Check if vendor actually has pending orders ──
+      // Check pending orders
       const pendingSnap = await db.collection('orders')
         .where('vendorUid', '==', vendorId)
-        .where('status', '==', 'pending')
+        .where('status',    '==', 'pending')
         .get()
+      if (pendingSnap.empty) continue
 
-      if (pendingSnap.empty) continue // No pending orders — skip silently
-
-      // Filter out stale pending orders (created > 1 hour ago)
-      const activePendingOrders = pendingSnap.docs.filter(orderDoc => {
-        const orderData = orderDoc.data()
-        const createdAt = orderData.createdAt?.toDate?.() || new Date(0)
-        return (now - createdAt.getTime()) < 60 * 60 * 1000 // 1 hour threshold
+      // Drop stale orders (>1h old)
+      const active = pendingSnap.docs.filter(d => {
+        const t = d.data().createdAt?.toDate?.() || new Date(0)
+        return (now - t.getTime()) < 60 * 60 * 1000
       })
+      if (active.length === 0) continue
 
-      if (activePendingOrders.length === 0) continue
+      const orderId = active[0].id
+      const count   = active.length
+      const title   = `🛎️ ${count} Pending Order${count > 1 ? 's' : ''}!`
+      const body    = `You have ${count} order${count > 1 ? 's' : ''} waiting. Tap to accept.`
+      const dataPayload = { orderId, vendorId, screen: 'VendorOrders', url: '/vendor' }
 
-      const pendingCount = activePendingOrders.length
-      const orderId = activePendingOrders[0].id
+      // ── Route by token type ──────────────────────────────────────────
+      if (expoToken && isExpoToken(expoToken)) {
+        // Expo relay handles ExponentPushToken[...]
+        expoMessages.push({
+          to:         expoToken,
+          title,
+          body,
+          sound:      'default',
+          priority:   'high',
+          channelId:  'default',
+          badge:      1,
+          categoryId: 'NEW_ORDER',   // ✅ Bug #5 fix
+          data:       dataPayload,
+        })
+      } else if (expoToken) {
+        // Looks like a raw FCM token stored in expoPushToken field
+        fcmMessages.push(buildFcmMessage(expoToken, title, body, dataPayload))
+      }
 
-      // ── Step 4: Queue notification with real order data ──
-      notifications.push({
-        to: token,
-        title: `🛎️ New Order from Customer`,
-        body: `You have ${pendingCount} pending order${pendingCount > 1 ? 's' : ''}. Tap to accept or view.`,
-        sound: 'default',
-        priority: 'high',
-        channelId: 'default',
-        // ✅ categoryId enables Accept / View buttons in the Expo app
-        categoryId: 'NEW_ORDER',
-        data: {
-          orderId,
-          vendorId,
-          screen: 'VendorOrders',
-          url: `/vendor/orders/${orderId}`,
-        },
-      })
+      if (fcmToken && typeof fcmToken === 'string') {
+        // Web browser FCM token — Bug #3 fix
+        fcmMessages.push(buildFcmMessage(fcmToken, title, body, dataPayload))
+      }
 
-      // ── Step 5: Save timestamp so we don't spam this vendor ──
-      await db.collection('vendors').doc(vendorId).update({
-        lastPendingNotifiedAt: new Date(),
-      })
+      await db.collection('vendors').doc(vendorId).update({ lastPendingNotifiedAt: new Date() })
     }
 
-    if (notifications.length === 0) {
-      return res.status(200).json({
-        message: 'No notifications needed',
-        sent: 0,
-        skippedCooldown: skipped.length,
-      })
+    let expoResults = []
+    let fcmResults  = { successCount: 0, failureCount: 0 }
+
+    if (expoMessages.length > 0) {
+      expoResults = await sendExpoNotifications(expoMessages)
+      console.log(`Expo sent: ${expoResults.filter(r => r.success).length}/${expoMessages.length}`)
     }
 
-    // ── Step 6: Send all notifications in one batch via FCM ──
-    const fcmMessages = notifications.map(notif => {
-      const dataPayload = {};
-      if (notif.data) {
-        for (const [key, val] of Object.entries(notif.data)) {
-          dataPayload[key] = String(val);
-        }
-      }
-      if (notif.categoryId) {
-        dataPayload.categoryId = String(notif.categoryId);
-      }
-      return {
-        token: notif.to,
-        notification: {
-          title: notif.title,
-          body: notif.body,
-        },
-        data: dataPayload,
-        android: {
-          priority: 'high',
-          notification: {
-            sound: 'default',
-            channelId: 'default',
-            clickAction: notif.categoryId || undefined,
-          }
-        },
-        apns: {
-          payload: {
-            aps: {
-              sound: 'default',
-              category: notif.categoryId || undefined,
-            }
-          }
-        }
-      };
-    });
-
-    const fcmResponse = await getMessaging().sendEach(fcmMessages);
-    console.log(`FCM batch sent: ${fcmResponse.successCount} success, ${fcmResponse.failureCount} failure`);
+    if (fcmMessages.length > 0) {
+      fcmResults = await getMessaging().sendEach(fcmMessages)
+      console.log(`FCM sent: ${fcmResults.successCount}/${fcmMessages.length}`)
+    }
 
     return res.status(200).json({
-      success: true,
-      sent: notifications.length,
+      success:         true,
+      expoSent:        expoResults.filter(r => r.success).length,
+      fcmSent:         fcmResults.successCount,
       skippedCooldown: skipped.length,
-      fcmResponse: {
-        successCount: fcmResponse.successCount,
-        failureCount: fcmResponse.failureCount,
-        responses: fcmResponse.responses.map(r => ({ success: r.success, error: r.error?.message || null }))
-      },
     })
-
   } catch (err) {
     console.error('cron-push error:', err)
-    return res.status(500).json({ error: 'Internal Server Error' })
+    return res.status(500).json({ error: 'Internal Server Error', details: err.message })
+  }
+}
+
+function buildFcmMessage(token, title, body, data) {
+  const stringData = {}
+  for (const [k, v] of Object.entries(data)) stringData[k] = String(v)
+  stringData.categoryId = 'NEW_ORDER'
+  return {
+    token,
+    notification: { title, body },
+    data: stringData,
+    android: { priority: 'high', notification: { sound: 'default', channelId: 'default' } },
+    apns:    { payload: { aps: { sound: 'default', category: 'NEW_ORDER' } } },
   }
 }

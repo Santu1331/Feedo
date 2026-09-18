@@ -227,5 +227,29 @@ service cloud.firestore {
       allow create: if request.auth != null;
       allow update, delete: if isFounder();
     }
+
+    // ── BOUNCE & ROLL OFFERS ──────────────────────────────────────────────
+    // Created by services.js when a vendor cancels a bounceRoll-enabled order.
+    // The client-side query uses WHERE to scope results to the right user/vendor.
+    // Firestore rules cannot filter resource.data on list queries — the WHERE
+    // clause on the client is the security boundary here.
+    match /bounceRollOffers/{offerId} {
+      // Any authenticated user can list/get (WHERE clause on client scopes results)
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        resource.data.targetVendorUid == request.auth.uid ||
+        resource.data.targetUserUid  == request.auth.uid ||
+        isFounder()
+      );
+      allow delete: if isFounder();
+    }
+
+    // ── DELETED VENDORS (soft-delete trash bin) ───────────────────────────
+    // Vendors are moved here when deleted, for possible restore.
+    // Only founder can read, create, update, delete.
+    match /deletedVendors/{docId} {
+      allow read, write: if isFounder();
+    }
   }
 }

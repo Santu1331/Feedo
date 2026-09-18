@@ -4,6 +4,7 @@ import { createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase/config'
 import toast from 'react-hot-toast'
+import { FeedozonePill } from '../components/FeedozoneLogo'
 
 export default function LoginPage() {
   const [role, setRole] = useState('user')
@@ -192,8 +193,8 @@ export default function LoginPage() {
 
       {/* Logo */}
       <div style={{ textAlign:'center', marginBottom:28, marginTop: isSignupMode ? 0 : 40 }}>
-        <div style={{ fontSize:36, fontWeight:700, color:'#E24B4A', letterSpacing:-1 }}>Feedo</div>
-        <div style={{ fontSize:13, color:'#6b7280', marginTop:4 }}>Click, Eat, Repeat.</div>
+        <FeedozonePill size="lg" style={{ margin:'0 auto 12px' }} />
+        <div style={{ fontSize:13, color:'#6b7280', marginTop:8 }}>Click, Eat, Repeat.</div>
       </div>
 
       {/* ── FORGOT PASSWORD SCREEN ── */}
