@@ -28,25 +28,7 @@
 
 ---
 
-## 🔧 STEP 2 — Get Your Firebase Config
-
-1. Go to **Project Settings** (gear icon) → **General tab**
-2. Scroll to **"Your apps"** → Click **Web app icon (</>)**
-3. Register app as `feedozone-web` → Copy the `firebaseConfig` object
-
-Paste it in: `src/firebase/config.js`
-
-```js
-const firebaseConfig = {
-  apiKey: "AIza...",
-  authDomain: "feedozone.firebaseapp.com",
-  databaseURL: "https://feedozone-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "feedozone",
-  storageBucket: "feedozone.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123..."
-}
-```
+#
 
 > ⚠️ **Important**: `databaseURL` is required for Realtime DB. Find it in **Realtime Database → Copy the URL** shown at the top.
 
