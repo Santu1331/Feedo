@@ -8,7 +8,7 @@ import {
 } from '../firebase/services'
 import { db } from '../firebase/config'
 import {
-  collection, query, where, onSnapshot, addDoc, getDoc, doc, getDocs, serverTimestamp
+  collection, query, where, onSnapshot, addDoc, getDoc, doc, getDocs, serverTimestamp, updateDoc
 } from 'firebase/firestore'
 import { useNotifications } from '../hooks/useNotifications'
 import UserBill from '../components/UserBill'
@@ -942,31 +942,44 @@ function SupportReplyPopup({ reply, onOpen, onDismiss }) {
 }
 
 // ── Multi-cart order panel — separate component so it can use useState legally ──
-function MultiCartOrderPanel({ vendorId, carts, removeMultiCart, user, userData, deliveryName, deliveryPhone, deliveryHostel, deliveryAddress, userLat, userLng, DS }) {
+function MultiCartOrderPanel({ vendorId, carts, removeMultiCart, user, userData, userLat, userLng, DS }) {
   const [mcPlacing, setMcPlacing] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+  const [mcName, setMcName]       = useState(() => userData?.name    || '')
+  const [mcPhone, setMcPhone]     = useState(() => userData?.mobile  || '')
+  const [mcHostel, setMcHostel]   = useState('')
+  const [mcAddress, setMcAddress] = useState(() => userData?.address || '')
+  const [mcNote, setMcNote]       = useState('')
+
   const vc = carts[vendorId]
   if (!vc) return null
-  const mcItems = vc.items
-  const mcVendor = vc.vendor
-  const mcTotal = mcItems.reduce((s, i) => s + i.price * i.qty, 0)
+  const mcItems    = vc.items
+  const mcVendor   = vc.vendor
+  const mcSubtotal = mcItems.reduce((s, i) => s + i.price * i.qty, 0)
   const mcDelivery = Number(mcVendor?.deliveryCharge ?? 0)
+  const mcTotal    = mcSubtotal + mcDelivery
+
+  const minOrder = Number(mcVendor?.minOrderAmount ?? 0)
+  const meetsMin = minOrder === 0 || mcSubtotal >= minOrder
+  const shortfall = meetsMin ? 0 : minOrder - mcSubtotal
 
   const handlePlace = async () => {
-    if (!deliveryName?.trim() || !deliveryPhone?.trim()) {
-      toast.error('Fill in your name and phone below first')
-      return
-    }
+    if (!mcName.trim())    return toast.error('Enter your name')
+    if (!mcPhone.trim() || mcPhone.length < 10) return toast.error('Enter a valid 10-digit phone number')
+    if (!mcAddress.trim() && !mcHostel.trim()) return toast.error('Enter delivery address')
+    if (!meetsMin) return toast.error(`Minimum order ₹${minOrder}. Add ₹${shortfall} more.`, { duration: 4000, icon: '🛒' })
+
     setMcPlacing(true)
     try {
       const { placeOrder } = await import('../firebase/services')
       const billNo = 'FZ-' + Date.now().toString(36).slice(-6).toUpperCase()
-      const fullAddress = [deliveryHostel?.trim(), deliveryAddress?.trim()].filter(Boolean).join(' · ')
+      const fullAddress = [mcHostel.trim(), mcAddress.trim(), mcNote.trim() ? `Note: ${mcNote.trim()}` : ''].filter(Boolean).join(' · ')
       await placeOrder({
-        userUid: user.uid, userName: deliveryName.trim(), userPhone: deliveryPhone.trim(),
+        userUid: user.uid, userName: mcName.trim(), userPhone: mcPhone.trim(),
         userEmail: user.email, vendorUid: mcVendor.id, vendorName: mcVendor.storeName,
         items: mcItems.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, isCombo: i.isCombo||false, isVariant: i.isVariant||false })),
-        subtotal: mcTotal, deliveryFee: mcDelivery, total: mcTotal + mcDelivery,
-        address: fullAddress || '(same as main order)', paymentMode: 'COD', billNo,
+        subtotal: mcSubtotal, deliveryFee: mcDelivery, total: mcTotal,
+        address: fullAddress || '(not provided)', paymentMode: 'COD', billNo,
         userLat, userLng,
         vendorFcmToken: mcVendor.fcmToken || null,
         vendorExpoPushToken: mcVendor.expoPushToken || null,
@@ -980,12 +993,20 @@ function MultiCartOrderPanel({ vendorId, carts, removeMultiCart, user, userData,
     setMcPlacing(false)
   }
 
+  const inp = {
+    width:'100%', padding:'11px 14px',
+    border:`1.5px solid ${DS.borderMed}`, borderRadius:12,
+    fontSize:13, fontFamily:'Poppins', outline:'none',
+    boxSizing:'border-box', color:DS.textPrimary, background:'#FAFAFA',
+  }
+
   return (
     <>
+      {/* Order summary */}
       <div style={{ background:'#FFFFFF', borderRadius:14, padding:'12px 16px', marginBottom:12, boxShadow:DS.shadow }}>
         <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
           <span style={{ fontSize:12, color:DS.textSecondary }}>Subtotal</span>
-          <span style={{ fontSize:12, fontWeight:600 }}>₹{mcTotal}</span>
+          <span style={{ fontSize:12, fontWeight:600 }}>₹{mcSubtotal}</span>
         </div>
         <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
           <span style={{ fontSize:12, color:DS.textSecondary }}>Delivery</span>
@@ -993,17 +1014,138 @@ function MultiCartOrderPanel({ vendorId, carts, removeMultiCart, user, userData,
         </div>
         <div style={{ display:'flex', justifyContent:'space-between', paddingTop:8, borderTop:`1.5px solid ${DS.border}` }}>
           <span style={{ fontSize:14, fontWeight:700 }}>Total</span>
-          <span style={{ fontSize:14, fontWeight:800, color:DS.primary }}>₹{mcTotal + mcDelivery}</span>
+          <span style={{ fontSize:14, fontWeight:800, color:DS.primary }}>₹{mcTotal}</span>
         </div>
+        {!meetsMin && (
+          <div style={{ marginTop:10, background:DS.infoLight, borderRadius:10, padding:'8px 12px', fontSize:11, color:'#1e40af', fontWeight:600 }}>
+            🛒 Add ₹{shortfall} more to meet the ₹{minOrder} minimum order
+          </div>
+        )}
       </div>
-      <button
-        disabled={mcPlacing}
-        onClick={handlePlace}
-        style={{ width:'100%', background: mcPlacing ? '#FCA5A5' : `linear-gradient(135deg,${DS.primary},${DS.primaryDark})`, color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:800, cursor: mcPlacing ? 'not-allowed' : 'pointer', fontFamily:'Poppins', boxShadow:`0 4px 18px rgba(226,75,74,0.4)`, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
-      >
-        {mcPlacing ? '⏳ Placing...' : `🎉 Place Order · ₹${mcTotal + mcDelivery}`}
-      </button>
+
+      {/* Checkout form — shown after tapping Proceed */}
+      {showForm && (
+        <div style={{ background:'#FFFFFF', borderRadius:14, padding:'14px 16px', marginBottom:12, boxShadow:DS.shadow, display:'flex', flexDirection:'column', gap:10 }}>
+          <div style={{ fontSize:13, fontWeight:800, color:DS.textPrimary, marginBottom:4 }}>🚚 Delivery Details</div>
+          <div>
+            <label style={{ fontSize:10, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Your Name *</label>
+            <input style={{ ...inp, marginTop:5 }} placeholder="Full name" value={mcName} onChange={e => setMcName(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize:10, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Phone *</label>
+            <div style={{ position:'relative', marginTop:5 }}>
+              <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', fontSize:13, color:DS.textSecondary, pointerEvents:'none', fontWeight:600 }}>+91</span>
+              <input style={{ ...inp, paddingLeft:46 }} placeholder="Mobile number" value={mcPhone}
+                onChange={e => setMcPhone(e.target.value.replace(/\D/g,'').slice(0,10))} />
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize:10, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Hostel / Building</label>
+            <input style={{ ...inp, marginTop:5 }} placeholder="e.g. Hostel B..." value={mcHostel} onChange={e => setMcHostel(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize:10, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Room / Address *</label>
+            <input style={{ ...inp, marginTop:5 }} placeholder="e.g. Room 204..." value={mcAddress} onChange={e => setMcAddress(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize:10, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Order Note</label>
+            <textarea style={{ ...inp, marginTop:5, resize:'none', minHeight:48, lineHeight:1.5 }} placeholder="Less spicy, extra roti..." value={mcNote} onChange={e => setMcNote(e.target.value)} />
+          </div>
+          <div style={{ background:'#FFFBEB', borderRadius:10, padding:'8px 12px', fontSize:11, color:'#78350f', display:'flex', alignItems:'center', gap:6 }}>
+            💵 <span>Payment: <strong>Cash on Delivery (COD)</strong></span>
+          </div>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      {!showForm ? (
+        <button
+          onClick={() => { if (!meetsMin) { toast.error(`Add ₹${shortfall} more to meet the ₹${minOrder} minimum`, { icon:'🛒', duration:3000 }); return } setShowForm(true) }}
+          style={{ width:'100%', background: meetsMin ? `linear-gradient(135deg,${DS.primary},${DS.primaryDark})` : '#9CA3AF', color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:800, cursor: meetsMin ? 'pointer' : 'not-allowed', fontFamily:'Poppins', boxShadow: meetsMin ? `0 4px 18px rgba(226,75,74,0.4)` : 'none', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+        >
+          {meetsMin ? `Proceed to Checkout · ₹${mcTotal}` : `Add ₹${shortfall} more to checkout`}
+        </button>
+      ) : (
+        <>
+          <button
+            disabled={mcPlacing}
+            onClick={handlePlace}
+            style={{ width:'100%', background: mcPlacing ? '#FCA5A5' : `linear-gradient(135deg,${DS.primary},${DS.primaryDark})`, color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:14, fontWeight:800, cursor: mcPlacing ? 'not-allowed' : 'pointer', fontFamily:'Poppins', marginBottom:8, boxShadow:`0 4px 18px rgba(226,75,74,0.4)`, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+          >
+            {mcPlacing ? '⏳ Placing...' : `🎉 Place Order · ₹${mcTotal}`}
+          </button>
+          <button onClick={() => setShowForm(false)} style={{ width:'100%', background:'transparent', color:DS.primary, border:`1.5px solid #FECACA`, padding:'12px 0', borderRadius:14, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>← Back</button>
+        </>
+      )}
     </>
+  )
+}
+
+// ─── Food Photo Slider (Zomato/Swiggy-style) ─────────────────────────────────
+// Auto-advances every 3 s. Opacity crossfade — no transform glitches.
+// Swipe left/right on mobile. Dot strip at bottom.
+// ── Food Photo Slider ─────────────────────────────────────────────────────────
+// Self-contained: interval starts only when photos array has 2+ items.
+// Uses a wrapper div with a data attribute to track the current index
+// so it survives parent re-renders without losing animation state.
+function FoodPhotoSlider({ photos, isOpen, dotBottom = 8 }) {
+  const wrapRef = useRef(null)
+  const timerRef = useRef(null)
+  const [cur, setCur] = useState(0)
+
+  // Start the slide timer — called once photos are actually available
+  useEffect(() => {
+    const n = photos?.length || 0
+    if (n < 2) return          // nothing to slide
+    // Clear any previous timer (e.g. if photos array changes)
+    if (timerRef.current) clearInterval(timerRef.current)
+    // Use a local counter inside the closure — completely immune to stale state
+    let idx = 0
+    timerRef.current = setInterval(() => {
+      idx = (idx + 1) % n
+      setCur(idx)
+    }, 3000)
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [photos?.length]) // re-init only when number of photos changes
+
+  const n = photos?.length || 0
+  if (n === 0) return null
+
+  return (
+    <div ref={wrapRef} style={{ position: 'absolute', inset: 0 }}>
+      {photos.map((url, i) => (
+        <div key={i} style={{
+          position: 'absolute', inset: 0,
+          opacity: i === cur ? 1 : 0,
+          zIndex: i === cur ? 2 : 1,
+          transition: 'opacity 0.8s ease-in-out',
+        }}>
+          <img src={url} alt="" style={{
+            width: '100%', height: '100%',
+            objectFit: 'cover', display: 'block',
+            filter: isOpen ? 'none' : 'grayscale(60%) brightness(0.8)',
+          }} />
+        </div>
+      ))}
+      {n > 1 && (
+        <div style={{
+          position: 'absolute', bottom: dotBottom,
+          left: '50%', transform: 'translateX(-50%)',
+          display: 'flex', gap: 5, zIndex: 20, pointerEvents: 'none',
+        }}>
+          {photos.map((_, i) => (
+            <div key={i} style={{
+              width: i === cur ? 20 : 6, height: 5, borderRadius: 3,
+              background: i === cur ? '#fff' : 'rgba(255,255,255,0.55)',
+              transition: 'width 0.35s ease',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.6)',
+            }} />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1043,15 +1185,12 @@ export default function UserApp() {
     (s, vc) => s + vc.items.reduce((ss, i) => ss + i.price * i.qty, 0), 0
   )
   // ─────────────────────────────────────────────────────────────────────────
-  // ── BOUNCE & ROLL ────────────────────────────────────────────────────────
-  // When a restaurant cancels an order, it broadcasts to all open vendors.
-  // The first vendor to accept wins and the customer is notified.
-  const [bounceRollEnabled, setBounceRollEnabled] = useState(() => {
-    try { return localStorage.getItem('feedo_bounce_roll') !== 'false' } catch { return true }
-  })
-  const [bounceRollOffers, setBounceRollOffers] = useState([]) // live incoming BR offers
-  const [showBrInfo, setShowBrInfo] = useState(false)         // B&R info modal
-  // ──────────────────────────────────────────────────────────────────────────
+  // ── BOUNCE & ROLL ── (PAUSED — feature temporarily disabled)
+  // The B&R feature is paused. Toggle is hidden from UI.
+  // To re-enable: restore the localStorage-based state and show the toggle.
+  const bounceRollEnabled = false
+  const [bounceRollOffers, setBounceRollOffers] = useState([])
+  const [showBrInfo, setShowBrInfo] = useState(false)
   // ── OFFER APPLICATION ─────────────────────────────────────────────────
   const [vendorOffers, setVendorOffers] = useState([])       // live offers for cart vendor
   const [appliedOffer, setAppliedOffer] = useState(null)     // currently applied offer
@@ -1115,6 +1254,39 @@ export default function UserApp() {
   const [placingOrder, setPlacingOrder] = useState(false)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [orderToCancel, setOrderToCancel] = useState(null)
+
+  // ── PROFILE EDIT ───────────────────────────────────────────────────────
+  const [editingProfile, setEditingProfile] = useState(false)
+  const [editName, setEditName]       = useState('')
+  const [editMobile, setEditMobile]   = useState('')
+  const [editAddress, setEditAddress] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
+
+  const handleStartEditProfile = () => {
+    setEditName(userData?.name || '')
+    setEditMobile(userData?.mobile || '')
+    setEditAddress(userData?.address || '')
+    setEditingProfile(true)
+  }
+
+  const handleSaveProfile = async () => {
+    if (!editName.trim()) return toast.error('Name cannot be empty')
+    if (editMobile && editMobile.length !== 10) return toast.error('Enter a valid 10-digit mobile')
+    setSavingProfile(true)
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        name:    editName.trim(),
+        mobile:  editMobile.trim(),
+        address: editAddress.trim(),
+      })
+      toast.success('Profile updated!')
+      setEditingProfile(false)
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to save. Try again.')
+    }
+    setSavingProfile(false)
+  }
 
   // ── VENDOR-CANCELLED POPUP ─────────────────────────────────────────────
   const [vendorCancelPopup, setVendorCancelPopup] = useState(null)
@@ -1318,12 +1490,9 @@ export default function UserApp() {
     return unsub
   }, [user?.uid, bounceRollEnabled])
 
-  // Save bounce roll preference
+  // Bounce & Roll is paused — toggle is a no-op while feature is disabled
   const toggleBounceRoll = () => {
-    const newVal = !bounceRollEnabled
-    setBounceRollEnabled(newVal)
-    try { localStorage.setItem('feedo_bounce_roll', String(newVal)) } catch {}
-    toast.success(newVal ? '🔄 Bounce & Roll ON — cancelled orders will find a new restaurant!' : '⏸️ Bounce & Roll OFF')
+    toast('⏸️ Bounce & Roll is paused — coming soon!', { icon: 'ℹ️' })
   }
 
   // ── UNIFIED CART HELPERS ──────────────────────────────────────────────────
@@ -2398,8 +2567,8 @@ export default function UserApp() {
         </div>
       )}
 
-      {/* ── PREMIUM HEADER ── */}
-      <div style={{ background:'#FFFFFF', flexShrink:0, boxShadow:'0 1px 0 rgba(0,0,0,0.06)' }}>
+      {/* ── PREMIUM HEADER — only shown on home / vendor-menu tabs ── */}
+      {(tab === 'home' || tab === 'vendor-menu') && <div style={{ background:'#FFFFFF', flexShrink:0, boxShadow:'0 1px 0 rgba(0,0,0,0.06)' }}>
 
         {/* Top row — logo + actions */}
         <div style={{ padding:'12px 16px 0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -2442,52 +2611,7 @@ export default function UserApp() {
             <span style={{ fontSize:11, color:DS.primary, fontWeight:800, flexShrink:0 }}>▾</span>
           </div>
 
-          {/* ── BOUNCE & ROLL TOGGLE ── */}
-          <div style={{ flexShrink:0 }}>
-            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-              <button
-                onClick={toggleBounceRoll}
-                className={bounceRollEnabled ? 'fz-br-on' : ''}
-                style={{
-                  width:52, height:28, borderRadius:14, border:'none',
-                  cursor:'pointer', position:'relative', padding:0,
-                  background: bounceRollEnabled
-                    ? 'linear-gradient(135deg,#E24B4A,#FF6B6A)'
-                    : '#E5E7EB',
-                  boxShadow: bounceRollEnabled
-                    ? '0 4px 12px rgba(226,75,74,0.45)'
-                    : '0 1px 4px rgba(0,0,0,0.1)',
-                  transition: 'all 0.3s cubic-bezier(0.34,1.56,0.64,1)',
-                }}
-                title={bounceRollEnabled
-                  ? 'Bounce & Roll ON — if a restaurant cancels, we find you a new one instantly!'
-                  : 'Bounce & Roll OFF'}
-              >
-                <div style={{
-                  position:'absolute', top:3,
-                  left: bounceRollEnabled ? 26 : 3,
-                  width:22, height:22, borderRadius:11,
-                  background:'#fff',
-                  boxShadow:'0 2px 6px rgba(0,0,0,0.2)',
-                  transition:'left 0.3s cubic-bezier(0.34,1.56,0.64,1)',
-                  display:'flex', alignItems:'center', justifyContent:'center',
-                  fontSize:11,
-                }}>
-                  <span className={bounceRollEnabled ? 'fz-br-icon' : ''}>
-                    {bounceRollEnabled ? '🔄' : '⏸️'}
-                  </span>
-                </div>
-              </button>
-              <div style={{
-                fontSize:8, fontWeight:800, letterSpacing:0.3, whiteSpace:'nowrap',
-                textTransform:'uppercase', cursor:'pointer',
-                color: bounceRollEnabled ? DS.primary : DS.textMuted,
-                textDecorationLine:'underline', textDecorationStyle:'dotted',
-              }} onClick={() => setShowBrInfo(true)}>
-                {bounceRollEnabled ? 'B&R ON' : 'B&R OFF'} ℹ️
-              </div>
-            </div>
-          </div>
+          {/* ── BOUNCE & ROLL TOGGLE — paused, hidden ── */}
         </div>
 
         {/* ── MULTI-CART INDICATOR (shown when 2+ vendor carts active) ── */}
@@ -2577,7 +2701,7 @@ export default function UserApp() {
             <span style={{ fontSize:10, fontWeight:700, background:selectedVendor.isOpen?DS.successLight:DS.border, color:selectedVendor.isOpen?DS.success:DS.textMuted, padding:'3px 9px', borderRadius:20 }}>{selectedVendor.isOpen ? '● Open' : '● Closed'}</span>
           </div>
         )}
-      </div>
+      </div>}
 
       {/* ── PAGE CONTENT ── */}
       <div style={S.pageContent}>
@@ -2795,24 +2919,28 @@ export default function UserApp() {
                       animationDelay:`${idx * 60}ms`,
                     }}>
 
-                    {/* IMAGE */}
-                    <div style={{ height:168, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#FEE2E2,#FECACA)' }}>
-                      {v.photo
-                        ? <img src={v.photo} alt={v.storeName}
-                            style={{ width:'100%', height:'100%', objectFit:'cover',
-                              filter: v.isOpen ? 'none' : 'grayscale(55%) brightness(0.88)',
-                              transition:'transform 0.5s ease',
-                            }} />
-                        : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                            <span style={{ fontSize:54, animation:'float3d 5s ease-in-out infinite' }}>🍽️</span>
-                          </div>
-                      }
-                      {/* Rich gradient overlay */}
-                      <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.15) 45%, transparent 100%)' }} />
+                    {/* IMAGE — sliding featured dishes or fallback to store photo */}
+                    <div style={{ height:168, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#1A0A0A,#2D0808)' }}>
+                      {/* Photos or fallback */}
+                      {v.featuredPhotos?.length >= 1 ? (
+                        <FoodPhotoSlider photos={v.featuredPhotos} isOpen={v.isOpen} dotBottom={52} />
+                      ) : v.photo ? (
+                        <img src={v.photo} alt={v.storeName}
+                          style={{ width:'100%', height:'100%', objectFit:'cover',
+                            filter: v.isOpen ? 'none' : 'grayscale(55%) brightness(0.88)',
+                          }} />
+                      ) : (
+                        <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          <span style={{ fontSize:54, animation:'float3d 5s ease-in-out infinite' }}>🍽️</span>
+                        </div>
+                      )}
 
-                      {/* Closed overlay */}
+                      {/* Gradient overlay — z:5, above slider slides (z:1) */}
+                      <div style={{ position:'absolute', inset:0, zIndex:5, background:'linear-gradient(to top, rgba(0,0,0,0.68) 0%, rgba(0,0,0,0.15) 50%, transparent 100%)', pointerEvents:'none' }} />
+
+                      {/* Closed overlay — z:6 */}
                       {!v.isOpen && (
-                        <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(3px)' }}>
+                        <div style={{ position:'absolute', inset:0, zIndex:6, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(3px)' }}>
                           <div style={{ background:'rgba(0,0,0,0.72)', borderRadius:16, padding:'10px 22px', display:'flex', alignItems:'center', gap:10, border:'1px solid rgba(255,255,255,0.1)', boxShadow:'0 8px 24px rgba(0,0,0,0.3)' }}>
                             <span style={{ fontSize:16 }}>🔒</span>
                             <div>
@@ -2823,55 +2951,29 @@ export default function UserApp() {
                         </div>
                       )}
 
-                      {/* Top-left: category + rank */}
-                      <div style={{ position:'absolute', top:12, left:12, display:'flex', gap:6 }}>
-                        <span style={{
-                          background:'rgba(255,255,255,0.9)', backdropFilter:'blur(12px)',
-                          color:'#374151', fontSize:10, fontWeight:700,
-                          padding:'4px 10px', borderRadius:20,
-                          boxShadow:'0 2px 8px rgba(0,0,0,0.12)',
-                        }}>{v.category||'Food'}</span>
+                      {/* Top-left: category + rank — z:6 */}
+                      <div style={{ position:'absolute', top:12, left:12, zIndex:6, display:'flex', gap:6 }}>
+                        <span style={{ background:'rgba(255,255,255,0.9)', backdropFilter:'blur(12px)', color:'#374151', fontSize:10, fontWeight:700, padding:'4px 10px', borderRadius:20, boxShadow:'0 2px 8px rgba(0,0,0,0.12)' }}>{v.category||'Food'}</span>
                         {rankEmoji && (
-                          <span style={{
-                            background:'rgba(0,0,0,0.65)', backdropFilter:'blur(8px)',
-                            color:'#fff', fontSize:11, fontWeight:800,
-                            padding:'4px 10px', borderRadius:20,
-                            boxShadow:'0 2px 8px rgba(0,0,0,0.2)',
-                          }}>{rankEmoji}</span>
+                          <span style={{ background:'rgba(0,0,0,0.65)', backdropFilter:'blur(8px)', color:'#fff', fontSize:11, fontWeight:800, padding:'4px 10px', borderRadius:20, boxShadow:'0 2px 8px rgba(0,0,0,0.2)' }}>{rankEmoji}</span>
                         )}
                       </div>
 
-                      {/* Top-right: open/closed pill */}
-                      <div style={{ position:'absolute', top:12, right:12 }}>
-                        <span style={{
-                          background: v.isOpen ? 'rgba(16,185,129,0.92)' : 'rgba(107,114,128,0.85)',
-                          backdropFilter:'blur(8px)', color:'#fff',
-                          fontSize:10, fontWeight:800, padding:'4px 11px', borderRadius:20,
-                          boxShadow: v.isOpen ? '0 3px 10px rgba(16,185,129,0.45)' : '0 2px 6px rgba(0,0,0,0.2)',
-                          display:'flex', alignItems:'center', gap:5,
-                        }}>
-                          <span style={{
-                            width:5, height:5, borderRadius:'50%', background:'#fff', display:'inline-block',
-                            animation: v.isOpen ? 'livePulse 2s infinite' : 'none',
-                            boxShadow: v.isOpen ? '0 0 5px rgba(255,255,255,0.8)' : 'none',
-                          }} />
+                      {/* Top-right: open/closed pill — z:6 */}
+                      <div style={{ position:'absolute', top:12, right:12, zIndex:6 }}>
+                        <span style={{ background: v.isOpen ? 'rgba(16,185,129,0.92)' : 'rgba(107,114,128,0.85)', backdropFilter:'blur(8px)', color:'#fff', fontSize:10, fontWeight:800, padding:'4px 11px', borderRadius:20, boxShadow: v.isOpen ? '0 3px 10px rgba(16,185,129,0.45)' : '0 2px 6px rgba(0,0,0,0.2)', display:'flex', alignItems:'center', gap:5 }}>
+                          <span style={{ width:5, height:5, borderRadius:'50%', background:'#fff', display:'inline-block', animation: v.isOpen ? 'livePulse 2s infinite' : 'none' }} />
                           {v.isOpen ? 'Open' : 'Closed'}
                         </span>
                       </div>
 
-                      {/* Bottom: name + rating */}
-                      <div style={{ position:'absolute', bottom:14, left:14, right:14, display:'flex', alignItems:'flex-end', justifyContent:'space-between' }}>
+                      {/* Bottom: store name + rating — z:6 */}
+                      <div style={{ position:'absolute', bottom:14, left:14, right:14, zIndex:6, display:'flex', alignItems:'flex-end', justifyContent:'space-between' }}>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:18, fontWeight:900, color:'#fff', lineHeight:1.2, textShadow:'0 2px 10px rgba(0,0,0,0.5)', marginBottom:2 }}>{v.storeName}</div>
-                          <div style={{ fontSize:11, color:'rgba(255,255,255,0.75)', fontWeight:500 }}>{v.category}</div>
+                          <div style={{ fontSize:18, fontWeight:900, color:'#fff', lineHeight:1.2, textShadow:'0 2px 10px rgba(0,0,0,0.6)', marginBottom:2 }}>{v.storeName}</div>
+                          <div style={{ fontSize:11, color:'rgba(255,255,255,0.8)', fontWeight:500 }}>{v.category}</div>
                         </div>
-                        <div style={{
-                          background:'rgba(255,255,255,0.92)', backdropFilter:'blur(10px)',
-                          borderRadius:12, padding:'5px 10px',
-                          display:'flex', alignItems:'center', gap:4,
-                          boxShadow:'0 3px 10px rgba(0,0,0,0.15)',
-                          flexShrink:0, marginLeft:10,
-                        }}>
+                        <div style={{ background:'rgba(255,255,255,0.92)', backdropFilter:'blur(10px)', borderRadius:12, padding:'5px 10px', display:'flex', alignItems:'center', gap:4, boxShadow:'0 3px 10px rgba(0,0,0,0.15)', flexShrink:0, marginLeft:10 }}>
                           <span style={{ fontSize:13, color:'#F59E0B' }}>★</span>
                           <span style={{ fontSize:13, fontWeight:900, color:'#1A1A1A' }}>{v.rating||4.5}</span>
                         </div>
@@ -2991,40 +3093,37 @@ export default function UserApp() {
 
               {/* ── PREMIUM 3D RESTAURANT HERO ── */}
               <div className="fz-hero-3d" style={{ height:210, position:'relative', overflow:'hidden', background:'linear-gradient(135deg,#1A0A0A,#2D0808)' }}>
-                {selectedVendor.photo
-                  ? <img src={selectedVendor.photo} alt={selectedVendor.storeName}
-                      style={{ width:'100%', height:'100%', objectFit:'cover', transition:'transform 0.5s ease' }} />
-                  : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      <span style={{ fontSize:72, animation:'float3d 5s ease-in-out infinite', filter:'drop-shadow(0 8px 20px rgba(0,0,0,0.5))' }}>🍽️</span>
-                    </div>
-                }
-                {/* Multi-layer gradient */}
-                <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.2) 50%, transparent 100%)' }} />
-                <div style={{ position:'absolute', inset:0, background:'linear-gradient(to right, rgba(0,0,0,0.3) 0%, transparent 60%)' }} />
+                {selectedVendor.featuredPhotos?.length >= 1 ? (
+                  <FoodPhotoSlider photos={selectedVendor.featuredPhotos} isOpen={selectedVendor.isOpen} dotBottom={56} />
+                ) : selectedVendor.photo ? (
+                  <img src={selectedVendor.photo} alt={selectedVendor.storeName}
+                    style={{ width:'100%', height:'100%', objectFit:'cover', transition:'transform 0.5s ease' }} />
+                ) : (
+                  <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <span style={{ fontSize:72, animation:'float3d 5s ease-in-out infinite', filter:'drop-shadow(0 8px 20px rgba(0,0,0,0.5))' }}>🍽️</span>
+                  </div>
+                )}
+                {/* Multi-layer gradient — z:5, above slider */}
+                <div style={{ position:'absolute', inset:0, zIndex:5, background:'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.2) 50%, transparent 100%)', pointerEvents:'none' }} />
+                <div style={{ position:'absolute', inset:0, zIndex:5, background:'linear-gradient(to right, rgba(0,0,0,0.3) 0%, transparent 60%)', pointerEvents:'none' }} />
 
                 {/* Shimmer scan */}
-                <div style={{ position:'absolute', inset:0, background:'linear-gradient(120deg,transparent 30%,rgba(255,255,255,0.06) 50%,transparent 70%)', backgroundSize:'200% 100%', animation:'shimmer3d 5s ease-in-out infinite', pointerEvents:'none' }} />
+                <div style={{ position:'absolute', inset:0, zIndex:5, background:'linear-gradient(120deg,transparent 30%,rgba(255,255,255,0.06) 50%,transparent 70%)', backgroundSize:'200% 100%', animation:'shimmer3d 5s ease-in-out infinite', pointerEvents:'none' }} />
 
-                {/* Free delivery badge */}
+                {/* Free delivery badge — z:6 */}
                 {freeDeliveryToday && (
-                  <div style={{ position:'absolute', top:14, right:14, background:'linear-gradient(135deg,#FF9933,#E24B4A)', color:'#fff', fontSize:10, fontWeight:900, padding:'6px 13px', borderRadius:22, display:'flex', alignItems:'center', gap:5, boxShadow:'0 4px 14px rgba(226,75,74,0.5), 0 1px 0 rgba(255,255,255,0.2)', animation:'float3d 4s ease-in-out infinite' }}>
+                  <div style={{ position:'absolute', top:14, right:14, zIndex:6, background:'linear-gradient(135deg,#FF9933,#E24B4A)', color:'#fff', fontSize:10, fontWeight:900, padding:'6px 13px', borderRadius:22, display:'flex', alignItems:'center', gap:5, boxShadow:'0 4px 14px rgba(226,75,74,0.5), 0 1px 0 rgba(255,255,255,0.2)', animation:'float3d 4s ease-in-out infinite' }}>
                     🚩 FREE DELIVERY
                   </div>
                 )}
 
-                {/* Bottom info */}
-                <div style={{ position:'absolute', bottom:16, left:16, right:16, color:'#fff' }}>
+                {/* Bottom info — z:6 */}
+                <div style={{ position:'absolute', bottom:16, left:16, right:16, zIndex:6, color:'#fff' }}>
                   <div style={{ fontSize:22, fontWeight:900, lineHeight:1.2, textShadow:'0 3px 12px rgba(0,0,0,0.6)', marginBottom:8 }}>{selectedVendor.storeName}</div>
                   <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
                     <span style={{ fontSize:11, color:'rgba(255,255,255,0.8)', fontWeight:600 }}>{selectedVendor.category}</span>
                     <span style={{ background:'rgba(255,255,255,0.18)', backdropFilter:'blur(10px)', color:'#fff', fontSize:11, fontWeight:800, padding:'3px 10px', borderRadius:20, border:'1px solid rgba(255,255,255,0.15)', boxShadow:'0 2px 6px rgba(0,0,0,0.15)' }}>⭐ {selectedVendor.rating||4.5}</span>
-                    <span style={{
-                      background: selectedVendor.isOpen ? 'rgba(16,185,129,0.88)' : 'rgba(107,114,128,0.85)',
-                      backdropFilter:'blur(8px)', color:'#fff', fontSize:10, fontWeight:800,
-                      padding:'3px 10px', borderRadius:20,
-                      boxShadow: selectedVendor.isOpen ? '0 2px 8px rgba(16,185,129,0.4)' : 'none',
-                      display:'flex', alignItems:'center', gap:4,
-                    }}>
+                    <span style={{ background: selectedVendor.isOpen ? 'rgba(16,185,129,0.88)' : 'rgba(107,114,128,0.85)', backdropFilter:'blur(8px)', color:'#fff', fontSize:10, fontWeight:800, padding:'3px 10px', borderRadius:20, boxShadow: selectedVendor.isOpen ? '0 2px 8px rgba(16,185,129,0.4)' : 'none', display:'flex', alignItems:'center', gap:4 }}>
                       <span style={{ width:5, height:5, borderRadius:'50%', background:'#fff', display:'inline-block', animation: selectedVendor.isOpen ? 'livePulse 2s infinite' : 'none' }} />
                       {selectedVendor.isOpen ? 'Open' : 'Closed'}
                     </span>
@@ -3460,296 +3559,237 @@ export default function UserApp() {
         {tab==='cart' && (
           <div style={{ padding:'16px 16px 24px', background:DS.bg, minHeight:'100%' }}>
 
-            {/* ── MULTI-CART SECTION ── */}
-            {(() => {
-              // Build a unified cart list: main cart + all carts
-              const hasMulti = Object.keys(carts).length > 0
-              if (!hasMulti && !cartVendor) return null  // nothing at all
-
-              // If only one restaurant (main cart only), show normally — skip tabs
-              if (!hasMulti) return null
-
-              // Multi-restaurant: show tabs
-              return (
-                <div style={{ marginBottom:16 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:DS.textMuted, marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>
-                    🛒 Multiple Restaurants
-                  </div>
-
-                  {/* Tab pills */}
-                  <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:6, scrollbarWidth:'none' }}>
-                    {/* Main cart tab (Restaurant 1) */}
-                    {cartVendor && cart.length > 0 && (
-                      <button
-                        onClick={() => setActiveCartVendorId(null)}
-                        className="fz-multicart-tab"
-                        style={{ flexShrink:0, padding:'9px 14px', borderRadius:14, border:`2px solid ${activeCartVendorId === null ? DS.primary : DS.border}`, background: activeCartVendorId === null ? DS.primaryLight : '#fff', cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:8, boxShadow: activeCartVendorId === null ? `0 4px 12px rgba(226,75,74,0.2)` : DS.shadow, transition:'all 0.2s' }}
-                      >
-                        <div style={{ width:24, height:24, borderRadius:8, overflow:'hidden', background:'#F0F0F0', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                          {cartVendor.photo ? <img src={cartVendor.photo} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:13 }}>🍽️</span>}
-                        </div>
-                        <div style={{ textAlign:'left' }}>
-                          <div style={{ fontSize:11, fontWeight:800, color: activeCartVendorId === null ? DS.primary : DS.textPrimary, maxWidth:100, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{cartVendor.storeName}</div>
-                          <div style={{ fontSize:9, color:DS.textMuted }}>{cartCount} items · ₹{cartTotal}</div>
-                        </div>
-                        {activeCartVendorId === null && <div style={{ width:7, height:7, borderRadius:'50%', background:DS.primary, flexShrink:0 }} />}
-                      </button>
-                    )}
-
-                    {/* Additional vendor cart tabs */}
-                    {Object.entries(carts).map(([vid, vc]) => (
-                      <button
-                        key={vid}
-                        onClick={() => setActiveCartVendorId(vid)}
-                        className="fz-multicart-tab"
-                        style={{ flexShrink:0, padding:'9px 14px', borderRadius:14, border:`2px solid ${activeCartVendorId === vid ? DS.primary : DS.border}`, background: activeCartVendorId === vid ? DS.primaryLight : '#fff', cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:8, position:'relative', boxShadow: activeCartVendorId === vid ? `0 4px 12px rgba(226,75,74,0.2)` : DS.shadow, transition:'all 0.2s' }}
-                      >
-                        <div style={{ width:24, height:24, borderRadius:8, overflow:'hidden', background:'#F0F0F0', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                          {vc.vendor?.photo ? <img src={vc.vendor.photo} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:13 }}>🍽️</span>}
-                        </div>
-                        <div style={{ textAlign:'left' }}>
-                          <div style={{ fontSize:11, fontWeight:800, color: activeCartVendorId === vid ? DS.primary : DS.textPrimary, maxWidth:100, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{vc.vendor?.storeName}</div>
-                          <div style={{ fontSize:9, color:DS.textMuted }}>{vc.items.reduce((s,i)=>s+i.qty,0)} items · ₹{vc.items.reduce((s,i)=>s+i.price*i.qty,0)}</div>
-                        </div>
-                        <button onClick={e => { e.stopPropagation(); removeMultiCart(vid) }} style={{ position:'absolute', top:-6, right:-6, width:17, height:17, borderRadius:'50%', background:'#EF4444', color:'#fff', border:'2px solid #fff', cursor:'pointer', fontSize:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700 }}>✕</button>
-                        {activeCartVendorId === vid && <div style={{ width:7, height:7, borderRadius:'50%', background:DS.primary, flexShrink:0 }} />}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Active multi-cart items (only for non-main carts) */}
-                  {activeCartVendorId && carts[activeCartVendorId] && (
-                    <div style={{ marginTop:14 }}>
-                      <div style={{ fontSize:13, fontWeight:800, color:DS.textPrimary, marginBottom:10 }}>
-                        🛒 {carts[activeCartVendorId].vendor?.storeName}
-                      </div>
-                      <div style={{ background:'#FFFFFF', borderRadius:16, overflow:'hidden', marginBottom:12, boxShadow:DS.shadow }}>
-                        {carts[activeCartVendorId].items.map((item, i, arr) => (
-                          <div key={item.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'13px 16px', borderBottom: i < arr.length-1 ? `1px solid ${DS.border}` : 'none' }}>
-                            <div style={{ flex:1, minWidth:0 }}>
-                              <div style={{ fontSize:13, fontWeight:600, color:DS.textPrimary }}>{item.name}</div>
-                              <div style={{ fontSize:11, color:DS.textMuted, marginTop:1 }}>₹{item.price} each</div>
-                            </div>
-                            <div style={{ display:'flex', alignItems:'center', gap:8, marginLeft:10 }}>
-                              <div style={{ display:'flex', alignItems:'center', gap:7, background:DS.primaryLight, borderRadius:22, padding:'5px 10px', border:`1.5px solid ${DS.primary}` }}>
-                                <button onClick={() => updateMultiCartQty(activeCartVendorId, item.id, -1)} style={{ background:'none', border:'none', cursor:'pointer', color:DS.primary, fontSize:17, fontWeight:700, padding:0, lineHeight:1 }}>−</button>
-                                <span style={{ fontSize:13, fontWeight:700, color:DS.primary, minWidth:16, textAlign:'center' }}>{item.qty}</span>
-                                <button onClick={() => updateMultiCartQty(activeCartVendorId, item.id, 1)} style={{ background:'none', border:'none', cursor:'pointer', color:DS.primary, fontSize:17, fontWeight:700, padding:0, lineHeight:1 }}>+</button>
-                              </div>
-                              <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary }}>₹{item.price*item.qty}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <MultiCartOrderPanel
-                        vendorId={activeCartVendorId}
-                        carts={carts}
-                        removeMultiCart={removeMultiCart}
-                        user={user}
-                        userData={userData}
-                        deliveryName={deliveryName}
-                        deliveryPhone={deliveryPhone}
-                        deliveryHostel={deliveryHostel}
-                        deliveryAddress={deliveryAddress}
-                        userLat={userLat}
-                        userLng={userLng}
-                        DS={DS}
-                      />
-                    </div>
-                  )}
-
-                  {/* Info note */}
-                  {activeCartVendorId === null && (
-                    <div style={{ marginTop:10, background:'linear-gradient(135deg,#EFF6FF,#DBEAFE)', borderRadius:12, padding:'10px 14px', fontSize:11, color:'#1E40AF', display:'flex', gap:8, alignItems:'flex-start', border:'1px solid #BFDBFE' }}>
-                      <span style={{ fontSize:14, flexShrink:0 }}>ℹ️</span>
-                      <span>Scroll down to view and checkout Restaurant 1 items. Tap the other restaurant tab to manage it separately.</span>
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
-
-            <div style={{ fontSize:18, fontWeight:800, color:DS.textPrimary, marginBottom:4 }}>Your Cart</div>
-            {cartVendor && <div style={{ fontSize:12, color:DS.textSecondary, marginBottom:14 }}>from <strong style={{ color:DS.primary }}>{cartVendor.storeName}</strong></div>}
-
-            {cartVendor && cartVendor.distanceKm !== null && cartVendor.distanceKm !== undefined && (
-              deliveryFeeWaived ? (
-                <div style={{ background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:14, padding:'12px 14px', marginBottom:14, display:'flex', alignItems:'center', gap:10, border:`1.5px solid #FDE68A` }}>
-                  <span style={{ fontSize:18 }}>🚩</span>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>Free delivery — Ashadi Ekadashi offer!</div>
-                    <div style={{ fontSize:11, color:'#a16207' }}>Usually ₹{cartVendor.rawDeliveryCharge}, ₹0 for you today</div>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ background:DS.warningLight, borderRadius:14, padding:'12px 14px', marginBottom:14, display:'flex', alignItems:'center', gap:10, border:`1px solid #FDE68A` }}>
-                  <span style={{ fontSize:18 }}>🚚</span>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>{cartVendor.distanceBasedDelivery ? 'Distance-based delivery' : 'Delivery charge'}</div>
-                    <div style={{ fontSize:11, color:'#a16207' }}>
-                      {cartVendor.distanceBasedDelivery ? `${cartVendor.distanceKm.toFixed(1)}km · ₹${deliveryFee}` : deliveryFee===0 ? 'Free delivery 🎉' : `₹${deliveryFee} delivery`}
-                    </div>
-                  </div>
-                </div>
-              )
-            )}
-
-            {cart.length===0 && (
-              <div style={{ textAlign:'center', color:DS.textMuted, padding:'48px 24px' }}>
+            {/* ── EMPTY STATE ── */}
+            {Object.keys(carts).length === 0 && (
+              <div style={{ textAlign:'center', color:DS.textMuted, padding:'80px 24px' }}>
                 <div style={{ fontSize:52, marginBottom:12 }}>🛒</div>
                 <div style={{ fontSize:15, fontWeight:700, color:DS.textPrimary, marginBottom:6 }}>Your cart is empty</div>
                 <div style={{ fontSize:13, color:DS.textSecondary }}>Browse restaurants and add items!</div>
               </div>
             )}
 
-            {/* Cart items */}
-            <div style={{ background:'#FFFFFF', borderRadius:16, overflow:'hidden', marginBottom:14, boxShadow:DS.shadow }}>
-              {cart.map((item, i) => (
-                <div key={item.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', borderBottom: i < cart.length-1 ? `1px solid ${DS.border}` : 'none' }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:14, fontWeight:600, color:DS.textPrimary }}>{item.name}</div>
-                    <div style={{ fontSize:12, color:DS.textMuted, marginTop:2 }}>₹{item.price} each{item.isVariant?' · variant':''}</div>
-                    {item.isCombo && item.comboItems && <div style={{ fontSize:10, color:DS.textMuted, marginTop:3 }}>{item.comboItems.map(ci=>`${ci.qty>1?ci.qty+'× ':''}${ci.name}`).join(' · ')}</div>}
-                  </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:10, marginLeft:12 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, background: item.isVariant ? '#FAF5FF' : DS.primaryLight, borderRadius:24, padding:'5px 10px', border:`1.5px solid ${item.isVariant ? '#7C3AED' : DS.primary}` }}>
-                      <button onClick={() => updateQty(item.id,-1)} style={{ background:'none', border:'none', cursor:'pointer', color: item.isVariant ? '#7C3AED' : DS.primary, fontSize:18, fontWeight:700, padding:0, lineHeight:1, width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
-                      <span style={{ fontSize:13, fontWeight:700, minWidth:16, textAlign:'center', color: item.isVariant ? '#7C3AED' : DS.primary }}>{item.qty}</span>
-                      <button onClick={() => updateQty(item.id,1)} style={{ background:'none', border:'none', cursor:'pointer', color: item.isVariant ? '#7C3AED' : DS.primary, fontSize:18, fontWeight:700, padding:0, lineHeight:1, width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
-                    </div>
-                    <div style={{ fontSize:14, fontWeight:700, minWidth:52, textAlign:'right', color:DS.textPrimary }}>₹{item.price*item.qty}</div>
-                  </div>
+            {/* ── MULTI-VENDOR TABS (shown when 2+ vendors) ── */}
+            {Object.keys(carts).length >= 2 && (
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:DS.textMuted, marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 }}>
+                  🛒 Multiple Restaurants
                 </div>
-              ))}
-            </div>
-            {cart.length > 0 && !showCheckout && (
-              <>
-                {minOrder > 0 && (
-                  <div style={{ marginBottom:14, background: meetsMinOrder ? DS.successLight : DS.infoLight, borderRadius:14, padding:'12px 14px', border:`1px solid ${meetsMinOrder ? '#86EFAC' : '#BFDBFE'}` }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <span style={{ fontSize:15 }}>{meetsMinOrder ? '✅' : '🛒'}</span>
-                        <span style={{ fontSize:12, fontWeight:700, color: meetsMinOrder ? DS.success : DS.info }}>{meetsMinOrder ? 'Minimum order met!' : `Add ₹${minOrderShortfall} more to checkout`}</span>
-                      </div>
-                      <span style={{ fontSize:11, color:DS.textMuted, fontWeight:600 }}>₹{cartTotal} / ₹{minOrder}</span>
-                    </div>
-                    <div style={{ height:5, background: meetsMinOrder ? '#BBF7D0' : '#DBEAFE', borderRadius:99, overflow:'hidden' }}>
-                      <div style={{ height:'100%', width:`${Math.min(100, Math.round(cartTotal/minOrder*100))}%`, background: meetsMinOrder ? DS.success : DS.info, borderRadius:99, transition:'width 0.4s ease' }} />
-                    </div>
-                  </div>
-                )}
-                <div style={{ background:'#FFFFFF', borderRadius:16, padding:'14px 16px', marginBottom:14, boxShadow:DS.shadow }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:12 }}>Order Summary</div>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:DS.textSecondary }}>Subtotal</span><span style={{ fontSize:13, fontWeight:600, color:DS.textPrimary }}>₹{cartTotal}</span></div>
-                  {discountAmount > 0 && (
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
-                      <span style={{ fontSize:13, color:DS.success, fontWeight:600 }}>🏷️ Discount ({activeOffer?.discountType==='percentage'?`${activeOffer.discountValue}%`:`₹${activeOffer?.discountValue}`} off)</span>
-                      <span style={{ fontSize:13, color:DS.success, fontWeight:700 }}>−₹{discountAmount}</span>
-                    </div>
-                  )}
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
-                    <span style={{ fontSize:13, color:DS.textSecondary }}>Delivery fee</span>
-                    {deliveryFeeWaived
-                      ? <span style={{ fontSize:13, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:DS.textMuted }}>₹{cartVendor.rawDeliveryCharge}</span><span style={{ color:DS.success, fontWeight:700 }}>FREE 🎉</span></span>
-                      : <span style={{ fontSize:13, fontWeight:600, color: deliveryFee===0 ? DS.success : DS.textPrimary }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
-                    }
-                  </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10, borderTop:`1.5px solid ${DS.border}` }}>
-                    <span style={{ fontSize:15, fontWeight:700, color:DS.textPrimary }}>Total</span>
-                    <span style={{ fontSize:15, fontWeight:800, color: discountAmount>0 ? DS.success : DS.primary }}>₹{finalTotal}</span>
-                  </div>
-                  {discountAmount > 0 && <div style={{ marginTop:8, background:DS.successLight, borderRadius:9, padding:'6px 10px', textAlign:'center' }}><span style={{ fontSize:11, color:DS.success, fontWeight:700 }}>🎉 You save ₹{discountAmount} on this order!</span></div>}
-                </div>
-                {vendorOffers.length > 0 && (
-                  <div style={{ background:'#FFFFFF', borderRadius:16, padding:'14px 16px', marginBottom:14, boxShadow:DS.shadow }}>
-                    <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:10 }}>🏷️ Offers & Coupons</div>
-                    {autoBestOffer && !appliedOffer && discountAmount > 0 && (
-                      <div style={{ background:DS.successLight, borderRadius:12, padding:'10px 12px', marginBottom:8, display:'flex', alignItems:'center', gap:10, border:`1.5px solid #86EFAC` }}>
-                        <span style={{ fontSize:16, flexShrink:0 }}>🏷️</span>
-                        <div style={{ flex:1 }}><div style={{ fontSize:12, fontWeight:700, color:'#166534' }}>Applied: {autoBestOffer.title}</div><div style={{ fontSize:10, color:DS.success, marginTop:1 }}>You save ₹{discountAmount}!</div></div>
-                        <span style={{ fontSize:11, fontWeight:800, color:DS.success, background:'#BBF7D0', padding:'3px 8px', borderRadius:20 }}>−₹{discountAmount}</span>
-                      </div>
-                    )}
-                    {appliedOffer && (
-                      <div style={{ background:DS.successLight, borderRadius:12, padding:'10px 12px', marginBottom:8, display:'flex', alignItems:'center', gap:10, border:`1.5px solid #86EFAC` }}>
-                        <span style={{ fontSize:16, flexShrink:0 }}>✅</span>
-                        <div style={{ flex:1 }}><div style={{ fontSize:12, fontWeight:700, color:'#166534' }}>{appliedOffer.couponCode} · {appliedOffer.title}</div><div style={{ fontSize:10, color:DS.success, marginTop:1 }}>Saving ₹{discountAmount}!</div></div>
-                        <button onClick={handleRemoveCoupon} style={{ fontSize:11, color:'#DC2626', background:'#FEE2E2', border:'none', borderRadius:8, padding:'4px 8px', cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>Remove</button>
-                      </div>
-                    )}
-                    {!appliedOffer && vendorOffers.some(o => o.couponCode) && (
-                      <div style={{ display:'flex', gap:8, marginBottom:8 }}>
-                        <input style={{ flex:1, padding:'11px 14px', border:`1.5px solid ${couponError ? '#FCA5A5' : DS.borderMed}`, borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', color:DS.textPrimary, background:'#FAFAFA' }} placeholder="Enter coupon code" value={manualCoupon} onChange={e => { setManualCoupon(e.target.value.toUpperCase()); setCouponError('') }} onKeyDown={e => e.key==='Enter' && handleApplyCoupon()} />
-                        <button onClick={handleApplyCoupon} style={{ padding:'11px 18px', background:DS.primary, color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>Apply</button>
-                      </div>
-                    )}
-                    {couponError && <div style={{ fontSize:11, color:'#DC2626', marginBottom:6 }}>⚠️ {couponError}</div>}
-                    {vendorOffers.filter(o => !o.couponCode || o.couponCode==='').slice(0,2).map(o => {
-                      const eligible = !o.minOrder || cartTotal >= o.minOrder
-                      const disc = computeDiscount(o, cartTotal)
-                      return (
-                        <div key={o.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', borderRadius:12, marginBottom:4, background: eligible ? DS.successLight : '#FAFAFA', border:`1px solid ${eligible ? '#BBF7D0' : DS.border}`, opacity: eligible ? 1 : 0.65 }}>
-                          <span style={{ fontSize:13 }}>🏷️</span>
-                          <div style={{ flex:1 }}><div style={{ fontSize:11, fontWeight:700, color: eligible ? '#166534' : DS.textSecondary }}>{o.title}</div><div style={{ fontSize:10, color:DS.textMuted }}>{eligible ? `Saves ₹${disc}` : `Add ₹${o.minOrder-cartTotal} more`}{o.minOrder>0&&` · Min ₹${o.minOrder}`}</div></div>
-                          {eligible && <span style={{ fontSize:10, fontWeight:700, color:DS.success, background:'#BBF7D0', padding:'2px 7px', borderRadius:20 }}>−₹{disc}</span>}
+                <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:6, scrollbarWidth:'none' }}>
+                  {Object.entries(carts).map(([vid, vc]) => {
+                    const isActive = activeVid === vid
+                    const vcCount = vc.items.reduce((s,i)=>s+i.qty,0)
+                    const vcAmt   = vc.items.reduce((s,i)=>s+i.price*i.qty,0)
+                    return (
+                      <button
+                        key={vid}
+                        onClick={() => setActiveCartVendorId(vid)}
+                        className="fz-multicart-tab"
+                        style={{ flexShrink:0, padding:'9px 14px', borderRadius:14, border:`2px solid ${isActive ? DS.primary : DS.border}`, background: isActive ? DS.primaryLight : '#fff', cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:8, position:'relative', boxShadow: isActive ? `0 4px 12px rgba(226,75,74,0.2)` : DS.shadow, transition:'all 0.2s' }}
+                      >
+                        <div style={{ width:24, height:24, borderRadius:8, overflow:'hidden', background:'#F0F0F0', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          {vc.vendor?.photo ? <img src={vc.vendor.photo} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:13 }}>🍽️</span>}
                         </div>
-                      )
-                    })}
-                  </div>
-                )}
-                <button onClick={() => { if (!meetsMinOrder) { toast.error(`Add ₹${minOrderShortfall} more to meet the ₹${minOrder} minimum order`, { icon: '🛒', duration: 3000 }); return }; setShowCheckout(true) }} className="fz-ripple-btn" style={{ width:'100%', background: meetsMinOrder ? `linear-gradient(135deg,${DS.primary},${DS.primaryDark})` : '#9CA3AF', color:'#fff', border:'none', padding:'17px 0', borderRadius:18, fontSize:15, fontWeight:800, cursor: meetsMinOrder ? 'pointer' : 'not-allowed', fontFamily:'Poppins', boxShadow: meetsMinOrder ? `0 6px 22px rgba(226,75,74,0.45), 0 2px 8px rgba(226,75,74,0.2)` : 'none', transition:'all 0.2s ease' }}>
-                  {meetsMinOrder ? `Proceed to Checkout · ₹${finalTotal}` : `Add ₹${minOrderShortfall} more to checkout`}
-                </button>
-              </>
+                        <div style={{ textAlign:'left' }}>
+                          <div style={{ fontSize:11, fontWeight:800, color: isActive ? DS.primary : DS.textPrimary, maxWidth:100, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{vc.vendor?.storeName}</div>
+                          <div style={{ fontSize:9, color:DS.textMuted }}>{vcCount} item{vcCount!==1?'s':''} · ₹{vcAmt}</div>
+                        </div>
+                        <button onClick={e => { e.stopPropagation(); removeMultiCart(vid) }} style={{ position:'absolute', top:-6, right:-6, width:17, height:17, borderRadius:'50%', background:'#EF4444', color:'#fff', border:'2px solid #fff', cursor:'pointer', fontSize:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700 }}>✕</button>
+                        {isActive && <div style={{ width:7, height:7, borderRadius:'50%', background:DS.primary, flexShrink:0 }} />}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             )}
-            {cart.length > 0 && showCheckout && (
+
+            {/* ── ACTIVE CART: items + summary + checkout ── */}
+            {activeVid && carts[activeVid] && (
               <div>
-                <div style={{ fontSize:16, fontWeight:800, color:DS.textPrimary, marginBottom:16 }}>🚚 Delivery Details</div>
-                <div style={{ background:'#FFFFFF', borderRadius:16, padding:'16px', marginBottom:14, boxShadow:DS.shadow, display:'flex', flexDirection:'column', gap:12 }}>
-                  {[
-                    { label:'Your Name *', placeholder:'Full name', value:deliveryName, onChange: e=>setDeliveryName(e.target.value), type:'text' },
-                    { label:'Hostel / Building', placeholder:"e.g. Hostel B...", value:deliveryHostel, onChange: e=>setDeliveryHostel(e.target.value), type:'text' },
-                    { label:'Room / Address *', placeholder:'e.g. Room 204...', value:deliveryAddress, onChange: e=>setDeliveryAddress(e.target.value), type:'text' },
-                  ].map(f => (
-                    <div key={f.label}>
-                      <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>{f.label}</label>
-                      <input type={f.type} style={{ width:'100%', marginTop:6, padding:'12px 14px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', color:DS.textPrimary, background:'#FAFAFA' }} placeholder={f.placeholder} value={f.value} onChange={f.onChange} />
+                {/* Vendor label */}
+                <div style={{ fontSize:18, fontWeight:800, color:DS.textPrimary, marginBottom:4 }}>Your Cart</div>
+                <div style={{ fontSize:12, color:DS.textSecondary, marginBottom:14 }}>
+                  from <strong style={{ color:DS.primary }}>{carts[activeVid].vendor?.storeName}</strong>
+                </div>
+
+                {/* Delivery charge banner */}
+                {carts[activeVid].vendor?.distanceKm !== null && carts[activeVid].vendor?.distanceKm !== undefined && (
+                  freeDeliveryToday ? (
+                    <div style={{ background:'linear-gradient(135deg,#fff7ed,#fef3c7)', borderRadius:14, padding:'12px 14px', marginBottom:14, display:'flex', alignItems:'center', gap:10, border:`1.5px solid #FDE68A` }}>
+                      <span style={{ fontSize:18 }}>🚩</span>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>Free delivery — Ashadi Ekadashi offer!</div>
+                        <div style={{ fontSize:11, color:'#a16207' }}>Usually ₹{carts[activeVid].vendor.rawDeliveryCharge}, ₹0 for you today</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ background:DS.warningLight, borderRadius:14, padding:'12px 14px', marginBottom:14, display:'flex', alignItems:'center', gap:10, border:`1px solid #FDE68A` }}>
+                      <span style={{ fontSize:18 }}>🚚</span>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>{carts[activeVid].vendor.distanceBasedDelivery ? 'Distance-based delivery' : 'Delivery charge'}</div>
+                        <div style={{ fontSize:11, color:'#a16207' }}>
+                          {carts[activeVid].vendor.distanceBasedDelivery
+                            ? `${carts[activeVid].vendor.distanceKm?.toFixed(1)}km · ₹${deliveryFee}`
+                            : deliveryFee===0 ? 'Free delivery 🎉' : `₹${deliveryFee} delivery`}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                )}
+
+                {/* Cart items */}
+                <div style={{ background:'#FFFFFF', borderRadius:16, overflow:'hidden', marginBottom:14, boxShadow:DS.shadow }}>
+                  {activeItems.map((item, i) => (
+                    <div key={item.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', borderBottom: i < activeItems.length-1 ? `1px solid ${DS.border}` : 'none' }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:14, fontWeight:600, color:DS.textPrimary }}>{item.name}</div>
+                        <div style={{ fontSize:12, color:DS.textMuted, marginTop:2 }}>₹{item.price} each{item.isVariant?' · variant':''}</div>
+                        {item.isCombo && item.comboItems && <div style={{ fontSize:10, color:DS.textMuted, marginTop:3 }}>{item.comboItems.map(ci=>`${ci.qty>1?ci.qty+'× ':''}${ci.name}`).join(' · ')}</div>}
+                      </div>
+                      <div style={{ display:'flex', alignItems:'center', gap:10, marginLeft:12 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, background: item.isVariant ? '#FAF5FF' : DS.primaryLight, borderRadius:24, padding:'5px 10px', border:`1.5px solid ${item.isVariant ? '#7C3AED' : DS.primary}` }}>
+                          <button onClick={() => updateQty(item.id,-1)} style={{ background:'none', border:'none', cursor:'pointer', color: item.isVariant ? '#7C3AED' : DS.primary, fontSize:18, fontWeight:700, padding:0, lineHeight:1, width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
+                          <span style={{ fontSize:13, fontWeight:700, minWidth:16, textAlign:'center', color: item.isVariant ? '#7C3AED' : DS.primary }}>{item.qty}</span>
+                          <button onClick={() => updateQty(item.id,1)} style={{ background:'none', border:'none', cursor:'pointer', color: item.isVariant ? '#7C3AED' : DS.primary, fontSize:18, fontWeight:700, padding:0, lineHeight:1, width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
+                        </div>
+                        <div style={{ fontSize:14, fontWeight:700, minWidth:52, textAlign:'right', color:DS.textPrimary }}>₹{item.price*item.qty}</div>
+                      </div>
                     </div>
                   ))}
-                  <div>
-                    <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Phone Number *</label>
-                    <div style={{ position:'relative', marginTop:6 }}>
-                      <span style={{ position:'absolute', left:14, top:'50%', transform:'translateY(-50%)', fontSize:13, color:DS.textSecondary, pointerEvents:'none', fontWeight:600 }}>+91</span>
-                      <input style={{ width:'100%', padding:'12px 14px 12px 50px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', color:DS.textPrimary, background:'#FAFAFA' }} placeholder="Mobile number" value={deliveryPhone} onChange={e => setDeliveryPhone(e.target.value.replace(/\D/g,'').slice(0,10))} />
+                </div>
+
+                {/* Order summary + checkout — hidden when checkout form is open */}
+                {!showCheckout && (
+                  <>
+                    {minOrder > 0 && (
+                      <div style={{ marginBottom:14, background: meetsMinOrder ? DS.successLight : DS.infoLight, borderRadius:14, padding:'12px 14px', border:`1px solid ${meetsMinOrder ? '#86EFAC' : '#BFDBFE'}` }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                            <span style={{ fontSize:15 }}>{meetsMinOrder ? '✅' : '🛒'}</span>
+                            <span style={{ fontSize:12, fontWeight:700, color: meetsMinOrder ? DS.success : DS.info }}>{meetsMinOrder ? 'Minimum order met!' : `Add ₹${minOrderShortfall} more to checkout`}</span>
+                          </div>
+                          <span style={{ fontSize:11, color:DS.textMuted, fontWeight:600 }}>₹{cartTotal} / ₹{minOrder}</span>
+                        </div>
+                        <div style={{ height:5, background: meetsMinOrder ? '#BBF7D0' : '#DBEAFE', borderRadius:99, overflow:'hidden' }}>
+                          <div style={{ height:'100%', width:`${Math.min(100, Math.round(cartTotal/minOrder*100))}%`, background: meetsMinOrder ? DS.success : DS.info, borderRadius:99, transition:'width 0.4s ease' }} />
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ background:'#FFFFFF', borderRadius:16, padding:'14px 16px', marginBottom:14, boxShadow:DS.shadow }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:12 }}>Order Summary</div>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:DS.textSecondary }}>Subtotal</span><span style={{ fontSize:13, fontWeight:600, color:DS.textPrimary }}>₹{cartTotal}</span></div>
+                      {discountAmount > 0 && (
+                        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+                          <span style={{ fontSize:13, color:DS.success, fontWeight:600 }}>🏷️ Discount ({activeOffer?.discountType==='percentage'?`${activeOffer.discountValue}%`:`₹${activeOffer?.discountValue}`} off)</span>
+                          <span style={{ fontSize:13, color:DS.success, fontWeight:700 }}>−₹{discountAmount}</span>
+                        </div>
+                      )}
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
+                        <span style={{ fontSize:13, color:DS.textSecondary }}>Delivery fee</span>
+                        {deliveryFeeWaived
+                          ? <span style={{ fontSize:13, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:DS.textMuted }}>₹{activeVendor?.rawDeliveryCharge}</span><span style={{ color:DS.success, fontWeight:700 }}>FREE 🎉</span></span>
+                          : <span style={{ fontSize:13, fontWeight:600, color: deliveryFee===0 ? DS.success : DS.textPrimary }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
+                        }
+                      </div>
+                      <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10, borderTop:`1.5px solid ${DS.border}` }}>
+                        <span style={{ fontSize:15, fontWeight:700, color:DS.textPrimary }}>Total</span>
+                        <span style={{ fontSize:15, fontWeight:800, color: discountAmount>0 ? DS.success : DS.primary }}>₹{finalTotal}</span>
+                      </div>
+                      {discountAmount > 0 && <div style={{ marginTop:8, background:DS.successLight, borderRadius:9, padding:'6px 10px', textAlign:'center' }}><span style={{ fontSize:11, color:DS.success, fontWeight:700 }}>🎉 You save ₹{discountAmount} on this order!</span></div>}
                     </div>
-                  </div>
+                    {vendorOffers.length > 0 && (
+                      <div style={{ background:'#FFFFFF', borderRadius:16, padding:'14px 16px', marginBottom:14, boxShadow:DS.shadow }}>
+                        <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:10 }}>🏷️ Offers & Coupons</div>
+                        {autoBestOffer && !appliedOffer && discountAmount > 0 && (
+                          <div style={{ background:DS.successLight, borderRadius:12, padding:'10px 12px', marginBottom:8, display:'flex', alignItems:'center', gap:10, border:`1.5px solid #86EFAC` }}>
+                            <span style={{ fontSize:16, flexShrink:0 }}>🏷️</span>
+                            <div style={{ flex:1 }}><div style={{ fontSize:12, fontWeight:700, color:'#166534' }}>Applied: {autoBestOffer.title}</div><div style={{ fontSize:10, color:DS.success, marginTop:1 }}>You save ₹{discountAmount}!</div></div>
+                            <span style={{ fontSize:11, fontWeight:800, color:DS.success, background:'#BBF7D0', padding:'3px 8px', borderRadius:20 }}>−₹{discountAmount}</span>
+                          </div>
+                        )}
+                        {appliedOffer && (
+                          <div style={{ background:DS.successLight, borderRadius:12, padding:'10px 12px', marginBottom:8, display:'flex', alignItems:'center', gap:10, border:`1.5px solid #86EFAC` }}>
+                            <span style={{ fontSize:16, flexShrink:0 }}>✅</span>
+                            <div style={{ flex:1 }}><div style={{ fontSize:12, fontWeight:700, color:'#166534' }}>{appliedOffer.couponCode} · {appliedOffer.title}</div><div style={{ fontSize:10, color:DS.success, marginTop:1 }}>Saving ₹{discountAmount}!</div></div>
+                            <button onClick={handleRemoveCoupon} style={{ fontSize:11, color:'#DC2626', background:'#FEE2E2', border:'none', borderRadius:8, padding:'4px 8px', cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>Remove</button>
+                          </div>
+                        )}
+                        {!appliedOffer && vendorOffers.some(o => o.couponCode) && (
+                          <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+                            <input style={{ flex:1, padding:'11px 14px', border:`1.5px solid ${couponError ? '#FCA5A5' : DS.borderMed}`, borderRadius:12, fontSize:13, fontFamily:'Poppins', outline:'none', color:DS.textPrimary, background:'#FAFAFA' }} placeholder="Enter coupon code" value={manualCoupon} onChange={e => { setManualCoupon(e.target.value.toUpperCase()); setCouponError('') }} onKeyDown={e => e.key==='Enter' && handleApplyCoupon()} />
+                            <button onClick={handleApplyCoupon} style={{ padding:'11px 18px', background:DS.primary, color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>Apply</button>
+                          </div>
+                        )}
+                        {couponError && <div style={{ fontSize:11, color:'#DC2626', marginBottom:6 }}>⚠️ {couponError}</div>}
+                        {vendorOffers.filter(o => !o.couponCode || o.couponCode==='').slice(0,2).map(o => {
+                          const eligible = !o.minOrder || cartTotal >= o.minOrder
+                          const disc = computeDiscount(o, cartTotal)
+                          return (
+                            <div key={o.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', borderRadius:12, marginBottom:4, background: eligible ? DS.successLight : '#FAFAFA', border:`1px solid ${eligible ? '#BBF7D0' : DS.border}`, opacity: eligible ? 1 : 0.65 }}>
+                              <span style={{ fontSize:13 }}>🏷️</span>
+                              <div style={{ flex:1 }}><div style={{ fontSize:11, fontWeight:700, color: eligible ? '#166534' : DS.textSecondary }}>{o.title}</div><div style={{ fontSize:10, color:DS.textMuted }}>{eligible ? `Saves ₹${disc}` : `Add ₹${o.minOrder-cartTotal} more`}{o.minOrder>0&&` · Min ₹${o.minOrder}`}</div></div>
+                              {eligible && <span style={{ fontSize:10, fontWeight:700, color:DS.success, background:'#BBF7D0', padding:'2px 7px', borderRadius:20 }}>−₹{disc}</span>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                    <button onClick={() => { if (!meetsMinOrder) { toast.error(`Add ₹${minOrderShortfall} more to meet the ₹${minOrder} minimum order`, { icon:'🛒', duration:3000 }); return }; setShowCheckout(true) }} className="fz-ripple-btn" style={{ width:'100%', background: meetsMinOrder ? `linear-gradient(135deg,${DS.primary},${DS.primaryDark})` : '#9CA3AF', color:'#fff', border:'none', padding:'17px 0', borderRadius:18, fontSize:15, fontWeight:800, cursor: meetsMinOrder ? 'pointer' : 'not-allowed', fontFamily:'Poppins', boxShadow: meetsMinOrder ? `0 6px 22px rgba(226,75,74,0.45), 0 2px 8px rgba(226,75,74,0.2)` : 'none', transition:'all 0.2s ease' }}>
+                      {meetsMinOrder ? `Proceed to Checkout · ₹${finalTotal}` : `Add ₹${minOrderShortfall} more to checkout`}
+                    </button>
+                  </>
+                )}
+
+                {/* Checkout form */}
+                {showCheckout && (
                   <div>
-                    <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Order Note</label>
-                    <textarea style={{ width:'100%', marginTop:6, padding:'12px 14px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', resize:'none', minHeight:56, lineHeight:1.5, color:DS.textPrimary, background:'#FAFAFA' }} placeholder="Less spicy, extra roti..." value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} />
+                    <div style={{ fontSize:16, fontWeight:800, color:DS.textPrimary, marginBottom:16 }}>🚚 Delivery Details</div>
+                    <div style={{ background:'#FFFFFF', borderRadius:16, padding:'16px', marginBottom:14, boxShadow:DS.shadow, display:'flex', flexDirection:'column', gap:12 }}>
+                      {[
+                        { label:'Your Name *', placeholder:'Full name', value:deliveryName, onChange: e=>setDeliveryName(e.target.value), type:'text' },
+                        { label:'Hostel / Building', placeholder:'e.g. Hostel B...', value:deliveryHostel, onChange: e=>setDeliveryHostel(e.target.value), type:'text' },
+                        { label:'Room / Address *', placeholder:'e.g. Room 204...', value:deliveryAddress, onChange: e=>setDeliveryAddress(e.target.value), type:'text' },
+                      ].map(f => (
+                        <div key={f.label}>
+                          <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>{f.label}</label>
+                          <input type={f.type} style={{ width:'100%', marginTop:6, padding:'12px 14px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', color:DS.textPrimary, background:'#FAFAFA' }} placeholder={f.placeholder} value={f.value} onChange={f.onChange} />
+                        </div>
+                      ))}
+                      <div>
+                        <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Phone Number *</label>
+                        <div style={{ position:'relative', marginTop:6 }}>
+                          <span style={{ position:'absolute', left:14, top:'50%', transform:'translateY(-50%)', fontSize:13, color:DS.textSecondary, pointerEvents:'none', fontWeight:600 }}>+91</span>
+                          <input style={{ width:'100%', padding:'12px 14px 12px 50px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', color:DS.textPrimary, background:'#FAFAFA' }} placeholder="Mobile number" value={deliveryPhone} onChange={e => setDeliveryPhone(e.target.value.replace(/\D/g,'').slice(0,10))} />
+                        </div>
+                      </div>
+                      <div>
+                        <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Order Note</label>
+                        <textarea style={{ width:'100%', marginTop:6, padding:'12px 14px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', resize:'none', minHeight:56, lineHeight:1.5, color:DS.textPrimary, background:'#FAFAFA' }} placeholder="Less spicy, extra roti..." value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} />
+                      </div>
+                    </div>
+                    <div style={{ background:'#FFFFFF', borderRadius:16, padding:'14px 16px', marginBottom:14, boxShadow:DS.shadow }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:12 }}>Bill Summary</div>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:DS.textSecondary }}>Subtotal</span><span style={{ fontSize:13, fontWeight:600 }}>₹{cartTotal}</span></div>
+                      {discountAmount > 0 && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:DS.success, fontWeight:600 }}>🏷️ {activeOffer?.title||'Offer'}</span><span style={{ fontSize:13, color:DS.success, fontWeight:700 }}>−₹{discountAmount}</span></div>}
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
+                        <span style={{ fontSize:13, color:DS.textSecondary }}>Delivery fee</span>
+                        {deliveryFeeWaived ? <span style={{ fontSize:13, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:DS.textMuted }}>₹{activeVendor?.rawDeliveryCharge}</span><span style={{ color:DS.success, fontWeight:700 }}>FREE 🎉</span></span> : <span style={{ fontSize:13, fontWeight:600 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>}
+                      </div>
+                      <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10, borderTop:`1.5px solid ${DS.border}` }}>
+                        <span style={{ fontSize:15, fontWeight:700, color:DS.textPrimary }}>Total</span>
+                        <span style={{ fontSize:16, fontWeight:800, color:DS.primary }}>₹{finalTotal}</span>
+                      </div>
+                    </div>
+                    {deliveryFeeWaived && <div style={{ background:DS.warningLight, borderRadius:12, padding:'10px 12px', fontSize:12, color:'#92400e', marginBottom:12, display:'flex', alignItems:'center', gap:8, border:`1px solid #FDE68A` }}><span style={{ fontSize:15 }}>🚩</span><span>{t('Ashadi Ekadashi — delivery is free!','आषाढी एकादशी — डिलिव्हरी मोफत!')}</span></div>}
+                    {discountAmount > 0 && <div style={{ background:DS.successLight, borderRadius:12, padding:'10px 12px', fontSize:12, color:'#166534', marginBottom:12, display:'flex', alignItems:'center', gap:8, border:`1.5px solid #86EFAC` }}><span style={{ fontSize:16 }}>🏷️</span><div><div style={{ fontWeight:700 }}>{activeOffer?.title} applied!</div><div style={{ fontSize:10, marginTop:1, color:DS.success }}>₹{discountAmount} discount on your order</div></div></div>}
+                    <div style={{ background:DS.warningLight, borderRadius:12, padding:'10px 14px', fontSize:12, color:'#78350f', marginBottom:14, display:'flex', alignItems:'center', gap:8, border:`1px solid #FDE68A` }}>
+                      <span style={{ fontSize:15 }}>💵</span><span>Payment: <strong>Cash on Delivery (COD)</strong></span>
+                    </div>
+                    <button onClick={handlePlaceOrder} disabled={placingOrder} className="fz-ripple-btn" style={{ width:'100%', background: placingOrder ? '#FCA5A5' : `linear-gradient(135deg,${DS.primary},${DS.primaryDark})`, color:'#fff', border:'none', padding:'17px 0', borderRadius:18, fontSize:15, fontWeight:800, cursor: placingOrder ? 'not-allowed' : 'pointer', fontFamily:'Poppins', marginBottom:10, boxShadow: placingOrder ? 'none' : `0 6px 22px rgba(226,75,74,0.45), 0 2px 8px rgba(226,75,74,0.2)`, transition:'all 0.2s ease' }}>
+                      {placingOrder ? '⏳ Placing Order...' : `🎉 Place Order · ₹${finalTotal}`}
+                    </button>
+                    <button onClick={() => setShowCheckout(false)} style={{ width:'100%', background:'transparent', color:DS.primary, border:`1.5px solid #FECACA`, padding:'13px 0', borderRadius:14, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>← Back to Cart</button>
                   </div>
-                </div>
-                <div style={{ background:'#FFFFFF', borderRadius:16, padding:'14px 16px', marginBottom:14, boxShadow:DS.shadow }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:12 }}>Bill Summary</div>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:DS.textSecondary }}>Subtotal</span><span style={{ fontSize:13, fontWeight:600 }}>₹{cartTotal}</span></div>
-                  {discountAmount > 0 && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:DS.success, fontWeight:600 }}>🏷️ {activeOffer?.title||'Offer'}</span><span style={{ fontSize:13, color:DS.success, fontWeight:700 }}>−₹{discountAmount}</span></div>}
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
-                    <span style={{ fontSize:13, color:DS.textSecondary }}>Delivery fee</span>
-                    {deliveryFeeWaived ? <span style={{ fontSize:13, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:DS.textMuted }}>₹{cartVendor.rawDeliveryCharge}</span><span style={{ color:DS.success, fontWeight:700 }}>FREE 🎉</span></span> : <span style={{ fontSize:13, fontWeight:600 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>}
-                  </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10, borderTop:`1.5px solid ${DS.border}` }}>
-                    <span style={{ fontSize:15, fontWeight:700, color:DS.textPrimary }}>Total</span>
-                    <span style={{ fontSize:16, fontWeight:800, color:DS.primary }}>₹{finalTotal}</span>
-                  </div>
-                </div>
-                {deliveryFeeWaived && <div style={{ background:DS.warningLight, borderRadius:12, padding:'10px 12px', fontSize:12, color:'#92400e', marginBottom:12, display:'flex', alignItems:'center', gap:8, border:`1px solid #FDE68A` }}><span style={{ fontSize:15 }}>🚩</span><span>{t('Ashadi Ekadashi — delivery is free!','आषाढी एकादशी — डिलिव्हरी मोफत!')}</span></div>}
-                {discountAmount > 0 && <div style={{ background:DS.successLight, borderRadius:12, padding:'10px 12px', fontSize:12, color:'#166534', marginBottom:12, display:'flex', alignItems:'center', gap:8, border:`1.5px solid #86EFAC` }}><span style={{ fontSize:16 }}>🏷️</span><div><div style={{ fontWeight:700 }}>{activeOffer?.title} applied!</div><div style={{ fontSize:10, marginTop:1, color:DS.success }}>₹{discountAmount} discount on your order</div></div></div>}
-                <div style={{ background:DS.warningLight, borderRadius:12, padding:'10px 14px', fontSize:12, color:'#78350f', marginBottom:14, display:'flex', alignItems:'center', gap:8, border:`1px solid #FDE68A` }}>
-                  <span style={{ fontSize:15 }}>�</span><span>Payment: <strong>Cash on Delivery (COD)</strong></span>
-                </div>
-                <button onClick={handlePlaceOrder} disabled={placingOrder} className="fz-ripple-btn" style={{ width:'100%', background: placingOrder ? '#FCA5A5' : `linear-gradient(135deg,${DS.primary},${DS.primaryDark})`, color:'#fff', border:'none', padding:'17px 0', borderRadius:18, fontSize:15, fontWeight:800, cursor: placingOrder ? 'not-allowed' : 'pointer', fontFamily:'Poppins', marginBottom:10, boxShadow: placingOrder ? 'none' : `0 6px 22px rgba(226,75,74,0.45), 0 2px 8px rgba(226,75,74,0.2)`, transition:'all 0.2s ease' }}>
-                  {placingOrder ? '⏳ Placing Order...' : `🎉 Place Order · ₹${finalTotal}`}
-                </button>
-                <button onClick={() => setShowCheckout(false)} style={{ width:'100%', background:'transparent', color:DS.primary, border:`1.5px solid #FECACA`, padding:'13px 0', borderRadius:14, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Poppins' }}>← Back to Cart</button>
+                )}
               </div>
             )}
           </div>
@@ -3837,11 +3877,18 @@ export default function UserApp() {
                 <div style={{ width:64, height:64, borderRadius:20, background:'rgba(255,255,255,0.22)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, fontWeight:800, color:'#fff', border:'2.5px solid rgba(255,255,255,0.35)', flexShrink:0 }}>
                   {userData?.name ? userData.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) : '👤'}
                 </div>
-                <div>
+                <div style={{ flex:1 }}>
                   <div style={{ fontSize:18, fontWeight:800, color:'#fff', lineHeight:1.2 }}>{userData?.name||'FeedoZone User'}</div>
                   <div style={{ fontSize:12, color:'rgba(255,255,255,0.8)', marginTop:3 }}>{user?.email}</div>
                   {locationName && <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', marginTop:4, display:'flex', alignItems:'center', gap:4 }}><span>📍</span>{locationName}</div>}
                 </div>
+                {/* Edit profile button */}
+                <button
+                  onClick={handleStartEditProfile}
+                  style={{ flexShrink:0, background:'rgba(255,255,255,0.22)', border:'1.5px solid rgba(255,255,255,0.4)', borderRadius:12, padding:'7px 13px', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', display:'flex', alignItems:'center', gap:5, backdropFilter:'blur(4px)' }}
+                >
+                  ✏️ Edit
+                </button>
               </div>
               {freeDeliveryToday && (
                 <div style={{ position:'relative', zIndex:1, marginTop:16, background:'rgba(255,255,255,0.15)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10, backdropFilter:'blur(4px)' }}>
@@ -3853,6 +3900,76 @@ export default function UserApp() {
                 </div>
               )}
             </div>
+
+            {/* ── EDIT PROFILE MODAL ── */}
+            {editingProfile && (
+              <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', flexDirection:'column', justifyContent:'flex-end', fontFamily:'Poppins,sans-serif' }}
+                onClick={e => { if (e.target === e.currentTarget) setEditingProfile(false) }}>
+                <div style={{ background:'#fff', borderRadius:'22px 22px 0 0', padding:'8px 20px 36px', maxWidth:430, width:'100%', margin:'0 auto', maxHeight:'90vh', overflowY:'auto', boxShadow:'0 -8px 32px rgba(0,0,0,0.2)' }}>
+                  {/* Handle */}
+                  <div style={{ display:'flex', justifyContent:'center', paddingTop:10, marginBottom:18 }}>
+                    <div style={{ width:40, height:4, borderRadius:2, background:'#E5E7EB' }} />
+                  </div>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+                    <div style={{ fontSize:17, fontWeight:800, color:DS.textPrimary }}>✏️ Edit Profile</div>
+                    <button onClick={() => setEditingProfile(false)} style={{ background:DS.border, border:'none', borderRadius:'50%', width:32, height:32, fontSize:16, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                    {/* Name */}
+                    <div>
+                      <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Full Name *</label>
+                      <input
+                        style={{ width:'100%', marginTop:6, padding:'12px 14px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', color:DS.textPrimary, background:'#FAFAFA' }}
+                        placeholder="Your full name"
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                      />
+                    </div>
+                    {/* Mobile */}
+                    <div>
+                      <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Mobile Number</label>
+                      <div style={{ position:'relative', marginTop:6 }}>
+                        <span style={{ position:'absolute', left:14, top:'50%', transform:'translateY(-50%)', fontSize:13, color:DS.textSecondary, pointerEvents:'none', fontWeight:600 }}>+91</span>
+                        <input
+                          style={{ width:'100%', padding:'12px 14px 12px 50px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', color:DS.textPrimary, background:'#FAFAFA' }}
+                          placeholder="10-digit mobile"
+                          value={editMobile}
+                          onChange={e => setEditMobile(e.target.value.replace(/\D/g,'').slice(0,10))}
+                        />
+                      </div>
+                    </div>
+                    {/* Address */}
+                    <div>
+                      <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Delivery Address</label>
+                      <textarea
+                        style={{ width:'100%', marginTop:6, padding:'12px 14px', border:`1.5px solid ${DS.borderMed}`, borderRadius:12, fontSize:14, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', resize:'none', minHeight:72, lineHeight:1.5, color:DS.textPrimary, background:'#FAFAFA' }}
+                        placeholder="Room no, building, area..."
+                        value={editAddress}
+                        onChange={e => setEditAddress(e.target.value)}
+                      />
+                    </div>
+                    {/* Email — read only */}
+                    <div>
+                      <label style={{ fontSize:11, color:DS.textSecondary, fontWeight:700, textTransform:'uppercase', letterSpacing:0.5 }}>Email (cannot change)</label>
+                      <div style={{ marginTop:6, padding:'12px 14px', background:'#F3F4F6', borderRadius:12, fontSize:13, color:DS.textMuted, border:`1.5px solid ${DS.border}` }}>{user?.email}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleSaveProfile}
+                    disabled={savingProfile}
+                    style={{ width:'100%', marginTop:20, background: savingProfile ? '#FCA5A5' : `linear-gradient(135deg,${DS.primary},${DS.primaryDark})`, color:'#fff', border:'none', padding:'15px 0', borderRadius:16, fontSize:15, fontWeight:800, cursor: savingProfile ? 'not-allowed' : 'pointer', fontFamily:'Poppins', boxShadow:`0 4px 18px rgba(226,75,74,0.35)` }}
+                  >
+                    {savingProfile ? '⏳ Saving...' : '✅ Save Changes'}
+                  </button>
+                  <button
+                    onClick={() => setEditingProfile(false)}
+                    style={{ width:'100%', marginTop:10, background:'transparent', color:DS.textSecondary, border:`1.5px solid ${DS.borderMed}`, padding:'13px 0', borderRadius:14, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Poppins' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Info section */}
             <div style={{ padding:'16px 16px 0' }}>
@@ -3870,6 +3987,9 @@ export default function UserApp() {
                       <div style={{ fontSize:10, color:DS.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:0.4, marginBottom:1 }}>{row.label}</div>
                       <div style={{ fontSize:13, color: row.value ? DS.textPrimary : DS.textMuted, fontWeight: row.value ? 600 : 400 }}>{row.value||'Not added'}</div>
                     </div>
+                    {(row.label==='Full Name'||row.label==='Mobile'||row.label==='Address') && (
+                      <button onClick={handleStartEditProfile} style={{ background:'transparent', border:'none', fontSize:14, cursor:'pointer', color:DS.textMuted, padding:4 }}>✏️</button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -4075,7 +4195,7 @@ export default function UserApp() {
       )}
 
       {/* ── PREMIUM 3D CART BAR ── */}
-      {(cart.length > 0 || Object.keys(carts).length > 0) && (tab==='home' || tab==='vendor-menu') && (
+      {totalAllCarts > 0 && (tab==='home' || tab==='vendor-menu') && (
         <div onClick={() => setTab('cart')}
           className="fz-cart-bar fz-ripple-btn"
           style={{
@@ -4092,17 +4212,17 @@ export default function UserApp() {
             </div>
             <div>
               <div style={{ fontSize:14, fontWeight:900, letterSpacing:-0.2 }}>
-                {cartCount + multiCartTotalCount} item{(cartCount + multiCartTotalCount)>1?'s':''} in cart
-                {Object.keys(carts).length > 0 && (
+                {totalAllCarts} item{totalAllCarts>1?'s':''} in cart
+                {Object.keys(carts).length > 1 && (
                   <span style={{ fontSize:10, background:'rgba(255,255,255,0.25)', borderRadius:20, padding:'1px 7px', marginLeft:6, fontWeight:700 }}>
-                    {1 + Object.keys(carts).length} restaurants
+                    {Object.keys(carts).length} restaurants
                   </span>
                 )}
               </div>
               <div style={{ fontSize:10, opacity:0.78, marginTop:1 }}>
-                {Object.keys(carts).length > 0
-                  ? [cartVendor?.storeName, ...Object.values(carts).map(c=>c.vendor?.storeName)].filter(Boolean).join(' + ')
-                  : `${cartVendor?.storeName || ''}${deliveryFeeWaived ? ' · 🎉 Free delivery' : ''}`}
+                {Object.keys(carts).length > 1
+                  ? Object.values(carts).map(c=>c.vendor?.storeName).filter(Boolean).join(' + ')
+                  : `${activeVendor?.storeName || ''}${deliveryFeeWaived ? ' · 🎉 Free delivery' : ''}`}
               </div>
             </div>
           </div>
@@ -4122,7 +4242,7 @@ export default function UserApp() {
         {[
           {id:'home',    icon: active => active ? '🏠' : '🏠', label: tt('nav.home')},
           {id:'orders',  icon: active => active ? '📋' : '📋', label: tt('nav.orders')},
-          {id:'cart',    icon: active => active ? '🛒' : '🛒', label: `${tt('nav.cart')}${(cartCount+multiCartTotalCount)>0?` (${cartCount+multiCartTotalCount})`:''}`},
+          {id:'cart',    icon: active => active ? '🛒' : '🛒', label: `${tt('nav.cart')}${totalAllCarts>0?` (${totalAllCarts})`:''}`},
           {id:'profile', icon: active => active ? '👤' : '👤', label: tt('nav.profile')},
         ].map(item => {
           const active = tab === item.id

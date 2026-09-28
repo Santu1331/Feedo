@@ -1130,6 +1130,11 @@ export default function VendorApp() {
   const [newItemPhotoPreview, setNewItemPhotoPreview] = useState(null)
   const [addingItem, setAddingItem] = useState(false)
 
+  // ── FEATURED DISH PHOTOS (shown on user dashboard vendor card) ──────────
+  const [featuredPhotosUploading, setFeaturedPhotosUploading] = useState(false)
+  const [featuredPhotoProgress, setFeaturedPhotoProgress] = useState(0)
+  const featuredPhotosRef = useRef()
+
   const vendorPhotoRef = useRef()
   const newItemPhotoRef = useRef()
 
@@ -1499,6 +1504,35 @@ export default function VendorApp() {
     try { await uploadVendorPhoto(user.uid, file, 'photo', setVendorPhotoProgress); toast.success('Store photo updated! ✅') }
     catch (err) { console.error(err); toast.error('Upload failed.') }
     setVendorPhotoUploading(false); setVendorPhotoProgress(0); e.target.value = ''
+  }
+
+  const handleFeaturedPhotoAdd = async (e) => {
+    const file = e.target.files[0]; if (!file) return
+    if (file.size > 5 * 1024 * 1024) return toast.error('Photo must be under 5MB')
+    const current = userData?.featuredPhotos || []
+    if (current.length >= 4) return toast.error('Maximum 4 featured photos allowed')
+    setFeaturedPhotosUploading(true); setFeaturedPhotoProgress(0)
+    try {
+      const { uploadPhoto } = await import('../firebase/services')
+      const url = await uploadPhoto(file, setFeaturedPhotoProgress)
+      const updated = [...current, url]
+      const { updateDoc, doc } = await import('firebase/firestore')
+      const { db } = await import('../firebase/config')
+      await updateDoc(doc(db, 'vendors', user.uid), { featuredPhotos: updated })
+      toast.success('Featured photo added! 🍕')
+    } catch (err) { console.error(err); toast.error('Upload failed. Try again.') }
+    setFeaturedPhotosUploading(false); setFeaturedPhotoProgress(0); e.target.value = ''
+  }
+
+  const handleFeaturedPhotoRemove = async (idx) => {
+    const current = userData?.featuredPhotos || []
+    const updated = current.filter((_, i) => i !== idx)
+    try {
+      const { updateDoc, doc } = await import('firebase/firestore')
+      const { db } = await import('../firebase/config')
+      await updateDoc(doc(db, 'vendors', user.uid), { featuredPhotos: updated })
+      toast.success('Photo removed')
+    } catch (err) { console.error(err); toast.error('Failed to remove.') }
   }
 
   const handleNewItemPhotoSelect = (e) => {
@@ -2886,6 +2920,63 @@ export default function VendorApp() {
                 ))}
               </div>
             )}
+
+            {/* ── FEATURED DISH PHOTOS ── */}
+            <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>🍕 Featured Dish Photos</div>
+                  <div style={{ fontSize:11, color:'#9ca3af', marginTop:2 }}>Shown as sliding photos on your restaurant card in the customer app (max 4)</div>
+                </div>
+                {(userData?.featuredPhotos?.length || 0) < 4 && (
+                  <button
+                    onClick={() => featuredPhotosRef.current?.click()}
+                    disabled={featuredPhotosUploading}
+                    style={{ background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', flexShrink:0, display:'flex', alignItems:'center', gap:5 }}
+                  >
+                    {featuredPhotosUploading ? `${featuredPhotoProgress}%` : '+ Add Photo'}
+                  </button>
+                )}
+                <input ref={featuredPhotosRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleFeaturedPhotoAdd} />
+              </div>
+
+              {/* Photo grid */}
+              {(userData?.featuredPhotos?.length || 0) === 0 ? (
+                <div
+                  onClick={() => featuredPhotosRef.current?.click()}
+                  style={{ border:'2px dashed #fecaca', borderRadius:10, padding:'20px 0', textAlign:'center', cursor:'pointer', background:'#fff' }}
+                >
+                  <div style={{ fontSize:28, marginBottom:6 }}>🍽️</div>
+                  <div style={{ fontSize:12, color:'#E24B4A', fontWeight:700 }}>Tap to upload food photos</div>
+                  <div style={{ fontSize:10, color:'#9ca3af', marginTop:3 }}>Pizza, Burger, Biryani — show your best dishes!</div>
+                </div>
+              ) : (
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                  {(userData?.featuredPhotos || []).map((url, idx) => (
+                    <div key={idx} style={{ position:'relative', borderRadius:10, overflow:'hidden', aspectRatio:'4/3' }}>
+                      <img src={url} alt={`dish ${idx+1}`} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                      <button
+                        onClick={() => handleFeaturedPhotoRemove(idx)}
+                        style={{ position:'absolute', top:5, right:5, width:22, height:22, borderRadius:'50%', background:'rgba(220,38,38,0.9)', color:'#fff', border:'2px solid #fff', fontSize:11, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700 }}
+                      >✕</button>
+                      <div style={{ position:'absolute', bottom:4, left:6, fontSize:10, color:'rgba(255,255,255,0.85)', fontWeight:700, textShadow:'0 1px 4px rgba(0,0,0,0.6)' }}>#{idx+1}</div>
+                    </div>
+                  ))}
+                  {(userData?.featuredPhotos?.length || 0) < 4 && (
+                    <div
+                      onClick={() => featuredPhotosRef.current?.click()}
+                      style={{ borderRadius:10, border:'2px dashed #fecaca', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', aspectRatio:'4/3', cursor:'pointer', background:'#fff', gap:4 }}
+                    >
+                      <span style={{ fontSize:22 }}>＋</span>
+                      <span style={{ fontSize:10, color:'#E24B4A', fontWeight:700 }}>Add Photo</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div style={{ marginTop:8, fontSize:10, color:'#9ca3af', lineHeight:1.5 }}>
+                💡 Tip: Upload close-up photos of your most popular dishes. These appear as a sliding gallery to customers browsing restaurants.
+              </div>
+            </div>
 
             <div style={{ background:'#f9fafb', borderRadius:12, padding:14 }}>
               <div style={{ fontSize:13, fontWeight:600, marginBottom:12 }}>📍 Store Location</div>
