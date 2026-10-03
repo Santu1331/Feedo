@@ -773,17 +773,18 @@ function VariantManager({ item, userId, onVariantsChanged }) {
                     <input
                       value={name}
                       onChange={e => setVariantNames(prev => prev.map((n,i) => i===idx ? e.target.value : n))}
-                      placeholder={`Variant name`}
-                      style={{ flex:1.2, padding:'9px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:9, fontSize:12, fontFamily:'Poppins', outline:'none' }}
+                      placeholder="Variant name"
+                      style={{ flex:1.2, padding:'9px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:9, fontSize:12, fontFamily:'Poppins', outline:'none', minWidth:0 }}
                     />
-                    <div style={{ position:'relative', flex:1 }}>
-                      <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹</span>
+                    <div style={{ display:'flex', alignItems:'center', flex:1, borderWidth:1, borderStyle:'solid', borderColor: variantPrices[idx] ? '#7c3aed' : '#e5e7eb', borderRadius:9, background:'#fff', overflow:'hidden', minWidth:0 }}>
+                      <span style={{ padding:'9px 6px 9px 10px', fontSize:14, fontWeight:800, color:'#E24B4A', flexShrink:0, lineHeight:1 }}>₹</span>
                       <input
                         type="number"
+                        min="0"
                         value={variantPrices[idx]}
                         onChange={e => setVariantPrices(prev => prev.map((p,i) => i===idx ? e.target.value : p))}
-                        placeholder="Price"
-                        style={{ width:'100%', padding:'9px 10px 9px 24px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:9, fontSize:12, fontFamily:'Poppins', outline:'none', boxSizing:'border-box' }}
+                        placeholder="0"
+                        style={{ flex:1, padding:'9px 8px 9px 0', border:'none', fontSize:13, fontFamily:'Poppins', outline:'none', background:'transparent', fontWeight: variantPrices[idx] ? 700 : 400, color:'#1f2937', minWidth:0 }}
                       />
                     </div>
                     {variantNames.length > 2 && (
@@ -952,21 +953,22 @@ function AddItemVariantSection({ variants, setVariants, basePrice, setBasePrice 
               <input
                 value={name}
                 onChange={e => setVariantNames(prev => prev.map((n,i) => i===idx ? e.target.value : n))}
-                placeholder="Name"
-                style={{ flex:1.2, padding:'8px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none', background:'#fff' }}
+                placeholder="Variant name"
+                style={{ flex:1.2, padding:'9px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none', background:'#fff', minWidth:0 }}
               />
-              <div style={{ position:'relative', flex:1 }}>
-                <span style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', fontSize:12, fontWeight:700, color:'#E24B4A' }}>₹</span>
+              <div style={{ display:'flex', alignItems:'center', flex:1, borderWidth:1, borderStyle:'solid', borderColor: variantPrices[idx] ? '#7c3aed' : '#e9d5ff', borderRadius:8, background:'#fff', overflow:'hidden', minWidth:0 }}>
+                <span style={{ padding:'9px 6px 9px 10px', fontSize:13, fontWeight:800, color:'#E24B4A', flexShrink:0, lineHeight:1 }}>₹</span>
                 <input
                   type="number"
+                  min="0"
                   value={variantPrices[idx]}
                   onChange={e => setVariantPrices(prev => prev.map((p,i) => i===idx ? e.target.value : p))}
-                  placeholder="Price"
-                  style={{ width:'100%', padding:'8px 9px 8px 22px', borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff', borderRadius:8, fontSize:12, fontFamily:'Poppins', outline:'none', boxSizing:'border-box', background:'#fff' }}
+                  placeholder="0"
+                  style={{ flex:1, padding:'9px 8px 9px 0', border:'none', fontSize:13, fontFamily:'Poppins', outline:'none', background:'transparent', fontWeight: variantPrices[idx] ? 700 : 400, color:'#1f2937', minWidth:0 }}
                 />
               </div>
               {variantNames.length > 2 && (
-                <button onClick={() => removeVariant(idx)} style={{ width:26, height:26, borderRadius:7, background:'#fee2e2', border:'none', color:'#dc2626', cursor:'pointer', fontSize:13, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+                <button onClick={() => removeVariant(idx)} style={{ width:28, height:28, borderRadius:7, background:'#fee2e2', border:'none', color:'#dc2626', cursor:'pointer', fontSize:13, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
               )}
             </div>
           ))}
@@ -2490,14 +2492,25 @@ export default function VendorApp() {
         {/* ── MENU TAB ── */}
         {tab === 'menu' && (
           <>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+            {/* ── MENU HEADER ── */}
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12, padding:'10px 14px', background:'#fff', borderRadius:12, borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
               <div>
-                <span style={{ fontSize:13, color:'#6b7280' }}>{menuItems.length} items</span>
-                {menuEditMode && <span style={{ fontSize:11, color:'#E24B4A', fontWeight:600, marginLeft:8 }}>· Edit Mode ON</span>}
+                <div style={{ fontSize:14, fontWeight:700, color:'#1f2937' }}>🍽️ Menu Items</div>
+                <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{menuItems.length} items · {menuItems.filter(i=>i.available).length} available</div>
               </div>
               <div style={{ display:'flex', gap:8 }}>
-                <button onClick={() => { setMenuEditMode(e => !e); setEditingItem(null) }} style={{ background:menuEditMode?'#fef3c7':'#f3f4f6', color:menuEditMode?'#92400e':'#6b7280', border:'none', padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}>{menuEditMode?'✅ Done Editing':'✏️ Edit Menu'}</button>
-                <button onClick={() => setShowAddItem(!showAddItem)} style={{ background:'#E24B4A', color:'#fff', border:'none', padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:500 }}>+ Add</button>
+                <button
+                  onClick={() => { setMenuEditMode(e => !e); setEditingItem(null) }}
+                  style={{ background:menuEditMode?'#fef3c7':'#f3f4f6', color:menuEditMode?'#92400e':'#6b7280', border:'none', padding:'8px 14px', borderRadius:9, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600 }}
+                >
+                  {menuEditMode ? '✅ Done' : '✏️ Edit'}
+                </button>
+                <button
+                  onClick={() => setShowAddItem(!showAddItem)}
+                  style={{ background:'#E24B4A', color:'#fff', border:'none', padding:'8px 16px', borderRadius:9, fontSize:13, cursor:'pointer', fontFamily:'Poppins', fontWeight:700, display:'flex', alignItems:'center', gap:5 }}
+                >
+                  <span style={{ fontSize:16, lineHeight:1 }}>+</span> Add Item
+                </button>
               </div>
             </div>
 
@@ -2515,65 +2528,162 @@ export default function VendorApp() {
 
             {/* ── ADD ITEM FORM ── */}
             {showAddItem && (
-              <div style={{ background:'#f9fafb', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:12, padding:14, marginBottom:14 }}>
-                <div style={{ fontSize:13, fontWeight:600, marginBottom:10 }}>New Menu Item</div>
-                <div style={{ display:'flex', gap:8, marginBottom:10 }}>
-                  {[true,false].map(isV => (
-                    <button key={String(isV)} onClick={() => setNewItem(p=>({...p,isVeg:isV}))} style={{ flex:1, padding:'8px 0', borderRadius:8, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:600, borderWidth:2, borderStyle:'solid', borderColor:newItem.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#e5e7eb', background:newItem.isVeg===isV?(isV?'#f0fdf4':'#fff5f5'):'#fff', color:newItem.isVeg===isV?(isV?'#16a34a':'#dc2626'):'#9ca3af' }}>
-                      <span style={{ marginRight:5 }}>{isV?'🟢':'🔴'}</span>{isV?'Veg':'Non-Veg'}
-                    </button>
-                  ))}
+              <div style={{ background:'#fff', borderWidth:1.5, borderStyle:'solid', borderColor:'#E24B4A', borderRadius:14, padding:16, marginBottom:14, boxShadow:'0 4px 20px rgba(226,75,74,0.12)' }}>
+                {/* Form header */}
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+                  <div>
+                    <div style={{ fontSize:14, fontWeight:700, color:'#1f2937' }}>➕ Add New Item</div>
+                    <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>Fill in the details below</div>
+                  </div>
+                  <button
+                    onClick={() => { setShowAddItem(false); setNewItem(EMPTY_ITEM); setNewItemVariants([]); setNewItemPhotoFile(null); setNewItemPhotoPreview(null); setShowAddCat(false) }}
+                    style={{ background:'#f3f4f6', border:'none', borderRadius:'50%', width:30, height:30, cursor:'pointer', fontSize:15, display:'flex', alignItems:'center', justifyContent:'center', color:'#6b7280' }}
+                  >✕</button>
                 </div>
-                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  <input style={inp} placeholder="Item name *" value={newItem.name} onChange={e => setNewItem(p=>({...p,name:e.target.value}))} />
 
-                  {/* Variant section */}
+                {/* Step 1: Veg / Non-Veg */}
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'#6b7280', marginBottom:6, letterSpacing:0.5 }}>TYPE</div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    {[true, false].map(isV => (
+                      <button
+                        key={String(isV)}
+                        onClick={() => setNewItem(p => ({ ...p, isVeg: isV }))}
+                        style={{ flex:1, padding:'10px 0', borderRadius:9, cursor:'pointer', fontFamily:'Poppins', fontSize:12, fontWeight:700, borderWidth:2, borderStyle:'solid', borderColor: newItem.isVeg === isV ? (isV ? '#16a34a' : '#dc2626') : '#e5e7eb', background: newItem.isVeg === isV ? (isV ? '#f0fdf4' : '#fff5f5') : '#fff', color: newItem.isVeg === isV ? (isV ? '#16a34a' : '#dc2626') : '#9ca3af', transition:'all 0.15s' }}
+                      >
+                        {isV ? '🟢 Veg' : '🔴 Non-Veg'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Step 2: Item Name */}
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'#6b7280', marginBottom:6, letterSpacing:0.5 }}>ITEM NAME *</div>
+                  <input
+                    style={inp}
+                    placeholder="e.g. Paneer Butter Masala, Veg Biryani..."
+                    value={newItem.name}
+                    onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))}
+                  />
+                </div>
+
+                {/* Step 3: Category */}
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'#6b7280', marginBottom:6, letterSpacing:0.5 }}>CATEGORY</div>
+                  <div style={{ display:'flex', gap:6 }}>
+                    <select
+                      style={{ ...inp, marginTop:0, flex:1, cursor:'pointer' }}
+                      value={newItem.category}
+                      onChange={e => setNewItem(p => ({ ...p, category: e.target.value }))}
+                    >
+                      {allCategories.map(c => <option key={c}>{c}</option>)}
+                    </select>
+                    <button
+                      onClick={() => setShowAddCat(!showAddCat)}
+                      style={{ padding:'0 14px', background:'#f3f4f6', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:16, cursor:'pointer', flexShrink:0, color:'#374151' }}
+                    >+</button>
+                  </div>
+                  {showAddCat && (
+                    <div style={{ display:'flex', gap:6, marginTop:8 }}>
+                      <input
+                        style={{ ...inp, marginTop:0, flex:1 }}
+                        placeholder="New category name (e.g. Breakfast)"
+                        value={newCatInput}
+                        onChange={e => setNewCatInput(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleAddCategory()}
+                      />
+                      <button onClick={handleAddCategory} style={{ padding:'0 14px', background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600, flexShrink:0 }}>Add</button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Step 4: Price / Variants */}
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'#6b7280', marginBottom:6, letterSpacing:0.5 }}>PRICING</div>
                   <AddItemVariantSection
                     variants={newItemVariants}
                     setVariants={setNewItemVariants}
                     basePrice={newItem.price}
-                    setBasePrice={(v) => setNewItem(p=>({...p,price:v}))}
+                    setBasePrice={(v) => setNewItem(p => ({ ...p, price: v }))}
                   />
-
-                  {/* Price field — show only if no variants */}
                   {newItemVariants.length === 0 && (
-                    <input style={inp} type="number" placeholder="Price (₹) *" value={newItem.price} onChange={e => setNewItem(p=>({...p,price:e.target.value}))} />
-                  )}
-
-                  <textarea style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.5}} placeholder="Description e.g. 2 Roti + Dal + Rice" value={newItem.description} onChange={e => setNewItem(p=>({...p,description:e.target.value}))} />
-                  <div>
-                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Category</label>
-                    <div style={{ display:'flex', gap:6, marginTop:4 }}>
-                      <select style={{...inp,marginTop:0,flex:1,cursor:'pointer'}} value={newItem.category} onChange={e => setNewItem(p=>({...p,category:e.target.value}))}>
-                        {allCategories.map(c => <option key={c}>{c}</option>)}
-                      </select>
-                      <button onClick={() => setShowAddCat(!showAddCat)} style={{ padding:'0 12px', background:'#f3f4f6', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:18, cursor:'pointer', flexShrink:0 }}>+</button>
-                    </div>
-                  </div>
-                  {showAddCat && (
-                    <div style={{ display:'flex', gap:6 }}>
-                      <input style={{...inp,marginTop:0,flex:1}} placeholder="New category name" value={newCatInput} onChange={e => setNewCatInput(e.target.value)} onKeyDown={e => e.key==='Enter'&&handleAddCategory()} />
-                      <button onClick={handleAddCategory} style={{ padding:'0 14px', background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Poppins', fontWeight:600, flexShrink:0 }}>Add</button>
+                    <div style={{ display:'flex', alignItems:'center', borderWidth:2, borderStyle:'solid', borderColor: newItem.price ? '#E24B4A' : '#e5e7eb', borderRadius:10, background:'#fff', overflow:'hidden', marginTop:8 }}>
+                      <span style={{ padding:'11px 10px 11px 14px', fontSize:16, fontWeight:800, color:'#E24B4A', flexShrink:0, lineHeight:1 }}>₹</span>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="Enter price"
+                        value={newItem.price}
+                        onChange={e => setNewItem(p => ({ ...p, price: e.target.value }))}
+                        style={{ flex:1, padding:'11px 12px 11px 4px', border:'none', fontSize:16, fontFamily:'Poppins', outline:'none', background:'transparent', fontWeight: newItem.price ? 800 : 400, color:'#1f2937' }}
+                      />
                     </div>
                   )}
-                  <div>
-                    <label style={{ fontSize:11, color:'#6b7280', fontWeight:500 }}>Item Photo (optional)</label>
-                    <div onClick={() => newItemPhotoRef.current?.click()} style={{ marginTop:6, borderWidth:2, borderStyle:'dashed', borderColor:'#e5e7eb', borderRadius:10, padding:16, textAlign:'center', cursor:'pointer', background:'#fafafa', minHeight:80, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      {newItemPhotoPreview?<img src={newItemPhotoPreview} alt="preview" style={{ maxHeight:120, maxWidth:'100%', objectFit:'cover', borderRadius:8 }} />:<div><div style={{ fontSize:28 }}>📷</div><div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>Tap to add photo</div></div>}
-                    </div>
-                    <input ref={newItemPhotoRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleNewItemPhotoSelect} />
-                    {newItemPhotoPreview && <button onClick={() => { setNewItemPhotoFile(null); setNewItemPhotoPreview(null) }} style={{ marginTop:4, fontSize:11, color:'#dc2626', background:'none', border:'none', cursor:'pointer', fontFamily:'Poppins' }}>✕ Remove photo</button>}
-                  </div>
-                  {addingItem && newItemPhotoFile && itemPhotoProgress > 0 && <div style={{ background:'#f3f4f6', borderRadius:8, overflow:'hidden', height:6 }}><div style={{ height:'100%', background:'#E24B4A', width:`${itemPhotoProgress}%`, transition:'width 0.3s' }} /></div>}
-                  <div style={{ display:'flex', gap:8 }}>
-                    <button onClick={handleAddItem} disabled={addingItem} style={{ flex:1, background:addingItem?'#f09595':'#E24B4A', color:'#fff', border:'none', padding:11, borderRadius:8, fontSize:13, cursor:addingItem?'not-allowed':'pointer', fontFamily:'Poppins', fontWeight:500 }}>{addingItem?'Adding...':'✅ Add to Menu'}</button>
-                    <button onClick={() => { setShowAddItem(false); setNewItem(EMPTY_ITEM); setNewItemVariants([]); setNewItemPhotoFile(null); setNewItemPhotoPreview(null); setShowAddCat(false) }} style={{ flex:1, background:'transparent', color:'#6b7280', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', padding:11, borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'Poppins' }}>Cancel</button>
-                  </div>
                 </div>
+
+                {/* Step 5: Description */}
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'#6b7280', marginBottom:6, letterSpacing:0.5 }}>DESCRIPTION (optional)</div>
+                  <textarea
+                    style={{ ...inp, minHeight:65, resize:'vertical', lineHeight:1.6 }}
+                    placeholder="e.g. 2 Roti + Dal + Rice + Salad"
+                    value={newItem.description}
+                    onChange={e => setNewItem(p => ({ ...p, description: e.target.value }))}
+                  />
+                </div>
+
+                {/* Step 6: Photo */}
+                <div style={{ marginBottom:14 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'#6b7280', marginBottom:6, letterSpacing:0.5 }}>ITEM PHOTO (optional)</div>
+                  <div
+                    onClick={() => newItemPhotoRef.current?.click()}
+                    style={{ borderWidth:2, borderStyle:'dashed', borderColor: newItemPhotoPreview ? '#16a34a' : '#e5e7eb', borderRadius:10, padding:14, textAlign:'center', cursor:'pointer', background: newItemPhotoPreview ? '#f0fdf4' : '#fafafa', minHeight:80, display:'flex', alignItems:'center', justifyContent:'center', gap:10, transition:'all 0.2s' }}
+                  >
+                    {newItemPhotoPreview ? (
+                      <img src={newItemPhotoPreview} alt="preview" style={{ maxHeight:110, maxWidth:'100%', objectFit:'cover', borderRadius:8 }} />
+                    ) : (
+                      <div>
+                        <div style={{ fontSize:26 }}>📷</div>
+                        <div style={{ fontSize:12, color:'#9ca3af', marginTop:4 }}>Tap to add photo</div>
+                      </div>
+                    )}
+                  </div>
+                  <input ref={newItemPhotoRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleNewItemPhotoSelect} />
+                  {newItemPhotoPreview && (
+                    <button onClick={() => { setNewItemPhotoFile(null); setNewItemPhotoPreview(null) }} style={{ marginTop:5, fontSize:11, color:'#dc2626', background:'none', border:'none', cursor:'pointer', fontFamily:'Poppins' }}>
+                      ✕ Remove photo
+                    </button>
+                  )}
+                  {addingItem && newItemPhotoFile && itemPhotoProgress > 0 && (
+                    <div style={{ background:'#f3f4f6', borderRadius:8, overflow:'hidden', height:5, marginTop:6 }}>
+                      <div style={{ height:'100%', background:'#E24B4A', width:`${itemPhotoProgress}%`, transition:'width 0.3s' }} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Submit */}
+                <button
+                  onClick={handleAddItem}
+                  disabled={addingItem}
+                  style={{ width:'100%', background: addingItem ? '#f09595' : 'linear-gradient(135deg,#E24B4A,#c73232)', color:'#fff', border:'none', padding:'13px 0', borderRadius:11, fontSize:14, cursor: addingItem ? 'not-allowed' : 'pointer', fontFamily:'Poppins', fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow: addingItem ? 'none' : '0 4px 14px rgba(226,75,74,0.35)' }}
+                >
+                  {addingItem ? '⏳ Adding...' : '✅ Add to Menu'}
+                </button>
               </div>
             )}
 
-            {filteredMenuItems.length===0 && !showAddItem && <div style={{ textAlign:'center', color:'#9ca3af', padding:32, fontSize:13 }}>{menuItems.length===0?'No items yet. Add your first menu item!':`No items in "${menuCatFilter}"`}</div>}
+            {filteredMenuItems.length===0 && !showAddItem && (
+              <div style={{ textAlign:'center', padding:'40px 20px' }}>
+                <div style={{ fontSize:48, marginBottom:10 }}>🍽️</div>
+                <div style={{ fontSize:14, fontWeight:700, color:'#374151', marginBottom:6 }}>
+                  {menuItems.length === 0 ? 'No items yet' : `No items in "${menuCatFilter}"`}
+                </div>
+                <div style={{ fontSize:12, color:'#9ca3af' }}>
+                  {menuItems.length === 0 ? 'Tap "+ Add Item" to add your first menu item' : 'Switch category or add a new item'}
+                </div>
+              </div>
+            )}
 
             {filteredMenuItems.map(item => (
               <div key={item.id}>
@@ -2602,55 +2712,80 @@ export default function VendorApp() {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ borderBottomWidth:1, borderBottomStyle:'solid', borderBottomColor:'#f3f4f6', background:menuEditMode?'#fafafa':'transparent', borderRadius:menuEditMode?10:0, marginBottom:menuEditMode?4:0 }}>
-                    <div style={{ display:'flex', gap:10, alignItems:'flex-start', padding:'12px 0', paddingLeft:menuEditMode?8:0 }}>
-                      <div onClick={() => { const input=document.createElement('input'); input.type='file'; input.accept='image/*'; input.onchange=(e)=>handleExistingItemPhoto(e,item.id); input.click() }} style={{ width:64, height:64, borderRadius:10, overflow:'hidden', background:'#f3f4f6', flexShrink:0, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', position:'relative', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}>
-                        {item.photo?<img src={item.photo} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />:<span style={{ fontSize:22 }}>📷</span>}
-                        {itemPhotoUploading===item.id && <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#fff', fontWeight:700 }}>{itemPhotoProgress}%</div>}
+                  <div style={{ background:'#fff', borderRadius:12, marginBottom:8, borderWidth:1, borderStyle:'solid', borderColor:'#f3f4f6', boxShadow:'0 1px 4px rgba(0,0,0,0.05)', overflow:'hidden' }}>
+                    <div style={{ display:'flex', gap:10, alignItems:'flex-start', padding:'12px 12px 12px' }}>
+                      {/* Photo */}
+                      <div
+                        onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*'; input.onchange = (e) => handleExistingItemPhoto(e, item.id); input.click() }}
+                        style={{ width:62, height:62, borderRadius:10, overflow:'hidden', background:'#f3f4f6', flexShrink:0, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', position:'relative', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb' }}
+                      >
+                        {item.photo ? <img src={item.photo} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:20 }}>📷</span>}
+                        {itemPhotoUploading === item.id && (
+                          <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#fff', fontWeight:700 }}>{itemPhotoProgress}%</div>
+                        )}
                       </div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                          <div style={{ width:14, height:14, borderRadius:3, flexShrink:0, borderWidth:1.5, borderStyle:'solid', borderColor:item.isVeg===false?'#dc2626':'#16a34a', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ width:7, height:7, borderRadius:'50%', background:item.isVeg===false?'#dc2626':'#16a34a' }} /></div>
-                          <div style={{ fontSize:13, fontWeight:600, color:'#1f2937' }}>{item.name}</div>
-                          {item.hasVariants && (
-                            <span style={{ fontSize:9, background:'linear-gradient(135deg,#7c3aed,#5b21b6)', color:'#fff', fontWeight:700, borderRadius:10, padding:'2px 7px' }}>⚡ {item.variants?.length} sizes</span>
-                          )}
-                        </div>
-                        {item.description && <div style={{ fontSize:11, color:'#6b7280', marginTop:2, lineHeight:1.4 }}>{item.description}</div>}
 
-                        {/* Show variants inline */}
+                      {/* Info */}
+                      <div style={{ flex:1, minWidth:0 }}>
+                        {/* Name row */}
+                        <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                          <div style={{ width:12, height:12, borderRadius:3, flexShrink:0, borderWidth:1.5, borderStyle:'solid', borderColor: item.isVeg === false ? '#dc2626' : '#16a34a', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                            <div style={{ width:6, height:6, borderRadius:'50%', background: item.isVeg === false ? '#dc2626' : '#16a34a' }} />
+                          </div>
+                          <span style={{ fontSize:13, fontWeight:700, color:'#1f2937' }}>{item.name}</span>
+                          {item.hasVariants && (
+                            <span style={{ fontSize:9, background:'linear-gradient(135deg,#7c3aed,#5b21b6)', color:'#fff', fontWeight:700, borderRadius:10, padding:'2px 8px' }}>⚡ {item.variants?.length} sizes</span>
+                          )}
+                          <span style={{ fontSize:10, color:'#9ca3af', background:'#f3f4f6', borderRadius:6, padding:'1px 6px' }}>{item.category}</span>
+                        </div>
+
+                        {/* Description */}
+                        {item.description && (
+                          <div style={{ fontSize:11, color:'#6b7280', marginTop:3, lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
+                            {item.description}
+                          </div>
+                        )}
+
+                        {/* Price / Variants */}
                         {item.hasVariants && item.variants?.length > 0 ? (
-                          <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginTop:5 }}>
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginTop:6 }}>
                             {item.variants.map((v, vi) => (
-                              <div key={vi} style={{ background:'#faf5ff', borderRadius:8, padding:'3px 8px', borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff', display:'flex', gap:4, alignItems:'center' }}>
-                                <span style={{ fontSize:10, fontWeight:600, color:'#374151' }}>{v.label}</span>
-                                <span style={{ fontSize:10, fontWeight:800, color:'#7c3aed' }}>₹{v.price}</span>
+                              <div key={vi} style={{ background:'#faf5ff', borderRadius:8, padding:'4px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#e9d5ff', display:'flex', alignItems:'center', gap:5 }}>
+                                <span style={{ fontSize:11, fontWeight:600, color:'#374151' }}>{v.label}</span>
+                                <span style={{ fontSize:12, fontWeight:800, color:'#7c3aed' }}>₹{v.price}</span>
                               </div>
                             ))}
                           </div>
                         ) : (
-                          <div style={{ display:'flex', gap:8, marginTop:3, alignItems:'center', flexWrap:'wrap' }}>
-                            <span style={{ fontSize:13, fontWeight:700, color:'#E24B4A' }}>₹{item.price}</span>
-                            <span style={{ fontSize:10, color:'#9ca3af' }}>·</span>
-                            <span style={{ fontSize:11, color:'#9ca3af' }}>{item.category}</span>
+                          <div style={{ display:'flex', gap:8, marginTop:4, alignItems:'center' }}>
+                            <span style={{ fontSize:14, fontWeight:800, color:'#E24B4A' }}>₹{item.price}</span>
                           </div>
                         )}
-                        {!item.hasVariants && (
-                          <div style={{ fontSize:11, color:'#9ca3af', marginTop:1 }}>{item.category}</div>
-                        )}
                       </div>
-                      <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center', flexShrink:0 }}>
-                        {/* Variant button — always visible */}
-                        <VariantManager
-                          item={item}
-                          userId={user.uid}
-                          onVariantsChanged={() => {}}
-                        />
-                        {menuEditMode && <button onClick={() => startEditItem(item)} style={{ background:'#E24B4A', color:'#fff', border:'none', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>✏️ Edit</button>}
-                        <div onClick={() => updateMenuItem(user.uid, item.id, { available: !item.available })} style={{ width:40, height:22, background:item.available?'#16a34a':'#d1d5db', borderRadius:11, cursor:'pointer', position:'relative', transition:'background 0.2s' }}>
-                          <div style={{ position:'absolute', width:16, height:16, background:'#fff', borderRadius:'50%', top:3, left:item.available?21:3, transition:'left 0.2s' }} />
+
+                      {/* Actions */}
+                      <div style={{ display:'flex', flexDirection:'column', gap:7, alignItems:'center', flexShrink:0 }}>
+                        {/* Availability toggle */}
+                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
+                          <div
+                            onClick={() => updateMenuItem(user.uid, item.id, { available: !item.available })}
+                            style={{ width:42, height:23, background: item.available ? '#16a34a' : '#d1d5db', borderRadius:12, cursor:'pointer', position:'relative', transition:'background 0.2s' }}
+                          >
+                            <div style={{ position:'absolute', width:17, height:17, background:'#fff', borderRadius:'50%', top:3, left: item.available ? 22 : 3, transition:'left 0.2s' }} />
+                          </div>
+                          <span style={{ fontSize:9, color: item.available ? '#16a34a' : '#9ca3af', fontWeight:600 }}>{item.available ? 'ON' : 'OFF'}</span>
                         </div>
-                        <button onClick={() => { deleteMenuItem(user.uid, item.id); toast.success('Item deleted') }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, color:'#dc2626', padding:2 }}>🗑️</button>
+
+                        {/* Variants button */}
+                        <VariantManager item={item} userId={user.uid} onVariantsChanged={() => {}} />
+
+                        {/* Edit & Delete in edit mode */}
+                        {menuEditMode && (
+                          <>
+                            <button onClick={() => startEditItem(item)} style={{ background:'#fef3c7', color:'#92400e', border:'none', borderRadius:7, padding:'4px 8px', fontSize:10, fontWeight:700, cursor:'pointer', fontFamily:'Poppins', whiteSpace:'nowrap' }}>✏️ Edit</button>
+                            <button onClick={() => { deleteMenuItem(user.uid, item.id); toast.success('Item deleted') }} style={{ background:'#fee2e2', border:'none', borderRadius:7, padding:'4px 8px', fontSize:10, fontWeight:700, cursor:'pointer', color:'#dc2626', fontFamily:'Poppins' }}>🗑️ Del</button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
