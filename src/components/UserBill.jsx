@@ -30,7 +30,8 @@ export default function UserBill({ order, vendorData = {}, onClose }) {
   const items = order.items || []
   const subtotal = order.subtotal || items.reduce((s, i) => s + i.price * i.qty, 0)
   const deliveryFee = order.deliveryFee ?? 0
-  const total = order.total || subtotal + deliveryFee
+  const packingFee  = order.packingFee ?? 0
+  const total = order.total || subtotal + deliveryFee + packingFee
 
   const orderDate = order.createdAt?.toDate?.()
   const dateStr = orderDate
@@ -111,6 +112,7 @@ export default function UserBill({ order, vendorData = {}, onClose }) {
         <div style="border-top:1px dashed #999;padding-top:6px;margin-top:4px">
           <div class="row"><span>Subtotal</span><span>₹${subtotal}</span></div>
           <div class="row"><span>Delivery</span><span>${deliveryFee === 0 ? 'FREE' : '₹' + deliveryFee}</span></div>
+          ${packingFee > 0 ? `<div class="row"><span>Packing</span><span>₹${packingFee}</span></div>` : ''}
           <div class="row"><span>Round Off</span><span>0.00</span></div>
         </div>
         <div class="grand"><span>BILL AMOUNT ₹</span><span>${total}</span></div>
@@ -243,6 +245,12 @@ export default function UserBill({ order, vendorData = {}, onClose }) {
                 {deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`}
               </span>
             </div>
+            {packingFee > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7280', marginBottom: 5 }}>
+                <span>📦 Packing Charge</span>
+                <span>₹{packingFee}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7280', marginBottom: 5 }}>
               <span>Round Off</span><span>0.00</span>
             </div>
@@ -293,7 +301,7 @@ export default function UserBill({ order, vendorData = {}, onClose }) {
           </button>
           <button
             onClick={() => {
-              const text = `*${order.vendorName}*\nBill No: ${billNo}\nDate: ${dateStr}\n\n${items.map(i => `${i.qty}x ${i.name} - ₹${i.price * i.qty}`).join('\n')}\n\nSubtotal: ₹${subtotal}\nDelivery: ${deliveryFee === 0 ? 'FREE' : '₹' + deliveryFee}\n*Total: ₹${total}*${upiId ? `\n\n📱 Pay via UPI: ${upiId}` : ''}\n\nThank you for ordering from FeedoZone!`
+              const text = `*${order.vendorName}*\nBill No: ${billNo}\nDate: ${dateStr}\n\n${items.map(i => `${i.qty}x ${i.name} - ₹${i.price * i.qty}`).join('\n')}\n\nSubtotal: ₹${subtotal}\nDelivery: ${deliveryFee === 0 ? 'FREE' : '₹' + deliveryFee}${packingFee > 0 ? `\nPacking: ₹${packingFee}` : ''}\n*Total: ₹${total}*${upiId ? `\n\n📱 Pay via UPI: ${upiId}` : ''}\n\nThank you for ordering from FeedoZone!`
               window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
             }}
             style={{ flex: 1, padding: '11px 0', borderRadius: 10, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Poppins, sans-serif', background: '#25D366', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}

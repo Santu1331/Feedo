@@ -28,7 +28,8 @@ export default function VendorBill({ order, vendorData, onClose }) {
   const items = order.items || []
   const subtotal = order.subtotal || items.reduce((s, i) => s + i.price * i.qty, 0)
   const deliveryFee = order.deliveryFee ?? 0
-  const total = order.total || subtotal + deliveryFee
+  const packingFee  = order.packingFee ?? 0
+  const total = order.total || subtotal + deliveryFee + packingFee
 
   const orderDate = order.createdAt?.toDate?.()
   const dateStr = orderDate
@@ -116,6 +117,7 @@ export default function VendorBill({ order, vendorData, onClose }) {
         <div class="totals">
           <div class="total-row"><span>Subtotal</span><span>₹${subtotal}</span></div>
           <div class="total-row"><span>Delivery</span><span>${deliveryFee === 0 ? 'FREE' : '₹' + deliveryFee}</span></div>
+          ${packingFee > 0 ? `<div class="total-row"><span>Packing</span><span>₹${packingFee}</span></div>` : ''}
           <div class="total-row"><span>Round Off</span><span>0.00</span></div>
         </div>
         <div class="grand"><span>BILL AMOUNT ₹</span><span>${total}</span></div>
@@ -263,12 +265,18 @@ export default function VendorBill({ order, vendorData, onClose }) {
           {/* Totals */}
           <div style={{ padding: '8px 16px 0', borderTop: '1px dashed #ccc', marginTop: 4 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
-              <span>Subtotal</span><span>{subtotal}.00</span>
+              <span>Subtotal</span><span>₹{subtotal}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
               <span>Delivery Charge</span>
-              <span style={{ color: deliveryFee === 0 ? '#16a34a' : '#374151' }}>{deliveryFee === 0 ? 'FREE' : deliveryFee + '.00'}</span>
+              <span style={{ color: deliveryFee === 0 ? '#16a34a' : '#374151' }}>{deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`}</span>
             </div>
+            {packingFee > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                <span>📦 Packing Charge</span>
+                <span>₹{packingFee}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
               <span>Round Off</span><span>0.00</span>
             </div>
@@ -316,7 +324,7 @@ export default function VendorBill({ order, vendorData, onClose }) {
           </button>
           <button
             onClick={() => {
-              const text = `*${storeName}*\nBill: ${billNo} | ${dateStr}\n\n${items.map(i => `${i.qty}x ${i.name} - ₹${i.price * i.qty}`).join('\n')}\n\nSubtotal: ₹${subtotal}\nDelivery: ${deliveryFee === 0 ? 'FREE' : '₹' + deliveryFee}\n*TOTAL: ₹${total}*${upiId ? `\n\n📱 Pay via UPI: ${upiId}` : ''}\n\nThank you!`
+              const text = `*${storeName}*\nBill: ${billNo} | ${dateStr}\n\n${items.map(i => `${i.qty}x ${i.name} - ₹${i.price * i.qty}`).join('\n')}\n\nSubtotal: ₹${subtotal}\nDelivery: ${deliveryFee === 0 ? 'FREE' : '₹' + deliveryFee}${packingFee > 0 ? `\nPacking: ₹${packingFee}` : ''}\n*TOTAL: ₹${total}*${upiId ? `\n\n📱 Pay via UPI: ${upiId}` : ''}\n\nThank you!`
               // ✅ PRIVACY: phone hidden for delivered/cancelled — copy to clipboard instead
               if (!isPrivate && order.userPhone) {
                 window.open(`https://wa.me/91${order.userPhone}?text=${encodeURIComponent(text)}`, '_blank')

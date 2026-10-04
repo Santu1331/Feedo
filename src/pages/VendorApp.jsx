@@ -1114,6 +1114,7 @@ export default function VendorApp() {
   }, [])
 
   const [deliveryCharge, setDeliveryCharge] = useState('')
+  const [packingCharge, setPackingCharge] = useState('')
   const [distanceBasedDelivery, setDistanceBasedDelivery] = useState(false)
   const [minOrderAmount, setMinOrderAmount] = useState('')
   const [fssai, setFssai] = useState('')
@@ -1197,6 +1198,7 @@ export default function VendorApp() {
     setScheduleOverride(userData?.scheduleOverride || false)
     if (userData?.customCategories) setCustomCategories(userData.customCategories)
     if (userData?.deliveryCharge !== undefined) setDeliveryCharge(String(userData.deliveryCharge ?? ''))
+    if (userData?.packingCharge !== undefined) setPackingCharge(String(userData.packingCharge ?? ''))
     setDistanceBasedDelivery(userData?.distanceBasedDelivery || false)
     if (userData?.deliveryRadiusKm !== undefined) setDeliveryRadiusKm(userData.deliveryRadiusKm ?? 4)
     if (userData?.minOrderAmount !== undefined) setMinOrderAmount(String(userData.minOrderAmount ?? ''))
@@ -1386,6 +1388,7 @@ export default function VendorApp() {
     try {
       await updateVendorStore(user.uid, {
         deliveryCharge: deliveryCharge === '' ? 0 : Number(deliveryCharge),
+        packingCharge: packingCharge === '' ? 0 : Number(packingCharge),
         distanceBasedDelivery: distanceBasedDelivery,
         deliveryRadiusKm: deliveryRadiusKm,
         minOrderAmount: minOrderAmount === '' ? 0 : Number(minOrderAmount),
@@ -2514,6 +2517,28 @@ export default function VendorApp() {
               </div>
             </div>
 
+            {/* ── CHARGES INFO BAR ── */}
+            <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+              <div style={{ flex:1, background:'#f0fdf4', borderRadius:10, padding:'8px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bbf7d0' }}>
+                <div style={{ fontSize:10, color:'#15803d', fontWeight:700, marginBottom:1 }}>🚴 Delivery</div>
+                <div style={{ fontSize:13, fontWeight:800, color:'#166534' }}>
+                  {Number(userData?.deliveryCharge) === 0 ? 'Free' : `₹${userData?.deliveryCharge ?? '—'}`}
+                </div>
+              </div>
+              <div style={{ flex:1, background: Number(userData?.packingCharge) > 0 ? '#fef9c3' : '#f9fafb', borderRadius:10, padding:'8px 12px', borderWidth:1, borderStyle:'solid', borderColor: Number(userData?.packingCharge) > 0 ? '#fde68a' : '#e5e7eb', cursor:'pointer' }} onClick={() => setTab('settings')}>
+                <div style={{ fontSize:10, color: Number(userData?.packingCharge) > 0 ? '#92400e' : '#9ca3af', fontWeight:700, marginBottom:1 }}>📦 Packing</div>
+                <div style={{ fontSize:13, fontWeight:800, color: Number(userData?.packingCharge) > 0 ? '#78350f' : '#9ca3af' }}>
+                  {Number(userData?.packingCharge) > 0 ? `₹${userData.packingCharge}` : 'Not set'}
+                </div>
+              </div>
+              <div style={{ flex:1, background:'#eff6ff', borderRadius:10, padding:'8px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#bfdbfe' }}>
+                <div style={{ fontSize:10, color:'#1e40af', fontWeight:700, marginBottom:1 }}>🛒 Min Order</div>
+                <div style={{ fontSize:13, fontWeight:800, color:'#1e3a8a' }}>
+                  {Number(userData?.minOrderAmount) > 0 ? `₹${userData.minOrderAmount}` : 'None'}
+                </div>
+              </div>
+            </div>
+
             {menuCategories.length > 1 && (
               <div style={{ overflowX:'auto', marginBottom:12 }}>
                 <div style={{ display:'flex', gap:8, width:'max-content', paddingBottom:4 }}>
@@ -3211,6 +3236,26 @@ export default function VendorApp() {
               <div style={{ marginBottom:10 }}>
                 <label style={{ fontSize:12, color:'#6b7280', fontWeight:500 }}>🛒 Minimum Order Amount (₹)</label>
                 <input type="number" placeholder="e.g. 100 (0 for no minimum)" value={minOrderAmount} onChange={e => setMinOrderAmount(e.target.value)} style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }} />
+              </div>
+
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:12, color:'#6b7280', fontWeight:600 }}>📦 Packing Charge (₹)</label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 5 (0 for no packing charge)"
+                  value={packingCharge}
+                  onChange={e => setPackingCharge(e.target.value)}
+                  style={{ width:'100%', padding:'10px 12px', borderWidth:1, borderStyle:'solid', borderColor:'#e5e7eb', borderRadius:8, fontSize:13, fontFamily:'Poppins,sans-serif', outline:'none', marginTop:4, boxSizing:'border-box' }}
+                />
+                <div style={{ fontSize:11, color:'#9ca3af', marginTop:5, lineHeight:1.5 }}>
+                  A flat packing fee added to every order. Customers will see this separately in their cart (e.g. ₹5 for packing material, boxes, bags etc.)
+                </div>
+                {Number(packingCharge) > 0 && (
+                  <div style={{ marginTop:6, background:'#fef9c3', borderRadius:8, padding:'7px 10px', borderWidth:1, borderStyle:'solid', borderColor:'#fde68a', fontSize:11, color:'#92400e' }}>
+                    📦 ₹{packingCharge} packing charge will be added to every order from your restaurant
+                  </div>
+                )}
               </div>
 
               <div style={{ marginBottom:10 }}>

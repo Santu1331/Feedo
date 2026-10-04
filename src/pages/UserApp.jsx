@@ -957,7 +957,8 @@ function MultiCartOrderPanel({ vendorId, carts, removeMultiCart, user, userData,
   const mcVendor   = vc.vendor
   const mcSubtotal = mcItems.reduce((s, i) => s + i.price * i.qty, 0)
   const mcDelivery = Number(mcVendor?.deliveryCharge ?? 0)
-  const mcTotal    = mcSubtotal + mcDelivery
+  const mcPacking  = Number(mcVendor?.packingCharge ?? 0)
+  const mcTotal    = mcSubtotal + mcDelivery + mcPacking
 
   const minOrder = Number(mcVendor?.minOrderAmount ?? 0)
   const meetsMin = minOrder === 0 || mcSubtotal >= minOrder
@@ -978,7 +979,7 @@ function MultiCartOrderPanel({ vendorId, carts, removeMultiCart, user, userData,
         userUid: user.uid, userName: mcName.trim(), userPhone: mcPhone.trim(),
         userEmail: user.email, vendorUid: mcVendor.id, vendorName: mcVendor.storeName,
         items: mcItems.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, isCombo: i.isCombo||false, isVariant: i.isVariant||false })),
-        subtotal: mcSubtotal, deliveryFee: mcDelivery, total: mcTotal,
+        subtotal: mcSubtotal, deliveryFee: mcDelivery, packingFee: mcPacking, total: mcTotal,
         address: fullAddress || '(not provided)', paymentMode: 'COD', billNo,
         userLat, userLng,
         vendorFcmToken: mcVendor.fcmToken || null,
@@ -1012,6 +1013,12 @@ function MultiCartOrderPanel({ vendorId, carts, removeMultiCart, user, userData,
           <span style={{ fontSize:12, color:DS.textSecondary }}>Delivery</span>
           <span style={{ fontSize:12, fontWeight:600 }}>{mcDelivery === 0 ? 'Free 🎉' : '₹' + mcDelivery}</span>
         </div>
+        {mcPacking > 0 && (
+          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+            <span style={{ fontSize:12, color:DS.textSecondary }}>📦 Packing</span>
+            <span style={{ fontSize:12, fontWeight:600 }}>₹{mcPacking}</span>
+          </div>
+        )}
         <div style={{ display:'flex', justifyContent:'space-between', paddingTop:8, borderTop:`1.5px solid ${DS.border}` }}>
           <span style={{ fontSize:14, fontWeight:700 }}>Total</span>
           <span style={{ fontSize:14, fontWeight:800, color:DS.primary }}>₹{mcTotal}</span>
@@ -1586,6 +1593,7 @@ export default function UserApp() {
   // Legacy aliases kept for downstream checkout/offer calculations
   const deliveryFee        = freeDeliveryToday ? 0 : Number(activeVendor?.deliveryCharge ?? 0)
   const deliveryFeeWaived  = freeDeliveryToday && Number(activeVendor?.rawDeliveryCharge ?? 0) > 0
+  const packingFee         = Number(activeVendor?.packingCharge ?? 0)
   const minOrder           = Number(activeVendor?.minOrderAmount ?? 0)
   const minOrderShortfall  = minOrder > 0 ? Math.max(0, minOrder - cartTotal) : 0
   const meetsMinOrder      = minOrderShortfall === 0
@@ -1765,7 +1773,7 @@ export default function UserApp() {
   // The discount comes from: applied coupon offer > auto best offer
   const activeOffer = appliedOffer || autoBestOffer
   const discountAmount = computeDiscount(activeOffer, cartTotal)
-  const finalTotal = Math.max(0, cartTotal - discountAmount) + deliveryFee
+  const finalTotal = Math.max(0, cartTotal - discountAmount) + deliveryFee + packingFee
 
   // Coupon apply handler
   const handleApplyCoupon = () => {
@@ -1831,7 +1839,7 @@ export default function UserApp() {
         offerId: activeOffer?.id || null,
         offerTitle: activeOffer?.title || null,
         couponCode: activeOffer?.couponCode || null,
-        deliveryFee, total: finalTotal,
+        deliveryFee, packingFee, total: finalTotal,
         address: fullAddress, paymentMode: 'COD', billNo,
         userLat, userLng, distanceKm: activeVendor?.distanceKm || null,
         freeDeliveryOffer: deliveryFeeWaived,
@@ -1846,7 +1854,7 @@ export default function UserApp() {
         vendorName: activeVendor?.storeName || cartVendor?.storeName || '',
         vendorPhone: (activeVendor?.phone || activeVendor?.mobile || activeVendor?.contactPhone || ''),
         vendorPhoto: activeVendor?.photo || '', items: [...activeItems],
-        total: finalTotal, subtotal: cartTotal, deliveryFee,
+        total: finalTotal, subtotal: cartTotal, deliveryFee, packingFee,
         discountAmount: discountAmount || 0,
         offerTitle: activeOffer?.title || null,
         freeDeliveryOffer: deliveryFeeWaived,
@@ -3683,13 +3691,19 @@ export default function UserApp() {
                           <span style={{ fontSize:13, color:DS.success, fontWeight:700 }}>−₹{discountAmount}</span>
                         </div>
                       )}
-                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
                         <span style={{ fontSize:13, color:DS.textSecondary }}>Delivery fee</span>
                         {deliveryFeeWaived
                           ? <span style={{ fontSize:13, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:DS.textMuted }}>₹{activeVendor?.rawDeliveryCharge}</span><span style={{ color:DS.success, fontWeight:700 }}>FREE 🎉</span></span>
                           : <span style={{ fontSize:13, fontWeight:600, color: deliveryFee===0 ? DS.success : DS.textPrimary }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>
                         }
                       </div>
+                      {packingFee > 0 && (
+                        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+                          <span style={{ fontSize:13, color:DS.textSecondary }}>📦 Packing charge</span>
+                          <span style={{ fontSize:13, fontWeight:600, color:DS.textPrimary }}>₹{packingFee}</span>
+                        </div>
+                      )}
                       <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10, borderTop:`1.5px solid ${DS.border}` }}>
                         <span style={{ fontSize:15, fontWeight:700, color:DS.textPrimary }}>Total</span>
                         <span style={{ fontSize:15, fontWeight:800, color: discountAmount>0 ? DS.success : DS.primary }}>₹{finalTotal}</span>
@@ -3770,10 +3784,16 @@ export default function UserApp() {
                       <div style={{ fontSize:13, fontWeight:700, color:DS.textPrimary, marginBottom:12 }}>Bill Summary</div>
                       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:DS.textSecondary }}>Subtotal</span><span style={{ fontSize:13, fontWeight:600 }}>₹{cartTotal}</span></div>
                       {discountAmount > 0 && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:DS.success, fontWeight:600 }}>🏷️ {activeOffer?.title||'Offer'}</span><span style={{ fontSize:13, color:DS.success, fontWeight:700 }}>−₹{discountAmount}</span></div>}
-                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
                         <span style={{ fontSize:13, color:DS.textSecondary }}>Delivery fee</span>
                         {deliveryFeeWaived ? <span style={{ fontSize:13, display:'flex', alignItems:'center', gap:5 }}><span style={{ textDecoration:'line-through', color:DS.textMuted }}>₹{activeVendor?.rawDeliveryCharge}</span><span style={{ color:DS.success, fontWeight:700 }}>FREE 🎉</span></span> : <span style={{ fontSize:13, fontWeight:600 }}>{deliveryFee===0?'Free 🎉':('₹'+deliveryFee)}</span>}
                       </div>
+                      {packingFee > 0 && (
+                        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+                          <span style={{ fontSize:13, color:DS.textSecondary }}>📦 Packing charge</span>
+                          <span style={{ fontSize:13, fontWeight:600 }}>₹{packingFee}</span>
+                        </div>
+                      )}
                       <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10, borderTop:`1.5px solid ${DS.border}` }}>
                         <span style={{ fontSize:15, fontWeight:700, color:DS.textPrimary }}>Total</span>
                         <span style={{ fontSize:16, fontWeight:800, color:DS.primary }}>₹{finalTotal}</span>
